@@ -371,7 +371,7 @@
             "api": "https://aosikazy.com/api.php/provide/vod/",
             "searchable": 1,
             "quickSearch": 1,
-            "filterable": 1
+            "filterable": 0
         }, 
 {
             "key": "金鹰资源",
@@ -380,8 +380,17 @@
             "api": "https://jyzyapi.com/provide/vod/from/jinyingm3u8/at/json/",
             "searchable": 1,
             "quickSearch": 1,
-            "filterable": 1
-        }, 	
+            "filterable": 0
+        }, 
+{
+            "key": "u酷资源",
+            "name": "u酷资源",
+            "type": 1,
+            "api": "https://api.ukuapi88.com/api.php/provide/vod/?ac=list",
+            "searchable": 1,
+            "quickSearch": 1,
+            "filterable": 0
+        }, 		
 {
             "key": "红牛资源",
             "name": "红牛资源",
@@ -389,7 +398,7 @@
             "api": "https://www.hongniuzy2.com/api.php/provide/vod/from/hnm3u8/at/josn/",
             "searchable": 1,
             "quickSearch": 1,
-            "filterable": 1
+            "filterable": 0
         }, 		
 {
       "key": "醒吧",
