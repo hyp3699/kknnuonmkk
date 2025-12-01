@@ -383,6 +383,22 @@
       "playurl": "json:https://xbww888.com/?url="
     },	
 {
+      "key": "黑料资源",
+      "name": "🔞黑料资源",
+      "type": 1,
+      "api": "https://www.heiliaozyapi.com/api.php/provide/vod/,
+      "searchable": 1,
+      "changeable": 1
+    },	
+{
+      "key": "91资源",
+      "name": "🔞91资源",
+      "type": 1,
+      "api": "https://91jpzyw.com/api.php/provide/vod/at/json/,
+      "searchable": 1,
+      "changeable": 1
+    },			
+{
             "key": "奶香m",
             "name": "🔞奶香香",
             "type": 1,
