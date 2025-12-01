@@ -309,8 +309,8 @@
       ]
     },
     {
-      "key": "7ced0073619101d397b5c86fc3578ed4",
-      "name": "💥┃火狐2K┃有广",
+      "key": "火狐",
+      "name": "火狐2K┃有广",
       "type": 1,
       "api": "https://hhzyapi.com/api.php/provide/vod/"
     },
@@ -386,7 +386,7 @@
       "key": "黑料资源",
       "name": "🔞黑料资源",
       "type": 1,
-      "api": "https://www.heiliaozyapi.com/api.php/provide/vod/,
+      "api": "https://www.heiliaozyapi.com/api.php/provide/vod/",
       "searchable": 1,
       "changeable": 1
     },	
@@ -394,7 +394,7 @@
       "key": "91资源",
       "name": "🔞91资源",
       "type": 1,
-      "api": "https://91jpzyw.com/api.php/provide/vod/at/json/,
+      "api": "https://91jpzyw.com/api.php/provide/vod/at/json/",
       "searchable": 1,
       "changeable": 1
     },			
