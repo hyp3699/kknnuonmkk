@@ -8,6 +8,42 @@
       "searchable": 1,
       "changeable": 1,
       "playurl": "json:https://www.iqiyizyjx.com/?url="
+    },
+{
+      "key": "斗笔",
+      "name": "豆瓣1080",
+      "type": 0,
+      "api": "https://caiji.dbzy5.com/api.php/provide/vod/from/dbm3u8/at/xml/",
+      "searchable": 1,
+      "changeable": 1,
+      "playurl": "json:https://www.dbjiexi.com:966/jx/?url="
+    },
+    {
+      "key": "茅台",
+      "name": "茅台",
+      "type": 0,
+      "api": "https://caiji.maotaizy.cc/api.php/provide/vod/from/mtm3u8/at/xml/",
+      "searchable": 1,
+      "changeable": 1,
+      "playurl": "json:https://mtjiexi.cc:966/?url="
+    },
+    {
+      "key": "醒吧",
+      "name": "杏吧",
+      "type": 0,
+      "api": "https://sex8zy7.com/api.php/provide/vod/at/xml",
+      "searchable": 1,
+      "changeable": 1,
+      "playurl": "json:https://xbww888.com/?url="
+    },
+    {
+      "key": "kuai",
+      "name": "快播",
+      "type": 0,
+      "api": "https://gayapi.com/api.php/provide/vod/at/xml",
+      "searchable": 1,
+      "changeable": 1,
+      "playurl": "json:https://gayzyjiexi.com/play/?url="
     }
 ],
 
