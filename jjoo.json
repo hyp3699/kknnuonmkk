@@ -112,7 +112,7 @@
       "filterable": 0
     },
      {
-      "key": "*白资源",
+      "key": "白资源",
       "name": "🔞白云资源",
       "type": 0,
       "api": "https://www.kxgav.com/api/xml.php",
@@ -121,7 +121,7 @@
       "filterable": 0
     },
        {
-      "key": "*水资源",
+      "key": "水资源",
       "name": "🔞水滴资源",
       "type": 0,
       "api": "https://www.xrbsp.com/api/xml.php",
@@ -137,7 +137,7 @@
             "playUrl": "",
             "searchable": 1,
             "quickSearch": 1,
-            "filterable": 1,       
+            "filterable": 1
         },
     {
       "key": "kuai",
