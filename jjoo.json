@@ -1,6 +1,6 @@
 {
 "sites": [
-{
+      {
       "key": "539",
       "name": "🖥️539剧",
       "type": 3,
@@ -8,8 +8,12 @@
       "jar": "https://gitee.com/lwlxh/tvhome/raw/master/o.jar",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 1
-}
+      "filterable": 1,
+      "ext": {
+         "简介": "+detail-content\" style=*>&&</span>",
+    "分类url": "https://www.539539.xyz/index.php/vod/show/area/{area}/class/{class}/id/{cateId}/page/{catePg}/year/{year}.html",
+    "分类": "短剧$25#电视剧$2#电影$1#动漫$4#综艺$3#伦理$26#写真$27"
+      }
 ],
 
     "parses": [
