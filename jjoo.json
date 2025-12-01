@@ -89,11 +89,12 @@
 {
             "key": "奶香m",
             "name": "🔞采集.奶香香",
-            "type": 4,
+            "type": 1,
             "api": "https://naixxzy4.com/api.php/provide/vod/?ac=list",
             "searchable": 1,
             "changeable": 1
         }, 
+{ "key": "KpgxdyE", "name": "🔞黄AV资源", "type": 0, "api": "https://www.pgxdy.com/api/xml.php", "searchable": 1, "quickSearch": 1, "filterable": 1 },
         
     {
       "key": "kuai",
