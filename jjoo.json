@@ -151,15 +151,6 @@
         "电影解说"
       ]
     },
-	 {
-      "key": "豆瓣采集",
-      "name": "豆瓣采集",
-      "type": 1,
-      "api": "https://caiji.dbzy5.com/api.php/provide/vod/at/josn/",
-      "searchable": 1,
-      "quickSearch": 1,
-      "filterable": 0
-    },
 	  {
       "key": "索尼采集",
       "name": "索尼采集",
