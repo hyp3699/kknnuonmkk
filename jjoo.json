@@ -608,7 +608,7 @@
       "key": "香蕉资源网",
       "name": "🔞香蕉资源(翻墙)",
       "type": 1,
-      "api": "https://www.xiangjiaozyw.com/api.php/provide/vod",
+      "api": "https://www.xiangjiaozyw.com/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1
     },
