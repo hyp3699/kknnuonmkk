@@ -31,8 +31,8 @@
     },
 {
       "key": "斗笔",
-      "name": "豆瓣1080",
-      "type": 1,
+      "name": "豆瓣采集",
+      "type": 0,
       "api": "https://caiji.dbzy5.com/api.php/provide/vod/at/josn/",
       "searchable": 1,
       "changeable": 1,
