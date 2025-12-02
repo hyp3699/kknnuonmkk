@@ -521,15 +521,6 @@
             "filterable": 0
         }, 
 {
-            "key": "新浪资源",
-            "name": "新浪资源",
-            "type": 1,
-            "api": "https://api.xinlangapi.com/xinlangapi.php/provide/vod/josn",
-            "searchable": 1,
-            "quickSearch": 1,
-            "filterable": 0
-        }, 		
-{
             "key": "红牛资源",
             "name": "红牛资源",
             "type": 1,
@@ -606,6 +597,13 @@
       "quickSearch": 1,
       "filterable": 0
     },
+	{
+			"key": "精品资源站",
+			"name": "🔞精品资源",
+			"type": 1,
+			"api": "https://www.jingpinx.com/api.php/provide/vod/",
+			"ext": "proxy"
+		},
     {
       "key": "py_BadNews",
       "name": "✨🔞BadNews(T4)✨",
@@ -806,8 +804,8 @@
       "filterable": 1
     },
 	  {
-      "key": "🈲🔞avdb",
-      "name": "🈲🔞avdb(老張)",
+      "key": "avdb",
+      "name": "🔞avdb(老張)",
       "type": 4,
       "api": "http://zhangqun1818.serv00.net/228_1.php",
       "searchable": 0,
@@ -832,8 +830,8 @@
             "filterable": 1      
         },
 	{
-      "key": "🈲🔞番茄资源",
-      "name": "🈲🔞番茄资源",
+      "key": "番茄资源",
+      "name": "🔞番茄资源",
       "type": 1,
       "api": "https://fqzy.me//api.php/provide/vod/?ac=list",
       "searchable": 1,
