@@ -29,15 +29,6 @@
       "changeable": 1,
       "playurl": "json:https://www.iqiyizyjx.com/?url="
     },
-{
-      "key": "斗笔",
-      "name": "豆瓣采集",
-      "type": 1,
-      "api": "https://caiji.dbzy5.com/api.php/provide/vod/at/josn/",
-      "searchable": 1,
-      "changeable": 1,
-      "playurl": "json:https://dbjiexi.com:966/jx/?url="
-    },
 	{
       "key": "牛Y", 
       "name": "牛Y┃影视", 
