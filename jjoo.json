@@ -524,7 +524,7 @@
             "quickSearch": 1,
             "filterable": 1   
 	},
-	{ "key": "91麻豆", "name": "🔞91麻豆", "type": 1, "api": "https://91md.me/api.php/provide/vod/", "searchable": 1, "quickSearch": 1, "filterable": 0 },
+	{ "key": "91麻豆", "name": "🔞91麻豆", "type": 4, "api": "https://91md.me/api.php/provide/vod/", "searchable": 1, "quickSearch": 1, "filterable": 0 },
 	{
             "key": "乐播",
             "name": "️🔞乐播采集",
