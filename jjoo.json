@@ -32,11 +32,11 @@
 {
       "key": "斗笔",
       "name": "豆瓣采集",
-      "type": 0,
+      "type": 1,
       "api": "https://caiji.dbzy5.com/api.php/provide/vod/at/josn/",
       "searchable": 1,
       "changeable": 1,
-      "playurl": "json:https://www.dbjiexi.com:966/jx/?url="
+      "playurl": "json:https://dbjiexi.com:966/jx/?url="
     },
 	{
       "key": "牛Y", 
