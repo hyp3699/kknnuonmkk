@@ -32,8 +32,8 @@
 {
       "key": "斗笔",
       "name": "豆瓣1080",
-      "type": 0,
-      "api": "https://caiji.dbzy5.com/api.php/provide/vod/from/dbm3u8/at/xml/",
+      "type": 1,
+      "api": "https://caiji.dbzy5.com/api.php/provide/vod/from/dbm3u8/at/josn/",
       "searchable": 1,
       "changeable": 1,
       "playurl": "json:https://www.dbjiexi.com:966/jx/?url="
