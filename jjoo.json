@@ -741,8 +741,8 @@
     {
       "key": "桃花资源",
       "name": "🔞桃花资源",
-      "type": 1,
-      "api": "https://thzy1.me/api.php/provide/vod/?ac=list",
+      "type": 0,
+      "api": "https://thzy1.me/api.php/provide/vod/at/xml",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 0
