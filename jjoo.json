@@ -943,7 +943,7 @@
             "quickSearch": 1,
             "filterable": 1   
 	},
-	{ "key": "91麻豆", "name": "🔞91麻豆", "type": 1, "api": "https://91md.me/api.php/provide/vod/", "searchable": 1, "quickSearch": 1, "filterable": 0 },
+	{ "key": "91麻豆", "name": "🔞91麻豆(翻墙)", "type": 1, "api": "https://91md.me/api.php/provide/vod/from/mdm3u8/", "searchable": 1, "quickSearch": 1, "filterable": 0 },
 	{ "key": "饮水机", "name": "🔞饮水机", "type": 0, "api": "https://www.xrbsp.com/api/xml.php", "searchable": 1, "quickSearch": 1, "filterable": 1 },
 	{ "key": "老鸭", "name": "🔞老鸭", "type": 1, "api": "https://lbapi9.com/api.php/provide/vod/",
       "playUrl": "json:https://player.77lehuo.com/aliplayer/?url=", "searchable": 1, "quickSearch": 1, "filterable": 0 },
