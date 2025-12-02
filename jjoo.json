@@ -909,6 +909,14 @@
       "quickSearch": 1,
       "filterable": 0
     },	
+	{
+      "key": "优异资源",
+      "name": "🔞优异资源",
+      "type": 1,
+      "api": "https://a.uezy.pw/api.php/provide/vod/",
+      "searchable": 1,
+      "quickSearch": 0
+    },
 	  {
       "key": "越南资源",
       "name": "🔞越南资源",
