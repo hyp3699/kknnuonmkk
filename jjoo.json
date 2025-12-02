@@ -912,8 +912,8 @@
 	{
       "key": "优异资源",
       "name": "🔞优异资源",
-      "type": 0,
-      "api": "https://a.uezy.pw/api.php/provide/vod/at/xml",
+      "type": 1,
+      "api": "https://a.uezy.pw/api.php/provide/vod/at/",
       "searchable": 1,
       "quickSearch": 0
     },
