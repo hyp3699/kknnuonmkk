@@ -524,6 +524,7 @@
             "quickSearch": 1,
             "filterable": 1   
 	},
+	{ "key": "(18+)富二代资源", "name": "(18+)富二代资源", "type": 0, "api": "http://f2dcj6.com/sapi/?ac=videolist", "searchable": 1, "quickSearch": 1, "filterable": 0 },
 	{
             "key": "乐播",
             "name": "️🔞乐播采集",
