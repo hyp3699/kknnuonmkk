@@ -1,5 +1,3 @@
-name: Sync Netdisk Files
-
 on:
   schedule:
     - cron: "*/3 * * * *"
@@ -16,10 +14,7 @@ jobs:
         run: |
           curl -H "Cache-Control: no-cache" -o jjoo.json https://ui.990093.xyz/files/jjoo.json
 
-      - name: Commit and push
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "Auto sync $(date '+%Y-%m-%d %H:%M:%S')" || echo "No changes"
-          git push
+      - name: Auto commit and push
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 自动同步接口文件
