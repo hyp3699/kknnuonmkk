@@ -15,7 +15,7 @@ jobs:
       - name: 下载并合并 JSON 文件
         run: |
           # 下载文件（现在只有一个，后续可扩展）
-          curl -H "Cache-Control: no-cache" -o temp1.json https://ui.990093.xyz/files/jjss.json
+          curl -H "Cache-Control: no-cache" -o temp1.json https://ui.990093.xyz/files/jjoo.json
           # 未来添加更多文件时，只需在这里继续写 curl 命令
 
           # 合并所有 JSON 文件到一个总文件 jjoo.json
