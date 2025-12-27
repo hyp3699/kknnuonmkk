@@ -2,25 +2,24 @@ name: Sync Netdisk Files
 
 on:
   schedule:
-    - cron: '*/3 * * * *'   # 每3分钟运行一次
-  workflow_dispatch:         # 手动触发
+    - cron: "*/3 * * * *"
+  workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: 检出仓库
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: 下载接口文件
+      - name: Download interface file
         run: |
-          curl -o jjoo.json https://ui.990093.xyz/files/jjoo.json
-      
+          curl -H "Cache-Control: no-cache" -o jjoo.json https://ui.990093.xyz/files/jjoo.json
 
-      - name: 提交更新
+      - name: Commit and push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "自动同步接口文件 $(date '+%Y-%m-%d %H:%M:%S')" || echo "没有变化"
+          git add -A
+          git commit -m "Auto sync $(date '+%Y-%m-%d %H:%M:%S')" || echo "No changes"
           git push
