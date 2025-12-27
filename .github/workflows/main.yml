@@ -14,7 +14,7 @@ jobs:
 
       - name: 下载接口文件
         run: |
-          curl -o Ace.txt https://ui.990093.xyz/files/jjoo.json
+          curl -o jjoo.json https://ui.990093.xyz/files/jjoo.json
       
 
       - name: 提交更新
