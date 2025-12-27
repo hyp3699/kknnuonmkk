@@ -1,23 +1,31 @@
-name: Sync Netdisk Files
+name: 同步网盘文件   # 工作流名称，可以在 Actions 页面看到
 
 on:
   schedule:
-    - cron: "*/3 * * * *"   # 每3分钟尝试运行一次
-  workflow_dispatch:         # 支持手动触发
+    - cron: "*/720 * * * *"   # 定时任务：每720分钟运行一次
+  workflow_dispatch:         # 手动触发：可以在 Actions 页面点击运行
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest   # 使用 GitHub 提供的 Ubuntu 环境
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: 检出仓库代码
+        uses: actions/checkout@v3   # 把仓库代码拉到运行环境
 
-      - name: Download interface files
+      - name: 下载并合并 JSON 文件
         run: |
-          curl -H "Cache-Control: no-cache" -o jjoo.json https://ui.990093.xyz/files/jjoo.json
-          curl -H "Cache-Control: no-cache" -o Ace.txt https://ui.990093.xyz/files/Ace.txt
+          # 当前只下载一个文件 jjss.json
+          curl -H "Cache-Control: no-cache" -o temp1.json https://ui.990093.xyz/files/jjss.json
 
-      - name: Auto commit and push
+          # 未来如果要添加更多文件，只需要在这里继续写 curl 命令，例如：
+          # curl -H "Cache-Control: no-cache" -o temp2.json https://ui.990093.xyz/files/xxx.json
+          # curl -H "Cache-Control: no-cache" -o temp3.json https://ui.990093.xyz/files/yyy.json
+
+          # 合并所有下载的 JSON 文件到一个总文件 jjoo.json
+          # 使用 jq 工具把多个 JSON 文件合并成一个 JSON 数组
+          jq -s '.' temp*.json > jjoo.json
+
+      - name: 自动提交并推送
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: 自动同步接口文件
+          commit_message: 自动同步并合并 JSON 文件   # 提交信息
