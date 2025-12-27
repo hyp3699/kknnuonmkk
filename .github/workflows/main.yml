@@ -1,0 +1,23 @@
+name: Sync Netdisk Files
+
+on:
+  schedule:
+    - cron: "*/3 * * * *"   # 每3分钟尝试运行一次
+  workflow_dispatch:         # 支持手动触发
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Download interface files
+        run: |
+          curl -H "Cache-Control: no-cache" -o jjoo.json https://ui.990093.xyz/files/jjoo.json
+          curl -H "Cache-Control: no-cache" -o Ace.txt https://ui.990093.xyz/files/Ace.txt
+
+      - name: Auto commit and push
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 自动同步接口文件
