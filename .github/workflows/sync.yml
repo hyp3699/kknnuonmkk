@@ -3,7 +3,7 @@ name: 同步网盘文件
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/3 * * * *"
+    - cron: "*/720 * * * *"
 
 jobs:
   sync:
