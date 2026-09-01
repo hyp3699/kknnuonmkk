@@ -5076,7 +5076,7 @@ EOF
 }
 EOF
     node_remark="${isp}_vless_ws"
-    url="vless://${uuid}@${server_ip}:${custom_port}?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=none&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"  
+    url="vless://${uuid}@${server_ip}:${custom_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=none&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"  
     restart_service="singbox"
     ;;
     esac
@@ -5427,9 +5427,9 @@ EOF
     VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
     vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
     vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
-    vless_url="vless://${uuid}@${CFIP}:443?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}?ed=2048#${vless_remark_enc}"
+    vless_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}?ed=2048#${vless_remark_enc}"
     trojan_remark_enc=$(echo -n "$trojan_remark" | jq -sRr @uri)
-    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2560&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}?ed=2048#${trojan_remark_enc}"
+    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}?ed=2048#${trojan_remark_enc}"
 	if [ -f "/etc/sing-box/url.txt" ]; then
         sed -i "/${vmess_remark}/d" /etc/sing-box/url.txt
         sed -i "/${vless_remark}/d" /etc/sing-box/url.txt
