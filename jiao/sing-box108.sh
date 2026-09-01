@@ -2466,6 +2466,7 @@ cat > "${conf_dir}/inbounds.json" << EOF
             "transport": {
                 "type": "ws",
                 "path": "/asasbsbs-vmess",
+				"max_early_data": 2048,
                 "early_data_header_name": "Sec-WebSocket-Protocol"
             }
         },
@@ -2482,6 +2483,7 @@ cat > "${conf_dir}/inbounds.json" << EOF
             "transport": {
                 "type": "ws",
                 "path": "/asasbsbs-vless",
+				"max_early_data": 2048,
                 "early_data_header_name": "Sec-WebSocket-Protocol"
             }
         },
@@ -2498,6 +2500,7 @@ cat > "${conf_dir}/inbounds.json" << EOF
             "transport": {
                 "type": "ws",
                 "path": "/asasbsbs-trojan",
+				"max_early_data": 2048,
                 "early_data_header_name": "Sec-WebSocket-Protocol"
             }
         }
@@ -2690,7 +2693,7 @@ get_info() {
 
   green "\nArgoDomain：${purple}$argodomain${re}\n"
 
-  VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${argodomain}\", \"path\": \"/asasbsbs-vmess?ed=2560\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
+  VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${argodomain}\", \"path\": \"/asasbsbs-vmess?ed=2048\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
     
   cat > ${work_dir}/url.txt <<EOF
 vmess://$(echo "$VMESS"| base64 -w0)
@@ -5065,6 +5068,7 @@ EOF
        "transport": {
            "type": "ws",
            "path": "/asasbsbs-vless",
+		   "max_early_data": 2048,
            "early_data_header_name": "Sec-WebSocket-Protocol"
        }
      }
@@ -5072,7 +5076,7 @@ EOF
 }
 EOF
     node_remark="${isp}_vless_ws"
-    url="vless://${uuid}@${server_ip}:${custom_port}?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=none&type=ws&path=/asasbsbs-vless#${node_remark}"  
+    url="vless://${uuid}@${server_ip}:${custom_port}?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=none&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"  
     restart_service="singbox"
     ;;
     esac
@@ -5132,7 +5136,7 @@ EOF
 
     allow_port "$vless_wstls_cdn_port/tcp" >/dev/null 2>&1
     node_remark_direct="${isp}_vless_wstls_direct"
-    VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_wstls_cdn_port}?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain:-$server_ip}&type=ws&host=${domain:-$server_ip}&path=${ws_path}%3Fed%3D2560#${node_remark_direct}"
+    VLESS_DIRECT_URL="vless://${uuid}@${server_ip}:${vless_wstls_cdn_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain:-$server_ip}&type=ws&host=${domain:-$server_ip}&path=${ws_path}?ed=2048%3Fed%3D2560#${node_remark_direct}"
     if [ -f "${work_dir}/url.txt" ]; then
         sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
     fi
@@ -5357,7 +5361,9 @@ new_managed=$(jq -n \
       ],
       "transport": {
         "type": "ws",
-        "path": "$vmess_path"
+        "path": "$vmess_path",
+		"max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     }
   ]
@@ -5381,7 +5387,9 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "$vless_path"
+        "path": "$vless_path",
+		"max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     }
   ]
@@ -5404,7 +5412,9 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "$trojan_path"
+        "path": "$trojan_path",
+		"max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     }
   ]
@@ -5414,12 +5424,12 @@ EOF
 	vmess_remark="${isp}_vmess_ws_cdn"
     vless_remark="${isp}_vless_ws_cdn"
     trojan_remark="${isp}_trojan_ws_cdn"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
     vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
     vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
-    vless_url="vless://${uuid}@${CFIP}:443?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}#${vless_remark_enc}"
+    vless_url="vless://${uuid}@${CFIP}:443?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}?ed=2048#${vless_remark_enc}"
     trojan_remark_enc=$(echo -n "$trojan_remark" | jq -sRr @uri)
-    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2560&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}#${trojan_remark_enc}"
+    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2560&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}?ed=2048#${trojan_remark_enc}"
 	if [ -f "/etc/sing-box/url.txt" ]; then
         sed -i "/${vmess_remark}/d" /etc/sing-box/url.txt
         sed -i "/${vless_remark}/d" /etc/sing-box/url.txt
@@ -7590,12 +7600,12 @@ change_argo_domain() {
     # 获取 VLESS 节点
     vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
     node_remark_vless="${isp}_vless-ws-argo"
-    vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark_vless}"
+    vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark_vless}"
 
     # 获取 Trojan 节点
     trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
     node_remark_trojan="${isp}_trojan-ws-argo"
-    trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?ed=2560&eh=Sec-WebSocket-Protocol&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark_trojan}"
+    trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark_trojan}"
 
     # 在文件末尾追加：中间隔一个空行，末尾增加一个空行
     printf "\n%s\n\n%s\n\n" "$vless_url" "$trojan_url" >> "$client_dir"
