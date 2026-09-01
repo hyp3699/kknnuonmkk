@@ -4450,7 +4450,7 @@ manage_nodes_menu() {
        local width=45
   fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
   local node_list=(
-    "$CONF_DIR/xtls-reality.json|xtls-Reality|1"
+    "$CONF_DIR/xtls-reality.json|vless-Reality|1"
     "$CONF_DIR/hysteria2.json|hysteria2|2"
     "$CONF_DIR/tuic.json|tuic|3"
     "$CONF_DIR/h2-reality.json|http-Reality|4"
@@ -4879,7 +4879,7 @@ EOF
     ]
 }
 EOF
-    node_remark="${isp}_anytls"
+    node_remark="${isp}_anytls_nt123"
     url="anytls://${password}@${server_ip}:${custom_port}?${url_param}&alpn=h3#${node_remark}"
     ;;
 	7)
@@ -6047,7 +6047,7 @@ green "--------------------------------------------------"
     delete_node "_vless_grpc_reality" "/etc/sing-box/conf/grpc-reality.json" "singbox"
     ;;
 56)
-    delete_node "_anytls" "/etc/sing-box/conf/anytls.json" "singbox"
+    delete_node "_anytls_nt123" "/etc/sing-box/conf/anytls.json" "singbox"
     ;;
 57)
     delete_node "_anytls_reality" "/etc/sing-box/conf/anytls-reality.json" "singbox"
