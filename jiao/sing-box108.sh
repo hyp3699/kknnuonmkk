@@ -6164,22 +6164,17 @@ green "--------------------------------------------------"
             while IFS= read -r line || [ -n "$line" ]; do
                 skip=0
                 if [[ "$line" == vmess://* ]]; then
-                    b64_str="${line#vmess://}"
-                    decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
-                    for t in "${targets[@]}"; do
-                        if [[ "$decoded" == *"$t"* ]]; then
-                            skip=1
-                            break
-                        fi
-                    done
-                else
-                    for t in "${targets[@]}"; do
-                        if [[ "$line" == *"$t"* ]]; then
-                            skip=1
-                            break
-                        fi
-                    done
-                fi
+                  b64_str="${line#vmess://}"
+                  decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
+                  remark=$(echo "$decoded" | jq -r '.ps' 2>/dev/null)
+                  if [[ "$remark" == *"_vmess_ws_cdn" || "$remark" == *"_vless_ws_cdn" || "$remark" == *"_trojan_ws_cdn" ]]; then
+                  skip=1
+                  fi
+                  else
+                  if [[ "$line" == *"_vless_ws_cdn"* || "$line" == *"_trojan_ws_cdn"* ]]; then
+                  skip=1
+                  fi
+                 fi
                 [ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
             done < "/etc/sing-box/url.txt"
             mv "$tmp_file" /etc/sing-box/url.txt
@@ -6305,8 +6300,9 @@ fi
                 if [[ "$line" == vmess://* ]]; then
                     b64_str="${line#vmess://}"
                     decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
-                    if [[ "$decoded" == *"$target"* ]]; then
-                        skip=1
+                    remark=$(echo "$decoded" | jq -r '.ps' 2>/dev/null)
+                    if [[ "$remark" == "${isp}_vmess_ws" ]]; then
+                     skip=1
                     fi
                 fi
                 [ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
