@@ -6300,8 +6300,7 @@ fi
                 if [[ "$line" == vmess://* ]]; then
                     b64_str="${line#vmess://}"
                     decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
-                    remark=$(echo "$decoded" | jq -r '.ps' 2>/dev/null)
-                    if [[ "$remark" == "${isp}_vmess_ws" ]]; then
+                    if [[ "$decoded" == *"\"ps\":\"${isp}_vmess_ws\""* ]]; then
                      skip=1
                     fi
                 fi
