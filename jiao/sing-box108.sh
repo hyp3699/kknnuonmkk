@@ -5081,7 +5081,7 @@ EOF
 EOF
     node_remark="${isp}_vmess_ws"
     VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${server_ip}\", \"port\": \"${custom_port}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"\", \"path\": \"/asasbsbs-vmess?ed=2048\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
-    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
+    url="vmess://$(echo -n "$VMESS" | base64 -w0)"
     restart_service="singbox"
     ;;
 20) 
