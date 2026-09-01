@@ -6132,7 +6132,7 @@ green "--------------------------------------------------"
             fi
             ;;
 		    
-	61. targets=("_vmess_ws_cdn" "_vless_ws_cdn" "_trojan_ws_cdn")
+	61) targets=("_vmess_ws_cdn" "_vless_ws_cdn" "_trojan_ws_cdn")
 configs=("/etc/sing-box/conf/vmess-ws-cdn.json" "/etc/sing-box/conf/vless-ws-cdn.json" "/etc/sing-box/conf/trojan-ws-cdn.json")
 exist_flag=0
 for conf in "${configs[@]}"; do
