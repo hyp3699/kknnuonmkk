@@ -4467,6 +4467,7 @@ manage_nodes_menu() {
 	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|15"
 	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|16"
 	"$CONF_DIR/vless-tcp-tls.json|vless-tcp-tls|17"
+	"$CONF_DIR/vmess-ws.json|vmess-ws|19"
 	"$CONF_DIR/vless-ws.json|vless-ws|20"
 )
 		
