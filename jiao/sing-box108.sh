@@ -100,6 +100,7 @@ socks_port=$(get_available_port)
 http_port=$(get_available_port)
 anytls_port=$(get_available_port)
 xtls_reality=$(get_available_port)
+vless_tcp_tls=$(get_available_port)
 anytls_reality=$(get_available_port)
 h2_reality=$(get_available_port)
 hy2_port=$(get_available_port)
@@ -4462,6 +4463,7 @@ manage_nodes_menu() {
     "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|14"
 	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|15"
 	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|16"
+	"$CONF_DIR/vless-tcp-tls.json|vless-tcp-tls|17"
 )
 		
         clear
@@ -4507,7 +4509,7 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-    1|2|3|4|5|6|7|8|9|12)
+    1|2|3|4|5|6|7|8|9|12|17)
     if [[ "$choice" == "12" ]]; then
         check_xray
         xray_status=$?
@@ -4559,6 +4561,9 @@ manage_nodes_menu() {
         ;;
     12)
         default_port=$xray_xhttp_reality
+        ;;
+	17)
+        default_port=$vless_tcp_tls
         ;;
 esac
     while true; do
@@ -5009,6 +5014,37 @@ EOF
             url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&flow=&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
             restart_service="xray"
             ;;
+17)
+    check_and_issue_ssl || return 1
+
+    cat > /etc/sing-box/conf/vless-tcp-tls.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-tcp-tls",
+      "listen": "::",
+      "listen_port": $custom_port,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "${domain:-$server_ip}",
+        "certificate_path": "$cert_file",
+        "key_path": "$key_file"
+      }
+    }
+  ]
+}
+EOF
+    node_remark="${isp}_vless_tcp_tls"
+    url="vless://${uuid}@${domain:-$server_ip}:${custom_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=tcp#${node_remark}"
+    restart_service="singbox"
+	;;
+    
     esac
 allow_port "$custom_port/tcp" >/dev/null 2>&1
 sed -i "/#${node_remark}$/d" /etc/sing-box/url.txt 2>/dev/null
@@ -5957,6 +5993,9 @@ green "--------------------------------------------------"
     ;;
 65)
     delete_node "_xray_vless_xhttp_h3" "/etc/xray/conf/xhttp-udp-tls.json" "xray"
+    ;;
+67)
+    delete_node "_vless_tcp_tls" "/etc/sing-box/conf/vless-tcp-tls.json" "singbox"
     ;;
 		 60) 
             target_cdn_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
