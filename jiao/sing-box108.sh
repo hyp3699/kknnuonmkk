@@ -5048,24 +5048,7 @@ EOF
     url="vless://${uuid}@${domain:-$server_ip}:${custom_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=tcp#${node_remark}"
     restart_service="singbox"
 	;;
-20) while true; do
-    read -rp "请输入节点端口 (100-65535, 默认 ${default_port}): " custom_port
-    if [ -z "$custom_port" ]; then
-        custom_port=$default_port
-        break
-    fi
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] &&
-       [ "$custom_port" -ge 100 ] &&
-       [ "$custom_port" -le 65535 ]; then
-        if ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口已被占用，请重新输入！"
-            continue
-        fi
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-done
+20) 
     cat > /etc/sing-box/conf/vless-ws.json <<EOF
 {
   "inbounds": [
@@ -5092,7 +5075,6 @@ EOF
     url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&security=none&type=ws&path=/asasbsbs-vless#${node_remark}"  
     restart_service="singbox"
     ;;
-
     esac
 allow_port "$custom_port/tcp" >/dev/null 2>&1
 sed -i "/#${node_remark}$/d" /etc/sing-box/url.txt 2>/dev/null
