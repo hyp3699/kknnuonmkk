@@ -6132,75 +6132,76 @@ green "--------------------------------------------------"
             fi
             ;;
 		    
-	61) targets=("_vmess_ws_cdn" "_vless_ws_cdn" "_trojan_ws_cdn")
-configs=("/etc/sing-box/conf/vmess-ws-cdn.json" "/etc/sing-box/conf/vless-ws-cdn.json" "/etc/sing-box/conf/trojan-ws-cdn.json")
-exist_flag=0
-for conf in "${configs[@]}"; do
-[ -f "$conf" ] && exist_flag=1 && break
-done
-if [ "$exist_flag" -eq 1 ]; then
-cdn_domain=""
-if [ -f "/etc/sing-box/url.txt" ]; then
-while IFS= read -r line; do
-if [[ "$line" == trojan://"_trojan_ws_cdn" ]]; then
-cdn_domain=$(echo "$line" | sed -n 's/.sni=\([^&]*\)./\1/p')
-break
-fi
-done < /etc/sing-box/url.txt
-fi
-for conf in "${configs[@]}"; do
-if [ -f "$conf" ]; then
-port=$(grep '"listen_port"' "$conf" | tr -cd '0-9')
-if [ -n "$port" ]; then
-nft delete rule inet filter input handle $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}') 2>/dev/null
-fi
-rm -f "$conf"
-fi
-done
-nft list ruleset > /etc/nftables.conf 2>/dev/null
-if [ -f "/etc/sing-box/url.txt" ]; then
-tmp_file=$(mktemp)
-while IFS= read -r line || [ -n "$line" ]; do
-skip=0
-if [[ "$line" == vmess://* ]]; then
-b64_str="${line#vmess://}"
-decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
-for t in "${targets[@]}"; do
-if [[ "$decoded" == "$t" ]]; then
-skip=1
-break
-fi
-done
-else
-for t in "${targets[@]}"; do
-if [[ "$line" == "$t" ]]; then
-skip=1
-break
-fi
-done
-fi
-[ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
-done < "/etc/sing-box/url.txt"
-mv "$tmp_file" /etc/sing-box/url.txt
-sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
-echo "" >> /etc/sing-box/url.txt
-fi
-if [ -s "/etc/sing-box/url.txt" ]; then
-base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-else
-truncate -s 0 /etc/sing-box/sub.txt
-fi
-restart_singbox
-green "==============================================="
-green " CDN 节点 (VMess/VLESS/Trojan) 已移除！"
-green "==============================================="
-if [[ -n "$cdn_domain" ]]; then
-cf_remove_cdn_rules "$cdn_domain"
-fi
-else
-red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
-fi
-;;
+	61)
+    targets=("_vmess_ws_cdn" "_vless_ws_cdn" "_trojan_ws_cdn")
+    configs=("/etc/sing-box/conf/vmess-ws-cdn.json" "/etc/sing-box/conf/vless-ws-cdn.json" "/etc/sing-box/conf/trojan-ws-cdn.json")
+    exist_flag=0
+    for conf in "${configs[@]}"; do
+        [ -f "$conf" ] && exist_flag=1 && break
+    done
+    if [ "$exist_flag" -eq 1 ]; then
+        cdn_domain=""
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            while IFS= read -r line; do
+                if [[ "$line" == trojan://*"_trojan_ws_cdn"* ]]; then
+                    cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
+                    break
+                fi
+            done < /etc/sing-box/url.txt
+        fi
+        for conf in "${configs[@]}"; do
+            if [ -f "$conf" ]; then
+                port=$(grep '"listen_port"' "$conf" | tr -cd '0-9')
+                if [ -n "$port" ]; then
+                    nft delete rule inet filter input handle $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}') 2>/dev/null
+                fi
+                rm -f "$conf"
+            fi
+        done
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            tmp_file=$(mktemp)
+            while IFS= read -r line || [ -n "$line" ]; do
+                skip=0
+                if [[ "$line" == vmess://* ]]; then
+                    b64_str="${line#vmess://}"
+                    decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
+                    for t in "${targets[@]}"; do
+                        if [[ "$decoded" == *"$t"* ]]; then
+                            skip=1
+                            break
+                        fi
+                    done
+                else
+                    for t in "${targets[@]}"; do
+                        if [[ "$line" == *"$t"* ]]; then
+                            skip=1
+                            break
+                        fi
+                    done
+                fi
+                [ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
+            done < "/etc/sing-box/url.txt"
+            mv "$tmp_file" /etc/sing-box/url.txt
+            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+        fi
+        if [ -s "/etc/sing-box/url.txt" ]; then
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+        else
+            truncate -s 0 /etc/sing-box/sub.txt
+        fi
+        restart_singbox
+        green "==============================================="
+        green " CDN 节点 (VMess/VLESS/Trojan) 已移除！"
+        green "==============================================="
+        if [[ -n "$cdn_domain" ]]; then
+            cf_remove_cdn_rules "$cdn_domain"
+        fi
+    else
+        red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
+    fi
+    ;;
 	64)
     target="_xray_vless_xhttp_tls"
     target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
@@ -6285,7 +6286,7 @@ fi
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
-	61)
+	69)
     target="_vmess_ws_notls"
     target_conf="/etc/sing-box/conf/vmess-ws.json"
     if [ -f "$target_conf" ]; then
