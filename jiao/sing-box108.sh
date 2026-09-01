@@ -4513,7 +4513,7 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-    1|2|3|4|5|6|7|8|9|12|17|20)
+    1|2|3|4|5|6|7|8|9|12|17|19|20)
     if [[ "$choice" == "12" ]]; then
         check_xray
         xray_status=$?
@@ -4569,8 +4569,11 @@ manage_nodes_menu() {
 	17)
         default_port=$vless_tcp_tls
         ;;
-    20)
+	19)
         default_port=60001
+        ;;
+    20)
+        default_port=60002
         ;;
 esac
     while true; do
@@ -5051,6 +5054,35 @@ EOF
     url="vless://${uuid}@${domain:-$server_ip}:${custom_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=tcp#${node_remark}"
     restart_service="singbox"
 	;;
+19) 
+    cat > /etc/sing-box/conf/vmess-ws.json <<EOF
+{
+  "inbounds": [
+    {
+       "type": "vmess",
+       "tag": "vmess-ws",
+       "listen": "::",
+       "listen_port": $custom_port,
+       "users": [
+           {
+              "uuid": "$uuid"
+           }
+        ],
+       "transport": {
+           "type": "ws",
+           "path": "/asasbsbs-vmess",
+		   "max_early_data": 2048,
+           "early_data_header_name": "Sec-WebSocket-Protocol"
+       }
+     }
+  ]
+}
+EOF
+    node_remark="${isp}_vmess_ws"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${server_ip}\", \"port\": \"${custom_port}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"\", \"path\": \"/asasbsbs-vmess?ed=2048\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
+    restart_service="singbox"
+    ;;
 20) 
     cat > /etc/sing-box/conf/vless-ws.json <<EOF
 {
@@ -6251,6 +6283,48 @@ fi
         fi
     else
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
+    fi
+    ;;
+	69)
+    target="_vmess_ws"
+    target_conf="/etc/sing-box/conf/vmess-ws.json"
+    if [ -f "$target_conf" ]; then
+        port=$(grep '"listen_port"' "$target_conf" | tr -cd '0-9')
+        if [ -n "$port" ]; then
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0 ~ "dport "p {print $NF}'); do
+                nft delete rule inet filter input handle "$handle" 2>/dev/null
+            done
+        fi
+        rm -f "$target_conf"
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            tmp_file=$(mktemp)
+            while IFS= read -r line || [ -n "$line" ]; do
+                skip=0
+                if [[ "$line" == vmess://* ]]; then
+                    b64_str="${line#vmess://}"
+                    decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
+                    if [[ "$decoded" == *"$target"* ]]; then
+                        skip=1
+                    fi
+                fi
+                [ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
+            done < "/etc/sing-box/url.txt"
+            mv "$tmp_file" /etc/sing-box/url.txt
+            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+        fi
+        if [ -s "/etc/sing-box/url.txt" ]; then
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+        else
+            truncate -s 0 /etc/sing-box/sub.txt
+        fi
+        restart_singbox
+        green "==============================================="
+        green " 节点已移除！"
+        green "==============================================="
+    else
+        red "错误: 未找到 VMess WS 节点配置文件，删除取消。"
     fi
     ;;
             0) break ;;
