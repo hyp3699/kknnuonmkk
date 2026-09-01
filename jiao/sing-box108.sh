@@ -4464,6 +4464,7 @@ manage_nodes_menu() {
 	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|15"
 	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|16"
 	"$CONF_DIR/vless-tcp-tls.json|vless-tcp-tls|17"
+	"$CONF_DIR/vless-ws.json|vless-ws|20"
 )
 		
         clear
@@ -4509,7 +4510,7 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-    1|2|3|4|5|6|7|8|9|12|17)
+    1|2|3|4|5|6|7|8|9|12|17|20)
     if [[ "$choice" == "12" ]]; then
         check_xray
         xray_status=$?
@@ -4564,6 +4565,9 @@ manage_nodes_menu() {
         ;;
 	17)
         default_port=$vless_tcp_tls
+        ;;
+    20)
+        default_port=60001
         ;;
 esac
     while true; do
@@ -5044,7 +5048,51 @@ EOF
     url="vless://${uuid}@${domain:-$server_ip}:${custom_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=tcp#${node_remark}"
     restart_service="singbox"
 	;;
-    
+20) while true; do
+    read -rp "请输入节点端口 (100-65535, 默认 ${default_port}): " custom_port
+    if [ -z "$custom_port" ]; then
+        custom_port=$default_port
+        break
+    fi
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] &&
+       [ "$custom_port" -ge 100 ] &&
+       [ "$custom_port" -le 65535 ]; then
+        if ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口已被占用，请重新输入！"
+            continue
+        fi
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+done
+    cat > /etc/sing-box/conf/vless-ws.json <<EOF
+{
+  "inbounds": [
+    {
+       "type": "vless",
+       "tag": "vless-ws",
+       "listen": "::",
+       "listen_port": $custom_port,
+       "users": [
+           {
+              "uuid": "$uuid"
+           }
+        ],
+       "transport": {
+           "type": "ws",
+           "path": "/asasbsbs-vless",
+           "early_data_header_name": "Sec-WebSocket-Protocol"
+       }
+     }
+  ]
+}
+EOF
+    node_remark="${isp}_vless_ws"
+    url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&security=none&type=ws&path=/asasbsbs-vless#${node_remark}"  
+    restart_service="singbox"
+    ;;
+
     esac
 allow_port "$custom_port/tcp" >/dev/null 2>&1
 sed -i "/#${node_remark}$/d" /etc/sing-box/url.txt 2>/dev/null
@@ -5997,6 +6045,10 @@ green "--------------------------------------------------"
 67)
     delete_node "_vless_tcp_tls" "/etc/sing-box/conf/vless-tcp-tls.json" "singbox"
     ;;
+70)
+    delete_node "_vless_ws" "/etc/sing-box/conf/vless-ws.json" "singbox"
+    ;;
+
 		 60) 
             target_cdn_conf="/etc/sing-box/conf/vless-wstls-cdn.json"
             target_direct_conf="/etc/sing-box/conf/vless-wstls-direct.json"
