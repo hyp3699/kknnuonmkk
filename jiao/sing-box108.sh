@@ -578,6 +578,149 @@ set_domain_origin_port() {
     fi
     return 1
 }
+cf_add_origin_rule_menu() {
+    local port
+    local prefix
+    local existing
+    local new_rule
+    local merged
+
+    echo
+    reading "请输入回源端口: " port
+
+    if ! [[ "$port" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+        red "端口号无效"
+        return 1
+    fi
+
+    echo
+    cf_select_zone || return 1
+
+    echo
+    green "已选择域名: $zone_domain"
+
+    reading "请输入规则前缀: " prefix
+
+    if [[ -z "$prefix" ]]; then
+        red "规则前缀不能为空"
+        return 1
+    fi
+
+    existing=$(cf_get_origin_rules "$zone_id")
+
+    [[ -z "$existing" || "$existing" == "null" ]] && existing='[]'
+
+    new_rule=$(jq -n -c \
+        --arg d "$zone_domain" \
+        --arg pfx "$prefix" \
+        --arg port "$port" '
+        [
+            {
+                description: ($pfx + "_" + $d),
+                enabled: true,
+                expression: ("(http.host eq \"" + $d + "\")"),
+                action: "route",
+                action_parameters: {
+                    origin: {
+                        port: ($port | tonumber)
+                    }
+                }
+            }
+        ]
+    ')
+
+    merged=$(printf '%s\n%s\n' "$existing" "$new_rule" |
+        jq -s -c '.[0] + .[1]')
+
+    if cf_put_origin_rules "$zone_id" "$merged"; then
+        green "Cloudflare 回源规则创建成功"
+        green "域名: $zone_domain"
+        green "回源端口: $port"
+        green "规则前缀: $prefix"
+        return 0
+    fi
+
+    return 1
+}
+#手动删除回源规则和dns解析
+cf_delete_origin_rule_menu() {
+    local rules
+    local count
+    local choice
+    local kept
+    local selected_rule
+    local rule_domain
+    local i=1
+    echo
+    cf_select_zone || return 1
+    rules=$(cf_get_origin_rules "$zone_id")
+    [[ -z "$rules" || "$rules" == "null" ]] && {
+        yellow "没有 Cloudflare 回源规则"
+        return 0
+    }
+    count=$(echo "$rules" | jq 'length')
+    if (( count == 0 )); then
+        yellow "没有 Cloudflare 回源规则"
+        return 0
+    fi
+    echo
+    skyblue "当前 ${zone_domain} 的回源规则："
+    echo
+    while read -r rule; do
+        local description
+        local expression
+        local port
+        description=$(echo "$rule" | jq -r '.description // "无描述"')
+        expression=$(echo "$rule" | jq -r '.expression // "无匹配条件"')
+        port=$(echo "$rule" | jq -r '.action_parameters.origin.port // "-"')
+        echo "------------------------------------------"
+        echo " $i) $description"
+        echo "    匹配: $expression"
+        echo "    回源端口: $port"
+        ((i++))
+    done < <(echo "$rules" | jq -c '.[]')
+    echo "------------------------------------------"
+    echo
+    reading "请输入要删除的规则 [1-$count]，回车取消: " choice
+    [[ -z "$choice" ]] && return 0
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] ||
+       (( choice < 1 || choice > count )); then
+        red "无效选择"
+        return 1
+    fi
+    selected_rule=$(echo "$rules" | jq -c ".[$((choice - 1))]")
+    rule_domain=$(echo "$selected_rule" | jq -r '
+        .expression
+        | capture("http\\.host eq \"(?<domain>[^\"]+)\"")
+        | .domain
+    ' 2>/dev/null)
+    echo
+    yellow "即将删除："
+    echo "$selected_rule" | jq .
+    echo
+    [[ -n "$rule_domain" ]] &&
+        yellow "同时删除 DNS: $rule_domain"
+    echo
+    read -rp "确认删除回源规则并删除 DNS？(y/N): " confirm
+    [[ ! "$confirm" =~ ^[Yy]$ ]] && {
+        yellow "已取消删除"
+        return 0
+    }
+    kept=$(echo "$rules" |
+        jq -c --argjson index "$((choice - 1))" '
+            del(.[$index])
+        ')
+    if ! cf_put_origin_rules "$zone_id" "$kept"; then
+        red "Cloudflare 回源规则删除失败"
+        return 1
+    fi
+    green "Cloudflare 回源规则删除成功"
+    if [[ -n "$rule_domain" ]]; then
+        cf_delete_dns "$zone_id" "$rule_domain"
+        green "${rule_domain} DNS 解析已删除"
+    fi
+    return 0
+}
 # ── 删除 Cloudflare CDN 回源规则 ──
 cf_remove_cdn_rules() {
     local domain="$1"
