@@ -2209,6 +2209,8 @@ issue_cf_origin_ca() {
     csr=$(cat "${save_path}/request.csr" | sed ':a;N;$!ba;s/\n/\\n/g')
     skyblue "正在申请 Cloudflare Origin CA 证书..."
     local result
+    if [[ "$CF_AUTH_TYPE" == "token" ]]; then
+
     result=$(curl -sS \
     -X POST \
     "https://api.cloudflare.com/client/v4/certificates" \
@@ -2217,9 +2219,26 @@ issue_cf_origin_ca() {
     --data "{
         \"hostnames\":[\"${domain}\"],
         \"requested_validity\":5475,
-        \"request_type\":\"origin-rsa\",
+        \"request_type\":\"origin-ecc\",
         \"csr\":\"${csr}\"
     }")
+    elif [[ "$CF_AUTH_TYPE" == "global" ]]; then
+    result=$(curl -sS \
+    -X POST \
+    "https://api.cloudflare.com/client/v4/certificates" \
+    -H "X-Auth-Email: $CF_EMAIL" \
+    -H "X-Auth-Key: $CF_KEY" \
+    -H "Content-Type: application/json" \
+    --data "{
+        \"hostnames\":[\"${domain}\"],
+        \"requested_validity\":5475,
+        \"request_type\":\"origin-ecc\",
+        \"csr\":\"${csr}\"
+    }")
+else
+    red "Cloudflare 认证方式错误"
+    return 1
+fi
     local cert
     cert=$(echo "$result" | jq -r '.result.certificate')
     if [[ "$cert" == "null" || -z "$cert" ]]; then
