@@ -2191,8 +2191,8 @@ issue_cf_dns_cert() {
 }
 #Cloudflare 15年证书
 issue_cf_origin_ca() {
-    local domain="$1"
-    local save_path="/root/cert/${domain}"
+    local ca_domain="$1"
+    local save_path="/root/cert/${ca_domain}"
     mkdir -p "$save_path"
     skyblue "正在生成 Origin CA 私钥..."
     openssl ecparam \
@@ -2203,7 +2203,7 @@ issue_cf_origin_ca() {
     openssl req \
         -new \
         -key "${save_path}/privkey.pem" \
-        -subj "/CN=${domain}" \
+        -subj "/CN=${ca_domain}" \
         -out "${save_path}/request.csr"
     local csr
     csr=$(cat "${save_path}/request.csr" | sed ':a;N;$!ba;s/\n/\\n/g')
@@ -2217,7 +2217,7 @@ issue_cf_origin_ca() {
     -H "Authorization: Bearer $CF_TOKEN" \
     -H "Content-Type: application/json" \
     --data "{
-        \"hostnames\":[\"${domain}\"],
+        \"hostnames\":[\"${ca_domain}\"],
         \"requested_validity\":5475,
         \"request_type\":\"origin-ecc\",
         \"csr\":\"${csr}\"
@@ -2230,7 +2230,7 @@ issue_cf_origin_ca() {
     -H "X-Auth-Key: $CF_KEY" \
     -H "Content-Type: application/json" \
     --data "{
-        \"hostnames\":[\"${domain}\"],
+        \"hostnames\":[\"${ca_domain}\"],
         \"requested_validity\":5475,
         \"request_type\":\"origin-ecc\",
         \"csr\":\"${csr}\"
@@ -2250,12 +2250,14 @@ fi
     chmod 600 "${save_path}/privkey.pem"
     cert_file="${save_path}/fullchain.pem"
     key_file="${save_path}/privkey.pem"
+	domain="$ca_domain"
     green "=========================================="
     green "Cloudflare Origin CA 证书申请成功"
     green "域名: $domain"
     green "证书: ${save_path}/fullchain.pem"
     green "私钥: ${save_path}/privkey.pem"
     green "=========================================="
+	return 0
 }
 
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
