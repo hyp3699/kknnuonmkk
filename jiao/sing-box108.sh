@@ -2070,9 +2070,9 @@ issue_cf_dns_cert() {
     origin_ca=1
     echo
     skyblue "请选择 Origin CA 证书域名："
-    echo "  1) $zone_domain   （根域名证书，例如 example.com）"
-    echo "  2) 子域名前缀      （例如 node → node.$zone_domain）"
-    echo "  3) 泛域名证书      （例如 *.$zone_domain，可匹配所有子域名）"
+    echo "  1) $zone_domain  （根域名证书，例如 example.com）"
+    echo "  2) 子域名前缀   （例如 node → node.$zone_domain）"
+    echo "  3) 泛域名证书   （例如 *.$zone_domain，可匹配所有子域名）"
     echo "=========================================="
     local ca_mode
     reading "请输入数字 [1-3]: " ca_mode
@@ -2297,9 +2297,14 @@ check_and_issue_ssl() {
             local i=2
             local idx
             for idx in "${!cert_domains[@]}"; do
-                echo " ${i}) ${cert_domains[$idx]}  (路径: ${cert_paths[$idx]})"
-                ((i++))
-            done
+              local cert_mark=""
+              local cert_file_tmp="${cert_paths[$idx]}/fullchain.pem"
+              if openssl x509 -in "$cert_file_tmp" -noout -issuer 2>/dev/null | grep -qi "Origin CA"; then
+              cert_mark=" ${red}【15年证书】${re}"
+            fi
+            echo -e " ${i}) ${cert_domains[$idx]}${cert_mark}  (路径: ${cert_paths[$idx]})"
+            ((i++))
+        done
         fi
         skyblue "=============================================="
         echo " 1) 申请新证书"
