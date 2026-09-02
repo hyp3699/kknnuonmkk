@@ -7679,19 +7679,65 @@ while true; do
     green "$domain → $raw_ip"
     ;;
 	5)
-    cf_select_all_dns_record || return 1
+    cf_select_zone || return 1
+    echo
+    skyblue "正在获取 ${zone_domain} DNS 记录..."
+    local dns_records
+    dns_records=$(cf_call GET "/zones/${zone_id}/dns_records?per_page=500")
+    if ! echo "$dns_records" | jq -e '.success == true' >/dev/null 2>&1; then
+        red "获取 DNS 记录失败"
+        return 1
+    fi
+    local records
+    records=$(echo "$dns_records" | jq -r '.result[] | [.id,.type,.name,.content] | @tsv')
+    if [[ -z "$records" ]]; then
+        yellow "${zone_domain} 没有 DNS 记录"
+        return 0
+    fi
+    declare -a dns_id_array
+    declare -a dns_type_array
+    declare -a dns_name_array
+    declare -a dns_content_array
+    local i=1
+    echo
+    skyblue "请选择要删除的 DNS 记录："
+    echo "=========================================="
+    while IFS=$'\t' read -r id type name content; do
+        echo " $i) [$type] $name → $content"
+        dns_id_array[$i]="$id"
+        dns_type_array[$i]="$type"
+        dns_name_array[$i]="$name"
+        dns_content_array[$i]="$content"
+        ((i++))
+    done <<< "$records"
+    echo "=========================================="
+    local total=$((i-1))
+    local choice
+    reading "请输入选择 [1-$total]: " choice
+    if [[ -z "$choice" ||
+          ! "$choice" =~ ^[0-9]+$ ||
+          "$choice" -lt 1 ||
+          "$choice" -gt "$total" ]]; then
+        red "无效选择"
+        return 1
+    fi
+    selected_dns_zone_id="$zone_id"
+    selected_dns_id="${dns_id_array[$choice]}"
+    selected_dns_type="${dns_type_array[$choice]}"
+    selected_dns_name="${dns_name_array[$choice]}"
+    selected_dns_content="${dns_content_array[$choice]}"
     echo
     yellow "准备删除："
     echo "[$selected_dns_type] $selected_dns_name → $selected_dns_content"
     local confirm
     reading "确认删除？[y/N]: " confirm
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        response=$(cf_call DELETE \
-            "/zones/${selected_dns_zone_id}/dns_records/${selected_dns_id}")
+        response=$(cf_call DELETE "/zones/${selected_dns_zone_id}/dns_records/${selected_dns_id}")
         if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
             green "DNS 解析删除成功"
         else
             red "DNS 解析删除失败"
+            echo "$response" | jq -r '.errors[]?.message // empty'
         fi
     else
         yellow "已取消删除"
