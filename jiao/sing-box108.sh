@@ -1312,7 +1312,23 @@ cf_select_zone() {
     echo "=========================================="
     while IFS='|' read -r zone_name zone_temp_id; do
     [[ -z "$zone_name" || -z "$zone_temp_id" ]] && continue
-    echo "  $i) $zone_name"
+    local dns_count
+    if [[ -n "$CF_TOKEN" ]]; then
+        dns_count=$(curl -sS --connect-timeout 10 \
+            -X GET "https://api.cloudflare.com/client/v4/zones/${zone_temp_id}/dns_records?per_page=1" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -H "Content-Type: application/json" \
+            | jq -r '.result_info.total_count // 0' 2>/dev/null)
+    elif [[ -n "$CF_EMAIL" && -n "$CF_KEY" ]]; then
+        dns_count=$(curl -sS --connect-timeout 10 \
+            -X GET "https://api.cloudflare.com/client/v4/zones/${zone_temp_id}/dns_records?per_page=1" \
+            -H "X-Auth-Email: $CF_EMAIL" \
+            -H "X-Auth-Key: $CF_KEY" \
+            -H "Content-Type: application/json" \
+            | jq -r '.result_info.total_count // 0' 2>/dev/null)
+    fi
+    [[ -z "$dns_count" ]] && dns_count=0
+    echo "  $i) $zone_name (${dns_count} 条 DNS)"
     domain_array[$i]="$zone_name"
     zone_id_array[$i]="$zone_temp_id"
     ((i++))
