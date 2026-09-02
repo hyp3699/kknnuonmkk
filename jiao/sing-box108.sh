@@ -7700,8 +7700,14 @@ while true; do
     green "$domain → $raw_ip"
     ;;
 	5)
-    cf_select_zone || return 1
-    cf_select_dns_record_menu
+    while true; do
+        cf_select_zone || {
+            yellow "域名选择失败，请重新选择"
+            continue
+        }
+        cf_select_dns_record_menu
+        break
+    done
     ;;
 	3)
     cf_add_tunnel_route ;;
