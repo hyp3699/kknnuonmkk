@@ -7701,15 +7701,8 @@ while true; do
     ;;
 	5)
     while true; do
-        cf_select_zone
-        case $? in
-            0)
-                cf_select_dns_record_menu
-                ;;
-            2)
-                break
-                ;;
-        esac
+        cf_select_zone || break
+        cf_select_dns_record_menu
     done
     ;;
 	3)
