@@ -6212,12 +6212,16 @@ EOF
 
     allow_port "$naive_port/tcp" >/dev/null 2>&1
     allow_port "$naive_port/udp" >/dev/null 2>&1
-    node_remark="${isp}_naive_tls"
-    NAIVE_URL="naive://${uuid}:${uuid}@${domain:-$server_ip}:${naive_port}"
+    node_remark_h2="${isp}_naive_h2"
+    node_remark_h3="${isp}_naive_h3"
+    naive_server="${domain:-$server_ip}"
+    NAIVE_H2_URL="naive+https://${uuid}:${uuid}@${naive_server}:${naive_port}?security=tls&sni=${naive_server}&insecure=0#${node_remark_h2}"
+    NAIVE_H3_URL="naive+quic://${uuid}:${uuid}@${naive_server}:${naive_port}?congestion_control=bbr&security=tls&sni=${naive_server}&insecure=0#${node_remark_h3}"
     if [ -f "${work_dir}/url.txt" ]; then
         sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
     fi
-    echo "${NAIVE_URL}#${node_remark}" >> "${work_dir}/url.txt"
+    echo "$NAIVE_H2_URL" >> "${work_dir}/url.txt"
+    echo "$NAIVE_H3_URL" >> "${work_dir}/url.txt"
     echo "" >> "${work_dir}/url.txt"
 
     base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
