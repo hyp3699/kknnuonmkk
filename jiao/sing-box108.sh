@@ -595,18 +595,31 @@ cf_add_origin_rule_menu() {
         return 1
     fi
     full_domain="${prefix}.${zone_domain}"
+        local current_ssl
+    current_ssl=$(cf_call GET "/zones/${zone_id}/settings/ssl" | jq -r '.result.value // empty' 2>/dev/null)
     echo
-    skyblue "请选择 Cloudflare SSL 模式："
+    skyblue "当前 Cloudflare SSL 模式: ${current_ssl:-未知}"
     green "1) 完全 (Full)"
     green "2) 灵活 (Flexible)"
-    reading "请输入选择 [1-2]（默认 1）: " ssl_choice
-    [[ -z "$ssl_choice" ]] && ssl_choice=1
-    case "$ssl_choice" in
-        1) ssl_mode="full" ;;
-        2) ssl_mode="flexible" ;;
-        *) red "无效选择！"; return 1 ;;
-    esac
-    cf_set_ssl "$zone_id" "$ssl_mode" || return 1
+    reading "请输入选择 [1-2]（回车保持当前）: " ssl_choice
+    if [[ -n "$ssl_choice" ]]; then
+        case "$ssl_choice" in
+            1)
+                ssl_mode="full"
+                ;;
+            2)
+                ssl_mode="flexible"
+                ;;
+            *)
+                red "无效选择！"
+                return 1
+                ;;
+        esac
+        cf_set_ssl "$zone_id" "$ssl_mode" || return 1
+    else
+        ssl_mode="$current_ssl"
+        green "保持当前 SSL 模式"
+    fi
     server_ip=$(get_realip)
     if [[ -z "$server_ip" ]]; then
         red "获取服务器 IP 失败"
