@@ -5080,7 +5080,7 @@ EOF
 }
 EOF
     node_remark="${isp}_vmess_ws_notls"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${server_ip}\", \"port\": \"${custom_port}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"\", \"path\": \"/asasbsbs-vmess?ed=2048\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${server_ip}\", \"port\": \"${custom_port}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"\", \"path\": \"/asasbsbs-vmess?ed=2048\", \"tls\": \"\", \"sni\": \"\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
     url="vmess://$(echo -n "$VMESS" | base64 -w0)"
     restart_service="singbox"
     ;;
@@ -5457,7 +5457,7 @@ EOF
 	vmess_remark="${isp}_vmess_ws_cdn"
     vless_remark="${isp}_vless_ws_cdn"
     trojan_remark="${isp}_trojan_ws_cdn"
-    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${domain}\", \"path\": \"${vmess_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${vmess_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
     vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
     vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
     vless_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}?ed=2048#${vless_remark_enc}"
