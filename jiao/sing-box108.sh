@@ -2297,10 +2297,10 @@ check_and_issue_ssl() {
             local i=2
             local idx
             for idx in "${!cert_domains[@]}"; do
-              local cert_mark=""
-              local cert_file_tmp="${cert_paths[$idx]}/fullchain.pem"
-              if openssl x509 -in "$cert_file_tmp" -noout -issuer 2>/dev/null | grep -qi "Origin CA"; then
-              cert_mark=" ${red}【15年证书】${re}"
+            local cert_mark=""
+            local cert_file_tmp="${cert_paths[$idx]}/fullchain.pem"
+            if openssl x509 -in "$cert_file_tmp" -noout -issuer 2>/dev/null | grep -qi "CloudFlare Origin SSL"; then
+            cert_mark=" ${red}【15年证书】${re}"
             fi
             echo -e " ${i}) ${cert_domains[$idx]}${cert_mark}  (路径: ${cert_paths[$idx]})"
             ((i++))
