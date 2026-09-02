@@ -6221,9 +6221,9 @@ EOF
         sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
     fi
     echo "$NAIVE_H2_URL" >> "${work_dir}/url.txt"
+	echo "" >> "${work_dir}/url.txt"
     echo "$NAIVE_H3_URL" >> "${work_dir}/url.txt"
     echo "" >> "${work_dir}/url.txt"
-
     base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
     restart_singbox
     green "--------------------------------------------------"
@@ -6231,7 +6231,8 @@ EOF
     green "--------------------------------------------------"
     echo ""
     green "节点链接："
-    echo "${NAIVE_URL}#${node_remark}"
+	echo  "$NAIVE_H2_URL"
+	echo  "$NAIVE_H3_URL"
     green "--------------------------------------------------"
     ;;
             # --- 完整的删除逻辑 ---
