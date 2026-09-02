@@ -102,6 +102,7 @@ anytls_port=$(get_available_port)
 xtls_reality=$(get_available_port)
 vless_tcp_tls=$(get_available_port)
 anytls_reality=$(get_available_port)
+naive_port=$(get_available_port)
 h2_reality=$(get_available_port)
 hy2_port=$(get_available_port)
 grpc_reality=$(get_available_port)
@@ -4654,6 +4655,7 @@ manage_nodes_menu() {
 	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|15"
 	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|16"
 	"$CONF_DIR/vless-tcp-tls.json|vless-tcp-tls|17"
+	"$CONF_DIR/naive-tls.json|Naiveproxy|18"
 	"$CONF_DIR/vmess-ws.json|vmess-ws|19"
 	"$CONF_DIR/vless-ws.json|vless-ws|20"
 )
@@ -6174,6 +6176,60 @@ green "--------------------------------------------------"
 echo "$xhttp_tcp"
 green "--------------------------------------------------"
 ;;
+18)
+    check_and_issue_ssl || return 1
+    generate_vars
+    server_ip=$(get_realip)
+    echo ""
+    naive_port=$(get_available_port)
+    if [[ ! "$naive_port" =~ ^[0-9]+$ ]]; then
+        red "获取 Naive 端口失败：${naive_port:-<空>}"
+        return 1
+    fi
+    cat > /etc/sing-box/conf/naive-tls.json << EOF
+{
+  "inbounds": [
+    {
+      "type": "naive",
+      "tag": "naive",
+      "listen": "::",
+      "listen_port": $naive_port,
+      "users": [
+        {
+          "username": "$uuid",
+          "password": "$uuid"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "certificate_path": "$cert_file",
+        "key_path": "$key_file"
+      }
+    }
+  ]
+}
+EOF
+
+    allow_port "$naive_port/tcp" >/dev/null 2>&1
+    allow_port "$naive_port/udp" >/dev/null 2>&1
+    node_remark="${isp}_naive_tls"
+    NAIVE_URL="naive://${uuid}:${uuid}@${domain:-$server_ip}:${naive_port}"
+    if [ -f "${work_dir}/url.txt" ]; then
+        sed -i "/#${node_remark}$/{N;d;}" "${work_dir}/url.txt"
+    fi
+    echo "${NAIVE_URL}#${node_remark}" >> "${work_dir}/url.txt"
+    echo "" >> "${work_dir}/url.txt"
+
+    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
+    restart_singbox
+    green "--------------------------------------------------"
+    green " Naive 节点创建完成！"
+    green "--------------------------------------------------"
+    echo ""
+    green "节点链接："
+    echo "${NAIVE_URL}#${node_remark}"
+    green "--------------------------------------------------"
+    ;;
             # --- 完整的删除逻辑 ---
 51)
     delete_node "_vless_tcp_reality" "/etc/sing-box/conf/xtls-reality.json" "singbox"
