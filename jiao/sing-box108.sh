@@ -2070,9 +2070,9 @@ issue_cf_dns_cert() {
     origin_ca=1
     echo
     skyblue "请选择 Origin CA 证书域名："
-    echo "  1) $zone_domain        （根域名证书，例如 example.com）"
-    echo "  2) 子域名前缀          （例如 node → node.$zone_domain）"
-    echo "  3) 泛域名证书          （例如 *.$zone_domain，可匹配所有子域名）"
+    echo "  1) $zone_domain   （根域名证书，例如 example.com）"
+    echo "  2) 子域名前缀      （例如 node → node.$zone_domain）"
+    echo "  3) 泛域名证书      （例如 *.$zone_domain，可匹配所有子域名）"
     echo "=========================================="
     local ca_mode
     reading "请输入数字 [1-3]: " ca_mode
@@ -2192,6 +2192,21 @@ issue_cf_dns_cert() {
 #Cloudflare 15年证书
 issue_cf_origin_ca() {
     local domain="$1"
+    local save_path="/root/cert/${domain}"
+    mkdir -p "$save_path"
+    skyblue "正在生成 Origin CA 私钥..."
+    openssl ecparam \
+        -genkey \
+        -name prime256v1 \
+        -out "${save_path}/privkey.pem"
+    skyblue "正在生成 CSR..."
+    openssl req \
+        -new \
+        -key "${save_path}/privkey.pem" \
+        -subj "/CN=${domain}" \
+        -out "${save_path}/request.csr"
+    local csr
+    csr=$(cat "${save_path}/request.csr" | sed ':a;N;$!ba;s/\n/\\n/g')
     skyblue "正在申请 Cloudflare Origin CA 证书..."
     local result
     result=$(curl -sS \
@@ -2200,34 +2215,30 @@ issue_cf_origin_ca() {
     -H "Authorization: Bearer $CF_TOKEN" \
     -H "Content-Type: application/json" \
     --data "{
-        \"hostnames\":[\"$domain\"],
+        \"hostnames\":[\"${domain}\"],
         \"requested_validity\":5475,
-        \"request_type\":\"origin-rsa\"
+        \"request_type\":\"origin-rsa\",
+        \"csr\":\"${csr}\"
     }")
     local cert
-    local key
     cert=$(echo "$result" | jq -r '.result.certificate')
-    key=$(echo "$result" | jq -r '.result.private_key')
-
     if [[ "$cert" == "null" || -z "$cert" ]]; then
         red "Origin CA 申请失败"
         echo "$result"
         return 1
     fi
-    local save_path="/root/cert/${domain}"
-    mkdir -p "$save_path"
     echo "$cert" > "${save_path}/fullchain.pem"
-    echo "$key" > "${save_path}/privkey.pem"
     chmod 600 "${save_path}/privkey.pem"
     cert_file="${save_path}/fullchain.pem"
     key_file="${save_path}/privkey.pem"
     green "=========================================="
-    green "Cloudflare Origin CA 15年证书申请成功"
+    green "Cloudflare Origin CA 证书申请成功"
     green "域名: $domain"
     green "证书: ${save_path}/fullchain.pem"
     green "私钥: ${save_path}/privkey.pem"
     green "=========================================="
 }
+
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
 check_and_issue_ssl() {
     local input_domain="$1"
