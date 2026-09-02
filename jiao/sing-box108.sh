@@ -7428,6 +7428,8 @@ while true; do
 	green "3. 添加隧道路由"
 	green "4. 添加dns解析"
 	green "5. 删除dns解析"
+	green "6. 新建回源规则"
+    green "7. 删除回源规则"
     echo -e "  ${red}0)${re} 返回"
     echo -e "${skyblue}==========================================${re}"
     local cf_tunnel_choice
@@ -7531,6 +7533,20 @@ while true; do
     ;;
 	3)
     cf_add_tunnel_route ;;
+	6)
+    clear
+    cf_add_origin_rule_menu
+    echo
+    reading "按回车返回..." _
+    clear
+    ;;
+    7)
+    clear
+    cf_delete_origin_rule_menu
+    echo
+    reading "按回车返回..." _
+    clear
+    ;;
 	0)
     break
     ;;
