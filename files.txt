@@ -1,6 +1,6 @@
 # SYNC_CRON=0 0 * * *
 # 自定义名字   自定义格式   描述           URL  不自定义名字用-代替
--          -          sing-box       https://github.com/SagerNet/sing-box/releases/download/v1.13.14/sing-box-1.13.14-linux-amd64.tar.gz
+-          -          sing-box       https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-amd64.tar.gz
 jjoo       json          自用          https://16441.kstore.space/jjoo.json
 -          -          一键梭哈脚本      https://suoha.psai.eu.org/suoha.sh
 -          -     Sing-box全家桶隧道     https://raw.githubusercontent.com/fscarmen/sing-box/main/sing-box.sh
