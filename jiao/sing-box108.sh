@@ -579,6 +579,28 @@ set_domain_origin_port() {
     fi
     return 1
 }
+#https://dash.cloudflare.com/ api调用次数显示
+cf_api_curl() {
+    local tmp_header="/tmp/cf_headers"
+    rm -f "$tmp_header"
+    curl -sS \
+        -D "$tmp_header" \
+        "$@"
+    local remain
+    local reset
+    remain=$(grep -i "^x-ratelimit-remaining:" "$tmp_header" | awk '{print $2}' | tr -d '\r')
+    reset=$(grep -i "^x-ratelimit-reset:" "$tmp_header" | awk '{print $2}' | tr -d '\r')
+    if [[ -n "$remain" ]]; then
+        skyblue "Cloudflare API 剩余调用: ${remain} 次"
+    fi
+    if [[ -n "$reset" ]]; then
+        local reset_time
+        reset_time=$(date -d "@$reset" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
+        if [[ -n "$reset_time" ]]; then
+            skyblue "API 重置时间: $reset_time"
+        fi
+    fi
+}
 #手动添加回源规则
 cf_add_origin_rule_menu() {
     local port prefix ssl_choice ssl_mode full_domain existing kept new_rule merged server_ip
