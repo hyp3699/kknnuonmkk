@@ -2038,10 +2038,12 @@ issue_cf_dns_cert() {
     echo "  1) 直接使用 $zone_domain"
     echo "  2) 在 $zone_domain 前添加前缀"
     echo "  3) 申请泛域名证书"
+	echo "  4) 申请 Cloudflare Origin CA 15年证书"
     echo "=========================================="
     local mode
     reading "请输入数字 [1-3]: " mode
     local cert_domain
+	local origin_ca=0
     case "$mode" in
         1)
             cert_domain="$zone_domain"
@@ -2064,6 +2066,39 @@ issue_cf_dns_cert() {
         3)
             cert_domain="*.${zone_domain}"
             ;;
+		4)
+    origin_ca=1
+    echo
+    skyblue "请选择 Origin CA 证书域名："
+    echo "  1) $zone_domain        （根域名证书，例如 example.com）"
+    echo "  2) 子域名前缀          （例如 node → node.$zone_domain）"
+    echo "  3) 泛域名证书          （例如 *.$zone_domain，可匹配所有子域名）"
+    echo "=========================================="
+    local ca_mode
+    reading "请输入数字 [1-3]: " ca_mode
+    case "$ca_mode" in
+        1)
+            cert_domain="$zone_domain"
+            ;;
+        2)
+            local prefix
+            reading "请输入前缀，例如 node: " prefix
+            prefix=$(echo "$prefix" | tr -d '[:space:]')
+            [[ -z "$prefix" ]] && {
+                red "前缀不能为空！"
+                return 1
+            }
+            cert_domain="${prefix}.${zone_domain}"
+            ;;
+        3)
+            cert_domain="*.${zone_domain}"
+            ;;
+        *)
+    red "无效选择！"
+    return 1
+    ;;
+    esac
+    ;;
         *)
             red "无效选择！"
             return 1
@@ -2102,6 +2137,10 @@ issue_cf_dns_cert() {
     mkdir -p "$save_path"
     skyblue "正在申请证书..."
     skyblue "证书域名: $cert_domain"
+	if [[ "$origin_ca" == "1" ]]; then
+    issue_cf_origin_ca "$cert_domain" || return 1
+    return 0
+    fi
     if "$acme_cmd" \
         --issue \
         --dns dns_cf \
@@ -2150,7 +2189,45 @@ issue_cf_dns_cert() {
         return 1
     fi
 }
+#Cloudflare 15年证书
+issue_cf_origin_ca() {
+    local domain="$1"
+    skyblue "正在申请 Cloudflare Origin CA 证书..."
+    local result
+    result=$(curl -sS \
+    -X POST \
+    "https://api.cloudflare.com/client/v4/certificates" \
+    -H "Authorization: Bearer $CF_TOKEN" \
+    -H "Content-Type: application/json" \
+    --data "{
+        \"hostnames\":[\"$domain\"],
+        \"requested_validity\":5475,
+        \"request_type\":\"origin-rsa\"
+    }")
+    local cert
+    local key
+    cert=$(echo "$result" | jq -r '.result.certificate')
+    key=$(echo "$result" | jq -r '.result.private_key')
 
+    if [[ "$cert" == "null" || -z "$cert" ]]; then
+        red "Origin CA 申请失败"
+        echo "$result"
+        return 1
+    fi
+    local save_path="/root/cert/${domain}"
+    mkdir -p "$save_path"
+    echo "$cert" > "${save_path}/fullchain.pem"
+    echo "$key" > "${save_path}/privkey.pem"
+    chmod 600 "${save_path}/privkey.pem"
+    cert_file="${save_path}/fullchain.pem"
+    key_file="${save_path}/privkey.pem"
+    green "=========================================="
+    green "Cloudflare Origin CA 15年证书申请成功"
+    green "域名: $domain"
+    green "证书: ${save_path}/fullchain.pem"
+    green "私钥: ${save_path}/privkey.pem"
+    green "=========================================="
+}
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
 check_and_issue_ssl() {
     local input_domain="$1"
