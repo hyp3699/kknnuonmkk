@@ -1328,7 +1328,11 @@ cf_select_zone() {
             | jq -r '.result_info.total_count // 0' 2>/dev/null)
     fi
     [[ -z "$dns_count" ]] && dns_count=0
-    echo "  $i) $zone_name (${dns_count} 条 DNS)"
+    if (( dns_count > 0 )); then
+    red "  $i) $zone_name  (${dns_count} 条 DNS)"
+    else
+    echo "  $i) $zone_name  (${dns_count} 条 DNS)"
+    fi
     domain_array[$i]="$zone_name"
     zone_id_array[$i]="$zone_temp_id"
     ((i++))
@@ -1361,76 +1365,77 @@ cf_select_zone() {
     green "Zone ID: $zone_id"
     return 0
 }
-#── 拉取所有 Cloudflare DNS 解析 ──
-cf_select_all_dns_record() {
-local zones_response dns_response
-local zone_name zid
-local i=1 choice total
-local record_id record_type record_name record_content
-declare -a dns_zone_ids
-declare -a dns_record_ids
-declare -a dns_names
-declare -a dns_types
-declare -a dns_contents
-skyblue "正在获取所有 Cloudflare DNS 解析..."
-zones_response=$(cf_call GET "/zones?per_page=500")
-if ! echo "$zones_response" | jq -e '.success == true' >/dev/null 2>&1; then
-    red "获取 Cloudflare 域名失败！"
-    return 1
-fi
-echo
-skyblue "=========================================="
-skyblue "          A   AAAA   隧道解析"
-skyblue "=========================================="
-while IFS='|' read -r zone_name zid; do
-    [[ -z "$zid" ]] && continue
-    dns_response=$(cf_call GET "/zones/${zid}/dns_records?per_page=500")
-    if ! echo "$dns_response" | jq -e '.success == true' >/dev/null 2>&1; then
-        continue
-    fi
-    while IFS='|' read -r record_id record_type record_name record_content; do
-        [[ -z "$record_id" ]] && continue
-        echo "  $i) [$record_type] $record_name → $record_content"
-        dns_zone_ids[$i]="$zid"
-        dns_record_ids[$i]="$record_id"
-        dns_names[$i]="$record_name"
-        dns_types[$i]="$record_type"
-        dns_contents[$i]="$record_content"
-        ((i++))
-    done < <(
-        echo "$dns_response" | jq -r \
-        '.result[] | select(.type == "A" or .type == "AAAA" or (.type == "CNAME" and (.content | contains("cfargotunnel.com")))) | "\(.id)|\(.type)|\(.name)|\(.content)"'
-    )
-done < <(
-    echo "$zones_response" | jq -r \
-    '.result[] | "\(.name)|\(.id)"'
-)
-total=$((i - 1))
-if [[ "$total" -lt 1 ]]; then
-    yellow "没有找到 DNS 解析记录"
-    return 1
-fi
-echo
-skyblue "=========================================="
-reading "请选择 DNS [1-$total]: " choice
-if [[ -z "$choice" ||
-      ! "$choice" =~ ^[0-9]+$ ||
-      "$choice" -lt 1 ||
-      "$choice" -gt "$total" ]]; then
-    red "无效选择！"
-    return 1
-fi
-selected_dns_zone_id="${dns_zone_ids[$choice]}"
-selected_dns_id="${dns_record_ids[$choice]}"
-selected_dns_name="${dns_names[$choice]}"
-selected_dns_type="${dns_types[$choice]}"
-selected_dns_content="${dns_contents[$choice]}"
-export selected_dns_zone_id
-export selected_dns_id
-export selected_dns_name
-export selected_dns_type
-export selected_dns_content
-return 0
+#── 拉取 DNS 解析 ──
+cf_select_dns_record_menu() {
+    local records id type name content i=1 color
+    while true; do
+        clear
+        skyblue "=========================================="
+        skyblue "${zone_domain} DNS解析记录"
+        skyblue "=========================================="
+        records=$(cf_call GET "/zones/${zone_id}/dns_records?per_page=500")
+        if ! echo "$records" | jq -e '.success == true' >/dev/null 2>&1; then
+            red "获取DNS记录失败"
+            return 1
+        fi
+        local count
+        count=$(echo "$records" | jq '.result | length')
+        if (( count == 0 )); then
+            yellow "没有DNS解析记录"
+        else
+            i=1
+            while IFS=$'\t' read -r id type name content; do
+                if (( i % 2 == 1 )); then
+                    green "$i) [$type] $name → $content"
+                else
+                    red "$i) [$type] $name → $content"
+                fi
+                dns_id_array[$i]="$id"
+                dns_type_array[$i]="$type"
+                dns_name_array[$i]="$name"
+                dns_content_array[$i]="$content"
+                ((i++))
+            done < <(
+                echo "$records" | jq -r '
+                .result[] |
+                [.id,.type,.name,.content] |
+                @tsv'
+            )
+        fi
+        echo
+        red "0) 返回域名列表"
+        local total=$((i-1))
+        reading "请选择 [0-$total]: " choice
+
+        if [[ "$choice" == "0" ]]; then
+            return 0
+        fi
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] ||
+           (( choice < 1 || choice > total )); then
+            red "无效选择"
+            sleep 1
+            continue
+        fi
+        selected_dns_id="${dns_id_array[$choice]}"
+        selected_dns_type="${dns_type_array[$choice]}"
+        selected_dns_name="${dns_name_array[$choice]}"
+        selected_dns_content="${dns_content_array[$choice]}"
+        echo
+        yellow "准备删除："
+        echo "[$selected_dns_type] $selected_dns_name → $selected_dns_content"
+        local confirm
+        reading "确认删除？[y/N]: " confirm
+        if [[ "$confirm" =~ ^[Yy]$ ]]; then
+            response=$(cf_call DELETE \
+                "/zones/${zone_id}/dns_records/${selected_dns_id}")
+            if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+                green "DNS删除成功"
+            else
+                red "DNS删除失败"
+            fi
+            sleep 1
+        fi
+    done
 }
 # ── 获取 Cloudflare Account ID ──
 cf_get_account_id() {
@@ -7696,68 +7701,7 @@ while true; do
     ;;
 	5)
     cf_select_zone || return 1
-    echo
-    skyblue "正在获取 ${zone_domain} DNS 记录..."
-    local dns_records
-    dns_records=$(cf_call GET "/zones/${zone_id}/dns_records?per_page=500")
-    if ! echo "$dns_records" | jq -e '.success == true' >/dev/null 2>&1; then
-        red "获取 DNS 记录失败"
-        return 1
-    fi
-    local records
-    records=$(echo "$dns_records" | jq -r '.result[] | [.id,.type,.name,.content] | @tsv')
-    if [[ -z "$records" ]]; then
-        yellow "${zone_domain} 没有 DNS 记录"
-        return 0
-    fi
-    declare -a dns_id_array
-    declare -a dns_type_array
-    declare -a dns_name_array
-    declare -a dns_content_array
-    local i=1
-    echo
-    skyblue "请选择要删除的 DNS 记录："
-    echo "=========================================="
-    while IFS=$'\t' read -r id type name content; do
-        echo " $i) [$type] $name → $content"
-        dns_id_array[$i]="$id"
-        dns_type_array[$i]="$type"
-        dns_name_array[$i]="$name"
-        dns_content_array[$i]="$content"
-        ((i++))
-    done <<< "$records"
-    echo "=========================================="
-    local total=$((i-1))
-    local choice
-    reading "请输入选择 [1-$total]: " choice
-    if [[ -z "$choice" ||
-          ! "$choice" =~ ^[0-9]+$ ||
-          "$choice" -lt 1 ||
-          "$choice" -gt "$total" ]]; then
-        red "无效选择"
-        return 1
-    fi
-    selected_dns_zone_id="$zone_id"
-    selected_dns_id="${dns_id_array[$choice]}"
-    selected_dns_type="${dns_type_array[$choice]}"
-    selected_dns_name="${dns_name_array[$choice]}"
-    selected_dns_content="${dns_content_array[$choice]}"
-    echo
-    yellow "准备删除："
-    echo "[$selected_dns_type] $selected_dns_name → $selected_dns_content"
-    local confirm
-    reading "确认删除？[y/N]: " confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        response=$(cf_call DELETE "/zones/${selected_dns_zone_id}/dns_records/${selected_dns_id}")
-        if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
-            green "DNS 解析删除成功"
-        else
-            red "DNS 解析删除失败"
-            echo "$response" | jq -r '.errors[]?.message // empty'
-        fi
-    else
-        yellow "已取消删除"
-    fi
+    cf_select_dns_record_menu
     ;;
 	3)
     cf_add_tunnel_route ;;
