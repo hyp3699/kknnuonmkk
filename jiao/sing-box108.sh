@@ -2233,7 +2233,7 @@ issue_cf_origin_ca() {
     local result
     if [[ "$CF_AUTH_TYPE" == "token" ]]; then
 
-    result=$(curl -sS \
+    result=$(cf_curl \
     -X POST \
     "https://api.cloudflare.com/client/v4/certificates" \
     -H "Authorization: Bearer $CF_TOKEN" \
@@ -2245,7 +2245,7 @@ issue_cf_origin_ca() {
         \"csr\":\"${csr}\"
     }")
     elif [[ "$CF_AUTH_TYPE" == "global" ]]; then
-    result=$(curl -sS \
+    result=$(cf_curl \
     -X POST \
     "https://api.cloudflare.com/client/v4/certificates" \
     -H "X-Auth-Email: $CF_EMAIL" \
