@@ -7619,30 +7619,34 @@ vps_s() {
     clear
     
 	current_bytes=$(awk 'BEGIN { rx = 0; tx = 0 } NR > 2 { rx += $2; tx += $10 } END { printf "%.0f %.0f", rx, tx }' /proc/net/dev)
-    read -r curr_rx curr_tx <<< "$current_bytes"
-
-    traffic_file="$HOME/.vps_traffic_stats"
-    cur_month=$(TZ="America/New_York" date "+%Y-%m")
-
-    last_month="" ; last_rx=0 ; last_tx=0 ; monthly_rx=0 ; monthly_tx=0
-    if [ -f "$traffic_file" ]; then source "$traffic_file" 2>/dev/null; fi
-
-    if [ "$last_month" != "$cur_month" ]; then
-        monthly_rx=0 ; monthly_tx=0 ; last_rx=0 ; last_tx=0
-    fi
-
-    if [ "$curr_rx" -ge "$last_rx" ]; then delta_rx=$((curr_rx - last_rx)); else delta_rx=$curr_rx; fi
-    if [ "$curr_tx" -ge "$last_tx" ]; then delta_tx=$((curr_tx - last_tx)); else delta_tx=$curr_tx; fi
-
-    monthly_rx=$((monthly_rx + delta_rx))
-    monthly_tx=$((monthly_tx + delta_tx))
-
-    cat << EOF > "$traffic_file"
-last_month="$cur_month"
-last_rx="$curr_rx"
-last_tx="$curr_tx"
-monthly_rx="$monthly_rx"
-monthly_tx="$monthly_tx"
+read -r curr_rx curr_tx <<< "$current_bytes"
+traffic_file="$HOME/.vps_traffic_stats"
+cur_month=$(date -u "+%Y-%m")
+last_month=""
+month_start_rx=0
+month_start_tx=0
+if [ -f "$traffic_file" ]; then
+    source "$traffic_file" 2>/dev/null
+fi
+if [ "$last_month" != "$cur_month" ]; then
+    last_month="$cur_month"
+    month_start_rx="$curr_rx"
+    month_start_tx="$curr_tx"
+fi
+monthly_rx=$((curr_rx - month_start_rx))
+monthly_tx=$((curr_tx - month_start_tx))
+if [ "$monthly_rx" -lt 0 ]; then
+    month_start_rx="$curr_rx"
+    monthly_rx=0
+fi
+if [ "$monthly_tx" -lt 0 ]; then
+    month_start_tx="$curr_tx"
+    monthly_tx=0
+fi
+cat << EOF > "$traffic_file"
+last_month="$last_month"
+month_start_rx="$month_start_rx"
+month_start_tx="$month_start_tx"
 EOF
 
     monthly_output=$(awk -v rx="$monthly_rx" -v tx="$monthly_tx" '
