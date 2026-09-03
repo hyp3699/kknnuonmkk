@@ -6814,6 +6814,115 @@ enable_bbr() {
     fi
 }
 
+fail2ban_manage() {
+    while true; do
+        clear
+        echo "========== Fail2ban 管理 =========="
+        if ! command -v fail2ban-client >/dev/null 2>&1; then
+            red "Fail2ban 未安装"
+            read -p "是否安装 Fail2ban? [Y/n]: " yn
+            yn=${yn:-Y}
+            if [[ "$yn" =~ ^[Yy]$ ]]; then
+                if command -v apt >/dev/null 2>&1; then
+                    apt update && apt install -y fail2ban
+                elif command -v yum >/dev/null 2>&1 || command -v dnf >/dev/null 2>&1; then
+                    # CentOS/RHEL 需要 EPEL 源
+                    yum install -y epel-release 2>/dev/null
+                    yum install -y fail2ban 2>/dev/null || dnf install -y fail2ban
+                elif command -v apk >/dev/null 2>&1; then
+                    apk add fail2ban
+                else
+                    red "不支持的系统"
+                    return
+                fi
+                systemctl enable fail2ban 2>/dev/null || rc-update add fail2ban default 2>/dev/null
+                green "Fail2ban 安装完成"
+            else
+                return
+            fi
+        fi
+        echo ""
+        if systemctl is-active fail2ban >/dev/null 2>&1; then
+            green "Fail2ban 状态: 运行中"
+        else
+            red "Fail2ban 状态: 未运行"
+        fi
+        echo ""
+        echo "1. 查看状态"
+        echo "2. 查看封禁IP"
+        echo "3. 启动/配置Fail2ban"
+        echo "4. 停止Fail2ban"
+        echo "0. 返回"
+        reading "请选择: " fb_choice
+        case "$fb_choice" in
+        1)
+            echo "----------------------------------------"
+            echo "状态：运行中"
+            jail_count=$(fail2ban-client status 2>/dev/null | grep "Number of jail" | awk '{print $4}')
+            jail_list=$(fail2ban-client status 2>/dev/null | grep "Jail list" | cut -d: -f2)
+            echo "|- 监控项数量：${jail_count:-0}"
+            echo "\`- 监控列表：${jail_list:-无}"
+            echo "----------------------------------------"
+            read -p "按回车继续..."
+            ;;
+        2)
+            read -p "请输入要查看的监控项名称（默认 sshd）： " jail_name
+            jail_name=${jail_name:-sshd}
+            echo "----------------------------------------"
+            fail2ban-client status "$jail_name" 2>/dev/null | sed \
+                -e "s/Status for the jail/监控项状态/g" \
+                -e "s/|- Filter/|- 过滤器/g" \
+                -e "s/|- Actions/|- 动作/g" \
+                -e "s/\`- Banned IP list/\`- 已封禁 IP 列表/g"
+            echo "----------------------------------------"
+            read -p "按回车继续..."
+            ;;
+        3)
+            ssh_port=$(grep -E "^Port[[:space:]]+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | tail -n1)
+            [ -z "$ssh_port" ] && ssh_port=22
+            [ -f /etc/fail2ban/jail.local ] && cp /etc/fail2ban/jail.local /etc/fail2ban/jail.local.bak
+            cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+findtime = 10m
+maxretry = 3
+bantime = 7d
+
+[sshd]
+enabled = true
+port = $ssh_port
+filter = sshd
+backend = auto
+EOF
+
+            systemctl enable fail2ban 2>/dev/null
+            systemctl restart fail2ban 2>/dev/null
+            sleep 2
+            if systemctl is-active fail2ban >/dev/null 2>&1; then
+                green "Fail2ban 已启动"
+                green "SSH防护端口: $ssh_port"
+                green "规则: 10分钟失败3次，封禁7天"
+            else
+                red "Fail2ban 启动失败"
+                journalctl -u fail2ban -n 20 --no-pager
+            fi
+            read -p "按回车继续..."
+            ;;
+        4)
+            systemctl stop fail2ban 2>/dev/null
+            red "Fail2ban 已停止"
+            read -p "按回车继续..."
+            ;;
+        0)
+            break
+            ;;
+        *)
+            red "输入错误"
+            sleep 1
+            ;;
+        esac
+    done
+}
+
 # Iptables简单管理
 ipt_msg() { echo -e "${1}${2}\033[0m"; }
 
@@ -6821,8 +6930,6 @@ save_nft_rules() {
     echo "flush ruleset" > /etc/nftables.conf
     nft list ruleset 2>/dev/null | awk '/table inet port_manager/{p=1;next} /^table /{p=0} !p' >> /etc/nftables.conf
 }
-
-
 check_rule_files() {
     local conf="/etc/nftables.conf"
     if ! command -v nft &> /dev/null; then return; fi
@@ -6846,109 +6953,6 @@ table inet filter {
 EOF
         nft -f "$conf" 2>/dev/null
     fi
-}
-
-fail2ban_manage() {
-    while true; do
-        clear
-        echo "========== Fail2ban 管理 =========="
-        if ! command -v fail2ban-client >/dev/null 2>&1; then
-            red "Fail2ban 未安装"
-            read -p "是否安装 Fail2ban? [Y/n]: " yn
-            yn=${yn:-Y}
-            if [[ "$yn" =~ ^[Yy]$ ]]; then
-                if command -v apt >/dev/null 2>&1; then
-                    apt update
-                    apt install -y fail2ban
-                elif command -v apk >/dev/null 2>&1; then
-                    apk add fail2ban
-                elif command -v yum >/dev/null 2>&1; then
-                    yum install -y fail2ban
-                else
-                    red "不支持的系统"
-                    return
-                fi
-                systemctl enable fail2ban 2>/dev/null
-                green "Fail2ban 安装完成"
-            else
-                return
-            fi
-        fi
-        echo ""
-        if systemctl is-active fail2ban >/dev/null 2>&1; then
-            green "Fail2ban 状态: 运行中"
-        else
-            red "Fail2ban 状态: 未运行"
-        fi
-        echo ""
-        echo "1. 查看状态"
-        echo "2. 查看封禁IP"
-        echo "3. 启动Fail2ban"
-        echo "4. 停止Fail2ban"
-        echo "0. 返回"
-        reading "请选择: " fb_choice
-        case "$fb_choice" in
-    1)
-    echo "状态：运行中"
-    jail_count=$(fail2ban-client status 2>/dev/null | grep "Number of jail" | awk '{print $4}')
-    jail_list=$(fail2ban-client status 2>/dev/null | grep "Jail list" | cut -d: -f2)
-    echo "|- 监控项数量：${jail_count:-0}"
-    echo "\`- 监控列表：${jail_list:-无}"
-    ;;
-    2)
-    read -p "请输入要查看的监控项名称（默认 sshd）： " jail_name
-    jail_name=${jail_name:-sshd}
-    echo "----------------------------------------"
-    fail2ban-client status "$jail_name" 2>/dev/null | sed \
-        -e "s/Status for the jail/监控项状态/g" \
-        -e "s/|- Filter/|- 过滤器/g" \
-        -e "s/|- Actions/|- 动作/g" \
-        -e "s/\`- Banned IP list/\`- 已封禁 IP 列表/g"
-    echo "----------------------------------------"
-    ;;
-        3)
-    ssh_port=$(grep -E "^Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | tail -n1)
-    [ -z "$ssh_port" ] && ssh_port=22
-    cat > /etc/fail2ban/jail.local <<EOF
-[DEFAULT]
-findtime = 10m
-maxretry = 3
-bantime = 7d
-
-[sshd]
-enabled = true
-port = $ssh_port
-filter = sshd
-backend = systemd
-EOF
-
-    systemctl enable fail2ban 2>/dev/null
-    systemctl restart fail2ban 2>/dev/null
-    sleep 2
-    if systemctl is-active fail2ban >/dev/null 2>&1; then
-        green "Fail2ban 已启动"
-        green "SSH防护端口: $ssh_port"
-        green "规则: 10分钟失败3次，封禁7天"
-    else
-        red "Fail2ban 启动失败"
-        journalctl -u fail2ban -n 20 --no-pager
-    fi
-    read -p "按回车继续..."
-    ;;
-        4)
-            systemctl stop fail2ban 2>/dev/null
-            red "Fail2ban 已停止"
-            read -p "按回车继续..."
-            ;;
-        0)
-            break
-            ;;
-        *)
-            red "输入错误"
-            sleep 1
-            ;;
-        esac
-    done
 }
 iptables_ssl() {
     check_and_install_nftables
