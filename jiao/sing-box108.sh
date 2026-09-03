@@ -6857,7 +6857,6 @@ fail2ban_manage() {
         case "$fb_choice" in
         1)
             echo "----------------------------------------"
-            echo "状态：运行中"
             jail_count=$(fail2ban-client status 2>/dev/null | grep "Number of jail" | awk '{print $4}')
             jail_list=$(fail2ban-client status 2>/dev/null | grep "Jail list" | cut -d: -f2)
             echo "|- 监控项数量：${jail_count:-0}"
