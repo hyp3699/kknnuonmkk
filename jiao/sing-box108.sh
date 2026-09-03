@@ -9154,11 +9154,11 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "2. 卸载sing-box" "$red" "11. 更新脚本" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. iptables" "$re"
    printf "%b%-30s%b%s%b\n" "$green" "4. Argo隧道管理" "$red" "13. 快捷指令" "$re"
-   printf "%b%-28s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
-   printf "%b%-28s%b%s%b\n" "$green" "6. 修改节点配置" "$red" "15. WARP分流管理" "$re"
-   printf "%b%-28s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. xray管理" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "6. 修改节点配置" "$red" "15. WARP分流管理" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. xray管理" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
-   printf "%b%-28s%b%s%b\n" "$green" "9. 添加删除节点" "$red" "0. 退出脚本" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点" "$red" "0. 退出脚本" "$re"
    reading "请输入选择(0-98): " choice
    echo ""
 }
