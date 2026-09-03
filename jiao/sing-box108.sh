@@ -6888,14 +6888,24 @@ fail2ban_manage() {
         echo "0. 返回"
         reading "请选择: " fb_choice
         case "$fb_choice" in
-        1)
-            fail2ban-client status
-            read -p "按回车继续..."
-            ;;
-        2)
-            fail2ban-client status sshd
-            read -p "按回车继续..."
-            ;;
+    1)
+    echo "状态：运行中"
+    jail_count=$(fail2ban-client status 2>/dev/null | grep "Number of jail" | awk '{print $4}')
+    jail_list=$(fail2ban-client status 2>/dev/null | grep "Jail list" | cut -d: -f2)
+    echo "|- 监控项数量：${jail_count:-0}"
+    echo "\`- 监控列表：${jail_list:-无}"
+    ;;
+    2)
+    read -p "请输入要查看的监控项名称（默认 sshd）： " jail_name
+    jail_name=${jail_name:-sshd}
+    echo "----------------------------------------"
+    fail2ban-client status "$jail_name" 2>/dev/null | sed \
+        -e "s/Status for the jail/监控项状态/g" \
+        -e "s/|- Filter/|- 过滤器/g" \
+        -e "s/|- Actions/|- 动作/g" \
+        -e "s/\`- Banned IP list/\`- 已封禁 IP 列表/g"
+    echo "----------------------------------------"
+    ;;
         3)
     ssh_port=$(grep -E "^Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | tail -n1)
     [ -z "$ssh_port" ] && ssh_port=22
