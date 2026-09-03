@@ -7652,6 +7652,7 @@ SRVEOF
                 sleep 2 && iptables_ssl
             fi
             ;;
+		11) fail2ban_manage ;;
         0) menu ;;
         *) iptables_ssl ;;
     esac
