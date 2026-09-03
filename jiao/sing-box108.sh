@@ -6897,7 +6897,9 @@ fail2ban_manage() {
             read -p "按回车继续..."
             ;;
         3)
-            cat > /etc/fail2ban/jail.local <<EOF
+    ssh_port=$(grep -E "^Port[[:space:]]+" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | tail -n1)
+    [ -z "$ssh_port" ] && ssh_port=22
+    cat > /etc/fail2ban/jail.local <<EOF
 [DEFAULT]
 findtime = 10m
 maxretry = 3
@@ -6905,17 +6907,24 @@ bantime = 7d
 
 [sshd]
 enabled = true
-port = 22
+port = $ssh_port
 filter = sshd
-logpath = %(sshd_log)s
+backend = systemd
 EOF
 
-            systemctl enable fail2ban 2>/dev/null
-            systemctl restart fail2ban 2>/dev/null
-            green "Fail2ban 已启动"
-            green "SSH防护: 10分钟失败3次，封禁7天"
-            read -p "按回车继续..."
-            ;;
+    systemctl enable fail2ban 2>/dev/null
+    systemctl restart fail2ban 2>/dev/null
+    sleep 2
+    if systemctl is-active fail2ban >/dev/null 2>&1; then
+        green "Fail2ban 已启动"
+        green "SSH防护端口: $ssh_port"
+        green "规则: 10分钟失败3次，封禁7天"
+    else
+        red "Fail2ban 启动失败"
+        journalctl -u fail2ban -n 20 --no-pager
+    fi
+    read -p "按回车继续..."
+    ;;
         4)
             systemctl stop fail2ban 2>/dev/null
             red "Fail2ban 已停止"
