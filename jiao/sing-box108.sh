@@ -9157,17 +9157,17 @@ menu() {
    printf "${green}%-25s${red}%-25s${re}\n" \
    "3. sing-box管理" "12. iptables"
    printf "${green}%-25s${red}%-25s${re}\n" \
-   "4. Argo隧道管理" "13. 快捷指令"
+   "4. Argo隧道管理"  "13. 快捷指令"
    printf "${green}%-25s${red}%-25s${re}\n" \
-   "5. 查看节点信息" "14. 本机信息"
+   "5. 查看节点信息"   "14. 本机信息"
    printf "${green}%-25s${red}%-25s${re}\n" \
-   "6. 修改节点配置" "15. WARP分流管理"
+   "6. 修改节点配置"   "15. WARP分流管理"
    printf "${green}%-25s${red}%-25s${re}\n" \
-   "7. 管理节点订阅" "16. xray管理"
+   "7. 管理节点订阅"   "16. xray管理"
    printf "${green}%-25s${red}%-25s${re}\n" \
    "8. 更新sing-box" "17. token"
    printf "${green}%-25s${red}%-25s${re}\n" \
-   "9. 添加删除节点" "0. 退出脚本"
+   "9. 添加删除节点"   "0. 退出脚本"
    reading "请输入选择(0-98): " choice
    echo ""
 }
