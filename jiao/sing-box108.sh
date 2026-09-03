@@ -6877,10 +6877,14 @@ fail2ban_manage() {
             echo "----------------------------------------"
             read -p "按回车继续..."
             ;;
-        3)
+           3)
             ssh_port=$(grep -E "^Port[[:space:]]+" /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | awk '{print $2}' | tail -n1)
             [ -z "$ssh_port" ] && ssh_port=22
-            [ -f /etc/fail2ban/jail.local ] && cp /etc/fail2ban/jail.local /etc/fail2ban/jail.local.bak
+            if command -v apt >/dev/null 2>&1; then
+                apt install -y python3-systemd >/dev/null 2>&1
+            elif command -v yum >/dev/null 2>&1; then
+                yum install -y python3-systemd >/dev/null 2>&1
+            fi
             cat > /etc/fail2ban/jail.local <<EOF
 [DEFAULT]
 findtime = 10m
@@ -6891,7 +6895,7 @@ bantime = 7d
 enabled = true
 port = $ssh_port
 filter = sshd
-backend = auto
+backend = systemd
 EOF
 
             systemctl enable fail2ban 2>/dev/null
