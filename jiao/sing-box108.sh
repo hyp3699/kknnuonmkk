@@ -579,62 +579,7 @@ set_domain_origin_port() {
     fi
     return 1
 }
-#https://dash.cloudflare.com/ api调用次数显示
-cf_curl() {
-    local tmp_header="/tmp/cf_headers"
 
-    rm -f "$tmp_header"
-
-    curl -sS \
-        -D "$tmp_header" \
-        "$@"
-
-    if [[ ! -f "$tmp_header" ]]; then
-        return 0
-    fi
-
-    local remain
-    local reset
-
-    # Cloudflare 常见限额头
-    remain=$(grep -i "^x-ratelimit-remaining:" "$tmp_header" | awk '{print $2}' | tr -d '\r')
-
-    reset=$(grep -i "^x-ratelimit-reset:" "$tmp_header" | awk '{print $2}' | tr -d '\r')
-
-
-    # 部分 API 使用 Ratelimit 格式
-    if [[ -z "$remain" ]]; then
-        local rate
-        rate=$(grep -i "^ratelimit:" "$tmp_header")
-
-        if [[ -n "$rate" ]]; then
-            remain=$(echo "$rate" | grep -o 'r=[0-9]*' | cut -d= -f2)
-
-            local window
-            window=$(echo "$rate" | grep -o 'w=[0-9]*' | cut -d= -f2)
-
-            if [[ -n "$window" ]]; then
-                reset=$(($(date +%s) + window))
-            fi
-        fi
-    fi
-
-
-    if [[ -n "$remain" ]]; then
-        skyblue "Cloudflare API 剩余调用: ${remain} 次"
-    fi
-
-    if [[ -n "$reset" ]]; then
-        local reset_time
-        reset_time=$(date -d "@$reset" "+%Y-%m-%d %H:%M:%S" 2>/dev/null)
-
-        if [[ -n "$reset_time" ]]; then
-            skyblue "API 重置时间: $reset_time"
-        fi
-    fi
-
-    return 0
-}
 #手动添加回源规则
 cf_add_origin_rule_menu() {
     local port prefix ssl_choice ssl_mode full_domain existing kept new_rule merged server_ip
@@ -2267,7 +2212,7 @@ issue_cf_origin_ca() {
     local result
     if [[ "$CF_AUTH_TYPE" == "token" ]]; then
 
-    result=$(cf_curl \
+    result=$(curl -sS \
     -X POST \
     "https://api.cloudflare.com/client/v4/certificates" \
     -H "Authorization: Bearer $CF_TOKEN" \
@@ -2279,7 +2224,7 @@ issue_cf_origin_ca() {
         \"csr\":\"${csr}\"
     }")
     elif [[ "$CF_AUTH_TYPE" == "global" ]]; then
-    result=$(cf_curl \
+    result=$(curl -sS \
     -X POST \
     "https://api.cloudflare.com/client/v4/certificates" \
     -H "X-Auth-Email: $CF_EMAIL" \
