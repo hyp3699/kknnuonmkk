@@ -9150,29 +9150,24 @@ menu() {
    printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
-   green "1. 安装sing-box"
-   red "2. 卸载sing-box"
-   echo "==============="
-   green "3. sing-box管理"
-   green "4. Argo隧道管理"
-   echo  "==============="
-   green  "5. 查看节点信息"
-   green  "6. 修改节点配置"
-   green  "7. 管理节点订阅"
-   green  "8. 更新sing-box"
-   green  "9. 添加删除节点"
-   green  "10. 开启BBR"
-   echo  "==============="
-   red    "11. 更新脚本"
-   red    "12. iptables"
-   red    "13. 快捷指令"
-   red    "14. 本机信息"
-   red    "15. WARP分流管理"
-   red    "16. xray管理"
-   red    "17. token"
-   echo  "==============="
-   red "0. 退出脚本"
-   echo "==========="
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "1. 安装sing-box" "10. 开启BBR"
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "2. 卸载sing-box" "11. 更新脚本"
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "3. sing-box管理" "12. iptables"
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "4. Argo隧道管理" "13. 快捷指令"
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "5. 查看节点信息" "14. 本机信息"
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "6. 修改节点配置" "15. WARP分流管理"
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "7. 管理节点订阅" "16. xray管理"
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "8. 更新sing-box" "17. token"
+   printf "${green}%-25s${red}%-25s${re}\n" \
+   "9. 添加删除节点" "0. 退出脚本"
    reading "请输入选择(0-98): " choice
    echo ""
 }
