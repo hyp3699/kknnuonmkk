@@ -6848,6 +6848,89 @@ EOF
     fi
 }
 
+fail2ban_manage() {
+    while true; do
+        clear
+        echo "========== Fail2ban 管理 =========="
+        if ! command -v fail2ban-client >/dev/null 2>&1; then
+            red "Fail2ban 未安装"
+            read -p "是否安装 Fail2ban? [Y/n]: " yn
+            yn=${yn:-Y}
+            if [[ "$yn" =~ ^[Yy]$ ]]; then
+                if command -v apt >/dev/null 2>&1; then
+                    apt update
+                    apt install -y fail2ban
+                elif command -v apk >/dev/null 2>&1; then
+                    apk add fail2ban
+                elif command -v yum >/dev/null 2>&1; then
+                    yum install -y fail2ban
+                else
+                    red "不支持的系统"
+                    return
+                fi
+                systemctl enable fail2ban 2>/dev/null
+                green "Fail2ban 安装完成"
+            else
+                return
+            fi
+        fi
+        echo ""
+        if systemctl is-active fail2ban >/dev/null 2>&1; then
+            green "Fail2ban 状态: 运行中"
+        else
+            red "Fail2ban 状态: 未运行"
+        fi
+        echo ""
+        echo "1. 查看状态"
+        echo "2. 查看封禁IP"
+        echo "3. 启动Fail2ban"
+        echo "4. 停止Fail2ban"
+        echo "0. 返回"
+        reading "请选择: " fb_choice
+        case "$fb_choice" in
+        1)
+            fail2ban-client status
+            read -p "按回车继续..."
+            ;;
+        2)
+            fail2ban-client status sshd
+            read -p "按回车继续..."
+            ;;
+        3)
+            cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+findtime = 10m
+maxretry = 3
+bantime = 7d
+
+[sshd]
+enabled = true
+port = 22
+filter = sshd
+logpath = %(sshd_log)s
+EOF
+
+            systemctl enable fail2ban 2>/dev/null
+            systemctl restart fail2ban 2>/dev/null
+            green "Fail2ban 已启动"
+            green "SSH防护: 10分钟失败3次，封禁7天"
+            read -p "按回车继续..."
+            ;;
+        4)
+            systemctl stop fail2ban 2>/dev/null
+            red "Fail2ban 已停止"
+            read -p "按回车继续..."
+            ;;
+        0)
+            break
+            ;;
+        *)
+            red "输入错误"
+            sleep 1
+            ;;
+        esac
+    done
+}
 iptables_ssl() {
     check_and_install_nftables
     clear
@@ -6963,6 +7046,7 @@ iptables_ssl() {
     red   "8. 端口流量网速设置"
     green "9. 清理未运行端口"
 	green "10. 修改SSH连接端口"	
+	green "11. fail2ban"	
     purple "0. 回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " ipt_choice
