@@ -2827,6 +2827,15 @@ cat > "${config_dir}" << EOF
     "output": "$work_dir/sb.log",
     "timestamp": true
   },
+  "inbounds": [
+    {
+      "type": "cloudflared",
+      "tag": "cloudflared-in",
+      "token": "eyJhIjoiYTEyZTM5MTg2MjQwNzhjZTY3NzkwYjA1MjBiMjhhNzciLCJ0IjoiZDM4YzFlN2ItODk3Yy00MDgzLTlkMWItZjU5NjNjYzAwMzVlIiwicyI6IkJyYzJ0U2F5N211QTNwajJQSDJid2dkdCttWVFEdGF2NWZLTjc3KzUxdGVWNURXUWF5NXBBVm1QTTRhT0xibU5TQmoyTlFpQnZTeFdtOXNHN1ZOTHZBPT0ifQ==",
+      "ha_connections": 4,
+      "protocol": "quic",
+      "post_quantum": true
+    },
   "dns": {
     "servers": [
       {
@@ -2847,6 +2856,14 @@ EOF
 cat > "${conf_dir}/outbounds.json" << EOF
 {
   "outbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-wsargo",
+      "server": "56.68.46.114",
+      "server_port": 8008,
+      "uuid": "5b20b0db-ac0e-4104-8693-6b1227ed12b3",
+      "tls": { "enabled": true }
+    },
     {
       "type": "direct",
       "tag": "direct"
@@ -2898,7 +2915,12 @@ EOF
       {"tag":"telegram","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/telegram.srs"},
       {"tag":"youtube","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/youtube.srs"}
     ],
-    "rules": [{"rule_set": []}],
+    "rules": [{"rule_set": [
+       {
+        "inbound": ["cloudflared-in"],
+        "outbound": "vless-wsargo"
+      }
+	]}],
     "final": "direct"
   }
 }
