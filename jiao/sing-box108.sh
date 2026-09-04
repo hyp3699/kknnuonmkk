@@ -2867,7 +2867,7 @@ cat > "${conf_dir}/inbounds.json" << EOF
 	    {
       "type": "cloudflared",
       "tag": "cloudflared-in",
-      "token": "eyJhIjoiYTEyZTM5MTg2MjQwNzhjZTY3NzkwYjA1MjBiMjhhNzciLCJ0IjoiNWQ3Mjg2NmItNDg5MS00OTA1LTgwZWUtZmFmM2IwZDZiYTgyIiwicyI6Ill6Y3hNelkzTTJVdFlXRmpZUzAwWmpCaExUa3daVGN0TmpReVpUSmhaRE5oTWpJeSJ9",
+      "token": "eyJhIjoiYTEyZTM5MTg2MjQwNzhjZTY3NzkwYjA1MjBiMjhhNzciLCJ0IjoiZDM4YzFlN2ItODk3Yy00MDgzLTlkMWItZjU5NjNjYzAwMzVlIiwicyI6IkJyYzJ0U2F5N211QTNwajJQSDJid2dkdCttWVFEdGF2NWZLTjc3KzUxdGVWNURXUWF5NXBBVm1QTTRhT0xibU5TQmoyTlFpQnZTeFdtOXNHN1ZOTHZBPT0ifQ==",
       "ha_connections": 4,
       "protocol": "http2",
       "post_quantum": false
