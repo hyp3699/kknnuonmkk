@@ -8967,7 +8967,12 @@ add_socks5_proxy() {
     clear
     green "=== 添加 Socks5/HTTP 代理出站 ==="
     reading "请输入代理URL (支持 socks://, socks5://, http:// 以及包含 #别名 的链接): " proxy_url
-    [ -z "$proxy_url" ] && { red "输入为空！"; sleep 1; warp_manage; return; }
+    [ -z "$proxy_url" ] && {
+        red "输入为空！"
+        sleep 1
+        warp_manage
+        return
+    }
     proto=$(echo "$proxy_url" | grep -oP '^[a-zA-Z0-9]+(?=://)')
     [[ ! "$proto" =~ ^(socks5|socks|http)$ ]] && {
         red "不支持的协议！仅支持 socks5/socks/http"
@@ -8976,8 +8981,12 @@ add_socks5_proxy() {
         return
     }
     case "$proto" in
-        socks|socks5) outbound_type="socks" ;;
-        http)         outbound_type="http" ;;
+        socks|socks5)
+            outbound_type="socks"
+            ;;
+        http)
+            outbound_type="http"
+            ;;
     esac
     after_proto="${proxy_url#*://}"
     if [[ "$after_proto" == *"#"* ]]; then
@@ -8996,40 +9005,65 @@ add_socks5_proxy() {
     fi
     user=""
     password=""
+
     if [ -n "$user_pass" ]; then
         decoded=$(echo "$user_pass" | base64 -d 2>/dev/null)
-        if [ -n "$decoded" ] && [[ "$decoded" != "$user_pass" ]] && [[ "$decoded" == *":"* ]]; then
+
+        if [ -n "$decoded" ] &&
+           [[ "$decoded" != "$user_pass" ]] &&
+           [[ "$decoded" == *":"* ]]; then
+
             user="${decoded%%:*}"
             password="${decoded#*:}"
+
         elif [[ "$user_pass" == *":"* ]]; then
+
             user="${user_pass%%:*}"
             password="${user_pass#*:}"
+
         else
             user="$user_pass"
         fi
     fi
     server="${host_port%%:*}"
     port="${host_port##*:}"
+
     [ -z "$server" ] || [ -z "$port" ] && {
         red "格式错误：缺少 IP 或端口！"
         sleep 2
         warp_manage
         return
     }
+    # socks / socks5 统一为 socks5
     [[ "$proto" == "socks" || "$proto" == "socks5" ]] && \
         check_proto="socks5" || \
         check_proto="$proto"
     local proxy_auth=""
-    [ -n "$user" ] && [ -n "$password" ] && \
-        proxy_auth="${user}:${password}@" || \
-        { [ -n "$user" ] && proxy_auth="${user}@"; }
+    if [ -n "$user" ] && [ -n "$password" ]; then
+        proxy_auth="${user}:${password}@"
+    elif [ -n "$user" ]; then
+        proxy_auth="${user}@"
+    fi
+    local scheme="socks5h"
+    [ "$outbound_type" == "http" ] && scheme="http"
+    local proxy_url_test="${scheme}://${proxy_auth}${server}:${port}"
     yellow "正在测试代理 ${check_proto}://${server}:${port} ..."
-    local curl_proxy_url="${check_proto}://${proxy_auth}${server}:${port}"
-    local test_result
-    test_result=$(curl -s --max-time 8 \
-        --proxy "$curl_proxy_url" \
-        "https://api.ip.sb/ip" 2>/dev/null)
-    if [ -z "$test_result" ]; then
+    local curl_out
+    local http_code
+    local time_total
+    curl_out=$(curl -m 5 -s -o /dev/null \
+        -w "%{http_code}|%{time_total}" \
+        -x "$proxy_url_test" \
+        "https://www.gstatic.com/generate_204" 2>/dev/null)
+    http_code=$(echo "$curl_out" | cut -d'|' -f1)
+    time_total=$(echo "$curl_out" | cut -d'|' -f2)
+    if [ "$http_code" == "204" ] || [ "$http_code" == "200" ]; then
+        local ms_delay
+        ms_delay=$(awk -v t="$time_total" 'BEGIN{printf "%.0f", t * 1000}')
+        green "代理验证成功！"
+        green "延迟: ${ms_delay} ms"
+
+    else
         yellow "代理测试失败！"
         reading "是否仍然强制添加此代理？(y/n): " force_add
         [[ ! "$force_add" =~ ^[yY]$ ]] && {
@@ -9038,14 +9072,12 @@ add_socks5_proxy() {
             warp_manage
             return
         }
-    else
-        green "代理验证成功！"
-        green "出口 IP: $test_result"
     fi
-    [ -n "$tag_from_url" ] && tag="$tag_from_url" || tag="${check_proto}-${server}"
+    tag="${check_proto}-${server}"
     local base_tag="$tag"
     local count=1
-    while jq -e --arg t "$tag" '.outbounds[] | select(.tag == $t)' \
+    while jq -e --arg t "$tag" \
+        '.outbounds[] | select(.tag == $t)' \
         "$outbound_file" >/dev/null 2>&1; do
         tag="${base_tag}_${count}"
         ((count++))
@@ -9061,12 +9093,12 @@ add_socks5_proxy() {
            --arg user "$user" \
            --arg password "$password" \
            '.outbounds += [{
-               "type":$type,
-               "tag":$tag,
-               "server":$server,
-               "server_port":($port|tonumber),
-               "username":$user,
-               "password":$password
+               "type": $type,
+               "tag": $tag,
+               "server": $server,
+               "server_port": ($port | tonumber),
+               "username": $user,
+               "password": $password
            }]' \
            "$outbound_file" > "${outbound_file}.tmp" && \
            mv "${outbound_file}.tmp" "$outbound_file"
@@ -9076,13 +9108,14 @@ add_socks5_proxy() {
            --arg server "$server" \
            --arg port "$port" \
            '.outbounds += [{
-               "type":$type,
-               "tag":$tag,
-               "server":$server,
-               "server_port":($port|tonumber)
+               "type": $type,
+               "tag": $tag,
+               "server": $server,
+               "server_port": ($port | tonumber)
            }]' \
            "$outbound_file" > "${outbound_file}.tmp" && \
            mv "${outbound_file}.tmp" "$outbound_file"
+
     fi
     restart_singbox
     green "\n代理出站 '${tag}' 已成功添加！"
