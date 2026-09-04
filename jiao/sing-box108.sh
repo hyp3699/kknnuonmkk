@@ -154,11 +154,6 @@ check_singbox() {
     check_service "sing-box" "${work_dir}/${server_name}"
 }
 
-# 检查argo状态
-check_argo() {
-    check_service "argo" "${work_dir}/argo"
-}
-
 # 检查nginx状态
 check_nginx() {
     command_exists nginx || { red "not installed"; return 2; }
@@ -2807,9 +2802,6 @@ TAR="sing-box-${latest_version}-linux-${ARCH}-${LIBC}.tar.gz"
 URL="https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/${TAR}"
 curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$work_dir" && mv "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}/sing-box" "${work_dir}/sing-box" && chmod +x "${work_dir}/sing-box" && rm -rf "${work_dir}/${TAR}" "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}"
        
-    CF_ARCH=$(uname -m); case "$CF_ARCH" in x86_64) CF_ARCH=amd64;; aarch64|arm64) CF_ARCH=arm64;; armv7l) CF_ARCH=armv7;; i386|i686) CF_ARCH=386;; esac
-    curl -sLo "${work_dir}/argo" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
-  
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
     
     # 放行端口
@@ -2872,6 +2864,14 @@ EOF
 cat > "${conf_dir}/inbounds.json" << EOF
 {
     "inbounds": [
+	    {
+      "type": "cloudflared",
+      "tag": "cloudflared-in",
+      "token": "eyJhIjoiYTEyZTM5MTg2MjQwNzhjZTY3NzkwYjA1MjBiMjhhNzciLCJ0IjoiNWQ3Mjg2NmItNDg5MS00OTA1LTgwZWUtZmFmM2IwZDZiYTgyIiwicyI6Ill6Y3hNelkzTTJVdFlXRmpZUzAwWmpCaExUa3daVGN0TmpReVpUSmhaRE5oTWpJeSJ9",
+      "ha_connections": 4,
+      "protocol": "http2",
+      "post_quantum": false
+        },
         {
             "type": "vmess",
             "tag": "vmess-ws-argo",
@@ -2993,22 +2993,6 @@ LimitNOFILE=infinity
 WantedBy=multi-user.target
 EOF
 
-    cat > /etc/systemd/system/argo.service << EOF
-[Unit]
-Description=Cloudflare Tunnel
-After=network.target
-
-[Service]
-Type=simple
-NoNewPrivileges=yes
-TimeoutStartSec=0
-ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --url http://localhost:8001 --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/sing-box/argo.log 2>&1"
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-EOF
     if [ -f /etc/centos-release ]; then
         yum install -y chrony
         systemctl start chronyd
@@ -3020,8 +3004,6 @@ EOF
     systemctl daemon-reload 
     systemctl enable sing-box
     systemctl start sing-box
-    systemctl enable argo
-    systemctl start argo
 }
 
 # 创建快捷指令（自动下载脚本到本地保存）
@@ -3060,69 +3042,10 @@ command_background=true
 pidfile="/var/run/sing-box.pid"
 EOF
 
-    cat > /etc/init.d/argo << 'EOF'
-#!/sbin/openrc-run
-
-description="Cloudflare Tunnel"
-command="/bin/sh"
-command_args="-c '/etc/sing-box/argo tunnel --url http://localhost:8001 --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/sing-box/argo.log 2>&1'"
-command_background=true
-pidfile="/var/run/argo.pid"
-EOF
-
     chmod +x /etc/init.d/sing-box
-    chmod +x /etc/init.d/argo
-
     rc-update add sing-box default > /dev/null 2>&1
-    rc-update add argo default > /dev/null 2>&1
-
 }
 
-# 生成节点和订阅链接
-get_info() {  
-  yellow "\nip检测中,请稍等...\n"
-  server_ip=$(get_realip)
-  local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
-      isp=$(printf $(echo "$cc" | awk '{
-          chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-          i1 = index(chars, substr($0, 1, 1))
-          i2 = index(chars, substr($0, 2, 1))
-          printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
-      }'))
-  else
-      isp="🌐" 
-  fi
-  clear
-  if [ -f "${work_dir}/argo.log" ]; then
-      for i in {1..5}; do
-          purple "第 $i 次尝试获取ArgoDoamin中..."
-          argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log")
-          [ -n "$argodomain" ] && break
-          sleep 2
-      done
-  else
-      restart_argo
-      sleep 6
-      argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log")
-  fi
-
-  green "\nArgoDomain：${purple}$argodomain${re}\n"
-
-  VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${argodomain}\", \"path\": \"/asasbsbs-vmess?ed=2048\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
-    
-  cat > ${work_dir}/url.txt <<EOF
-vmess://$(echo "$VMESS"| base64 -w0)
-
-EOF
-echo ""
-while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
-base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
-chmod 644 ${work_dir}/sub.txt
-yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验证"，或将节点的Insecure或TLS里设置为"true"\n"
-green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接：http://${server_ip}:${nginx_port}/${password}\n"
-}
 
 # nginx订阅配置
 add_nginx_conf() {
@@ -9405,14 +9328,14 @@ while true; do
                     alpine_openrc_services
                     change_hosts
                     rc-service sing-box restart
-                    rc-service argo restart
+                    
                 else
                     echo "Unsupported init system"
                     exit 1 
                 fi
 
                 sleep 5
-                get_info
+                
                 add_nginx_conf
 				create_shortcut
             fi
