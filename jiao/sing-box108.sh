@@ -1029,19 +1029,21 @@ cf_add_tunnel_route() {
         red "端口无效！"
         return 1
     fi
-    if [[ ! -f "/etc/systemd/system/argo.service" ]]; then
-        red "未找到 argo.service！"
-        return 1
+    if [[ ! -f "/etc/sing-box/conf/cloudflared.json" ]]; then
+    red "未找到 /etc/sing-box/conf/cloudflared.json！"
+    red "请先创建 Cloudflare Tunnel！"
+    return 1
     fi
-    token=$(grep -oP -- '--token \K[^ ]+' /etc/systemd/system/argo.service | head -n1)
+    token=$(jq -r '.inbounds[]? | select(.type == "cloudflared") | .token // empty' \
+    /etc/sing-box/conf/cloudflared.json | head -n1)
     if [[ -z "$token" ]]; then
-        red "无法获取 Tunnel Token！"
-        return 1
+    red "无法从 cloudflared.json 获取 Tunnel Token！"
+    return 1
     fi
     tunnel_id=$(echo "$token" | base64 -d 2>/dev/null | jq -r '.t // empty' 2>/dev/null)
     if [[ -z "$tunnel_id" ]]; then
-        red "无法获取 Tunnel ID！"
-        return 1
+    red "无法获取 Tunnel ID！"
+    return 1
     fi
     tunnel_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
     if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
@@ -2816,29 +2818,6 @@ cat > "${conf_dir}/outbounds.json" << EOF
   ]
 }
 EOF
-cat > "${conf_dir}/inbounds.json" << EOF
-{
-    "inbounds": [
-        {
-            "type": "vmess",
-            "tag": "vmess-ws-argo",
-            "listen": "::",
-            "listen_port": 8001,
-            "users": [
-                {
-                    "uuid": "$uuid"
-                }
-            ],
-            "transport": {
-                "type": "ws",
-                "path": "/asasbsbs-vmess",
-				"max_early_data": 2048,
-                "early_data_header_name": "Sec-WebSocket-Protocol"
-            }
-        }
-    ]
-}
-EOF
     cat > "${conf_dir}/endpoints.json" << EOF
 {
   "endpoints": [
@@ -2864,7 +2843,6 @@ EOF
   ]
 }
 EOF
-
     cat > "${conf_dir}/route.json" << EOF
 {
   "route": {
@@ -7729,12 +7707,11 @@ while true; do
     echo -e "${skyblue}        Cloudflare ${re}"
     echo -e "${skyblue}==========================================${re}"
     green "1. 查看隧道"
-    green "2. 添加固定隧道"
-    green "3. 添加隧道路由"
-    green "4. 添加dns解析"
-    green "5. 删除dns解析"
-    green "6. 新建回源规则"
-    green "7. 删除回源规则"
+    green "2. 添加隧道路由"
+    green "3. 添加dns解析"
+    green "4. 删除dns解析"
+    green "5. 新建回源规则"
+    green "6. 删除回源规则"
     echo -e "  ${red}0)${re} 返回"
     echo -e "${skyblue}==========================================${re}"
     local cf_tunnel_choice
@@ -7752,33 +7729,9 @@ while true; do
             clear
             ;;
         2)
-            clear
-            if ! cf_create_tunnel; then
-                red "Cloudflare Tunnel 创建失败！"
-                echo
-                reading "按回车返回..." _
-                clear
-                continue
-            fi
-            if [[ -z "${argo_auth:-}" || -z "${ArgoDomain:-}" ]]; then
-                red "Tunnel Token 或域名获取失败！"
-                echo
-                reading "按回车返回..." _
-                clear
-                continue
-            fi
-            green "Cloudflare Tunnel 创建成功！"
-            green "Tunnel 域名: $ArgoDomain"
-            green "sing-box cloudflared 入站配置已生成"
-            systemctl restart sing-box &>/dev/null
-            echo
-            reading "按回车返回..." _
-            clear
-            ;;
-        3)
             cf_add_tunnel_route
             ;;
-        4)
+        3)
             cf_auth_token || return 1
             cf_select_zone || return 1
             local subdomain domain raw_ip server_ip
@@ -7797,20 +7750,20 @@ while true; do
             green "DNS 解析添加成功"
             green "$domain → $raw_ip"
             ;;
-        5)
+        4)
             while true; do
                 cf_select_zone || break
                 cf_select_dns_record_menu
             done
             ;;
-        6)
+        5)
             clear
             cf_add_origin_rule_menu
             echo
             reading "按回车返回..." _
             clear
             ;;
-        7)
+        6)
             clear
             cf_delete_origin_rule_menu
             echo
