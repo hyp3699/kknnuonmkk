@@ -8695,37 +8695,23 @@ select_outbound_target() {
 # 选择规则生效的节点 (入站 Inbound)
 select_inbound_target() {
     echo ""
-    green "第一步：请选择该规则要生效的节点 (必须选择)"
-
+    green "第一步：请选择该规则要生效的节点"
     local idx=1
     in_tags=()
-
-    # 【优化项】动态扫描所有 conf 目录下的 json 文件，提取 inbounds 里面的 tag
-    # 使用 sort -u 去重，排除可能是 null 的异常数据
     local available_tags=($(jq -r '.inbounds[]?.tag // empty' /etc/sing-box/conf/*.json 2>/dev/null | sort -u))
-
-    # 检查是否扫描到了入站节点
     if [ ${#available_tags[@]} -eq 0 ]; then
         red "未在 /etc/sing-box/conf/ 目录下的配置中找到任何节点！"
         return 1
     fi
-
-    # 遍历打印所有扫描到的节点
     for tag in "${available_tags[@]}"; do
-        # 排除掉 sing-box 的内置基础入站 (可选项：如果不希望用户选 dns-in 这种，可以放开下面这行判断)
-        # if [[ "$tag" == "dns-in" || "$tag" == "mixed-in" ]]; then continue; fi
-        
+        # if [[ "$tag" == "dns-in" || "$tag" == "mixed-in" ]]; then continue; fi  
         echo -e "  ${green}${idx}.${re} ${tag}"
         in_tags+=("$tag")
         ((idx++))
     done
-
     echo ""
-    
-    # 【优化项】强制选择循环：必须输入正确的数字才放行
     while true; do
-        reading "请输入节点编号 (必须选择): " in_choice
-        
+        reading "请输入节点编号: " in_choice   
         if [[ "$in_choice" =~ ^[0-9]+$ ]] && [ "$in_choice" -ge 1 ] && [ "$in_choice" -le "${#in_tags[@]}" ]; then
             selected_inbound="${in_tags[$((in_choice-1))]}"
             selected_inbound_name="${selected_inbound}"
@@ -8734,11 +8720,8 @@ select_inbound_target() {
             red "输入无效，请重新输入正确的节点编号！"
         fi
     done
-
     return 0
 }
-
-
 
 add_rule_menu() {
     clear
