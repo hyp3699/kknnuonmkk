@@ -8968,14 +8968,12 @@ add_socks5_proxy() {
     green "=== 添加 Socks5/HTTP 代理出站 ==="
     reading "请输入代理URL (支持 socks://, socks5://, http:// 以及包含 #别名 的链接): " proxy_url
     [ -z "$proxy_url" ] && { red "输入为空！"; sleep 1; warp_manage; return; }
-
     proto=$(echo "$proxy_url" | grep -oP '^[a-zA-Z0-9]+(?=://)')
     [[ ! "$proto" =~ ^(socks5|socks|http)$ ]] && { red "不支持的协议！仅支持 socks5/socks/http"; sleep 2; warp_manage; return; }
     case "$proto" in
         socks|socks5) outbound_type="socks" ;;
         http)         outbound_type="http" ;;
     esac
-
     after_proto="${proxy_url#*://}"
     if [[ "$after_proto" == *"#"* ]]; then
         tag_from_url="${after_proto##*#}"
@@ -8984,13 +8982,11 @@ add_socks5_proxy() {
     else
         tag_from_url=""
     fi
-
     if [[ "$after_proto" == *"@"* ]]; then
         user_pass="${after_proto%%@*}"; host_port="${after_proto##*@}"
     else
         user_pass=""; host_port="$after_proto"
     fi
-
     user=""; password=""
     if [ -n "$user_pass" ]; then
         decoded=$(echo "$user_pass" | base64 -d 2>/dev/null)
@@ -9002,22 +8998,16 @@ add_socks5_proxy() {
             user="$user_pass"
         fi
     fi
-
     server="${host_port%%:*}"; port="${host_port##*:}"
     [ -z "$server" ] || [ -z "$port" ] && { red "格式错误：缺少 IP 或端口！"; sleep 2; warp_manage; return; }
-
     [[ "$proto" == "socks" || "$proto" == "socks5" ]] && check_proto="socks5" || check_proto="$proto"
-
-    # 判断是否为本地地址
     local is_local=false
     if [[ "$server" == "127.0.0.1" || "$server" == "::1" || "$server" == "localhost" ]]; then
         is_local=true
     fi
-
     local proxy_auth=""
     [ -n "$user" ] && [ -n "$password" ] && proxy_auth="${user}:${password}@" || \
         { [ -n "$user" ] && proxy_auth="${user}@"; }
-
     if [ "$is_local" = true ]; then
         yellow "检测到本地代理 ${check_proto}://${server}:${port}，正在用 curl 测试连通性..."
         local curl_proxy_url="${check_proto}://${proxy_auth}${server}:${port}"
@@ -9047,20 +9037,16 @@ add_socks5_proxy() {
         green "代理验证成功！"
         [ -n "$exit_ip" ] && green "出口 IP: $exit_ip"
     fi
-
-    [ -n "$tag_from_url" ] && tag="$tag_from_url" || tag="${outbound_type}-${server}-${port}"
-
+    [ -n "$tag_from_url" ] && tag="$tag_from_url" || tag="${check_proto}-${server}"
     local base_tag="$tag"
     local count=1
     while jq -e --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file" >/dev/null 2>&1; do
         tag="${base_tag}_${count}"
         ((count++))
     done
-
     if [ "$tag" != "$base_tag" ]; then
         yellow "注意：标签 '${base_tag}' 已存在，自动重命名为 '${tag}'"
     fi
-
     if [ -n "$user" ] && [ -n "$password" ]; then
         jq --arg type "$outbound_type" --arg tag "$tag" --arg server "$server" \
            --arg port "$port" --arg user "$user" --arg password "$password" \
@@ -9072,11 +9058,11 @@ add_socks5_proxy() {
            '.outbounds += [{"type":$type,"tag":$tag,"server":$server,"server_port":($port|tonumber)}]' \
            "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
     fi
-
     restart_singbox
     green "\n代理出站 '${tag}' 已成功添加！"
     sleep 1.5; warp_manage
 }
+
 
 delete_socks5_proxy() {
     clear
