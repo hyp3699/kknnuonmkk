@@ -1369,7 +1369,7 @@ cf_select_zone() {
 }
 #── 拉取 DNS 解析 ──
 cf_select_dns_record_menu() {
-    local records id type name content i=1 color
+    local records id type name content proxied i choice color cloud
     while true; do
         clear
         skyblue "=========================================="
@@ -1382,33 +1382,37 @@ cf_select_dns_record_menu() {
         fi
         local count
         count=$(echo "$records" | jq '.result | length')
+        unset dns_id_array dns_type_array dns_name_array dns_content_array dns_proxy_array
+        declare -a dns_id_array dns_type_array dns_name_array dns_content_array dns_proxy_array
         if (( count == 0 )); then
             yellow "没有DNS解析记录"
+            i=1
         else
             i=1
-            while IFS=$'\t' read -r id type name content; do
-                if (( i % 2 == 1 )); then
-                    green "$i) [$type] $name → $content"
+            while IFS=$'\t' read -r id type name content proxied; do
+                echo "$i) [$type] $name → $content"
+                if [[ "$proxied" == "true" ]]; then
+                    green "   🟢 小黄云开启"
                 else
-                    red "$i) [$type] $name → $content"
+                    echo "   ⚪ 小黄云关闭"
                 fi
+                echo
                 dns_id_array[$i]="$id"
                 dns_type_array[$i]="$type"
                 dns_name_array[$i]="$name"
                 dns_content_array[$i]="$content"
+                dns_proxy_array[$i]="$proxied"
                 ((i++))
             done < <(
                 echo "$records" | jq -r '
                 .result[] |
-                [.id,.type,.name,.content] |
+                [.id,.type,.name,.content,.proxied] |
                 @tsv'
             )
         fi
-        echo
         red "0) 返回域名列表"
         local total=$((i-1))
         reading "请选择 [0-$total]: " choice
-
         if [[ "$choice" == "0" ]]; then
             return 0
         fi
@@ -1422,82 +1426,64 @@ cf_select_dns_record_menu() {
         selected_dns_type="${dns_type_array[$choice]}"
         selected_dns_name="${dns_name_array[$choice]}"
         selected_dns_content="${dns_content_array[$choice]}"
-        echo
-        yellow "准备删除："
-        echo "[$selected_dns_type] $selected_dns_name → $selected_dns_content"
-        local confirm
-        reading "确认删除？[y/N]: " confirm
-        if [[ "$confirm" =~ ^[Yy]$ ]]; then
-            response=$(cf_call DELETE \
-                "/zones/${zone_id}/dns_records/${selected_dns_id}")
-            if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
-                green "DNS删除成功"
-            else
-                red "DNS删除失败"
-            fi
-            sleep 1
-        fi
+        selected_dns_proxy="${dns_proxy_array[$choice]}"
+        while true; do
+            clear
+            skyblue "=========================================="
+            skyblue "DNS解析管理"
+            skyblue "=========================================="
+            echo "类型: $selected_dns_type"
+            echo "名称: $selected_dns_name"
+            echo "地址: $selected_dns_content"
+            echo "小黄云: $selected_dns_proxy"
+            echo
+            green "1) 开启小黄云"
+            green "2) 关闭小黄云"
+            green "3) 修改前缀"
+            green "4) 修改解析IP"
+            red "5) 删除DNS"
+            echo
+            red "0) 返回DNS列表"
+            echo
+            reading "请选择 [0-5]: " dns_action
+            case "$dns_action" in
+                1)
+                    cf_update_dns_proxy "$zone_id" "$selected_dns_id" true
+                    ;;
+                2)
+                    cf_update_dns_proxy "$zone_id" "$selected_dns_id" false
+                    ;;
+                3)
+                    reading "请输入新的前缀: " new_name
+                    ;;
+                4)
+                    reading "请输入新的IP: " new_ip
+                    ;;
+                5)
+                    yellow "准备删除："
+                    echo "$selected_dns_name → $selected_dns_content"
+                    reading "确认删除？[y/N]: " confirm
+                    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+                        response=$(cf_call DELETE "/zones/${zone_id}/dns_records/${selected_dns_id}")
+                        if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+                            green "DNS删除成功"
+                            break
+                        else
+                            red "DNS删除失败"
+                        fi
+                    fi
+                    ;;
+                0)
+                    break
+                    ;;
+                *)
+                    red "无效选择"
+                    ;;
+            esac
+        done
     done
 }
-# ── 获取 Cloudflare Account ID ──
-cf_get_account_id() {
-    local zones
-    local account_id account_name
-    local -a account_ids
-    local -a account_names
-    local choice i total
-    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | \
-        jq -r '.result[]? | "\(.account.id)|\(.account.name // "")"')
-    if [[ -z "$zones" ]]; then
-        red "没有找到可用的 Cloudflare Account！"
-        return 1
-    fi
-    i=1
-    while IFS='|' read -r account_id account_name; do
-        [[ -z "$account_id" ]] && continue
-        if [[ -z "${account_ids[*]}" ]] || ! printf '%s\n' "${account_ids[@]}" | grep -qx "$account_id"; then
-            account_ids[$i]="$account_id"
-            account_names[$i]="$account_name"
-            ((i++))
-        fi
-    done <<< "$zones"
-    total=$((i - 1))
-    if [[ "$total" -lt 1 ]]; then
-        red "没有找到可用的 Cloudflare Account！"
-        return 1
-    fi
-    if [[ "$total" -eq 1 ]]; then
-        CF_ACCOUNT_ID="${account_ids[1]}"
-        export CF_ACCOUNT_ID
-        return 0
-    fi
-    echo "=========================================="
-    skyblue "请选择 Cloudflare Account："
-    echo "=========================================="
-    for ((i=1; i<=total; i++)); do
-        if [[ -n "${account_names[$i]}" ]]; then
-            echo "  $i) ${account_names[$i]}"
-        else
-            echo "  $i) ${account_ids[$i]}"
-        fi
-    done
-    echo "=========================================="
-    reading "请输入选择 [1-$total]: " choice
-    if [[ -z "$choice" ||
-          ! "$choice" =~ ^[0-9]+$ ||
-          "$choice" -lt 1 ||
-          "$choice" -gt "$total" ]]; then
-        red "无效选择！"
-        return 1
-    fi
-    CF_ACCOUNT_ID="${account_ids[$choice]}"
-    if [[ -z "$CF_ACCOUNT_ID" ]]; then
-        red "获取 Cloudflare Account ID 失败！"
-        return 1
-    fi
-    export CF_ACCOUNT_ID
-    return 0
-}
+    
 # ── 创建 Cloudflare Tunnel ──
 cf_create_tunnel() {
     local prefix hostname
