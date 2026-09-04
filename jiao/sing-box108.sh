@@ -154,11 +154,6 @@ check_singbox() {
     check_service "sing-box" "${work_dir}/${server_name}"
 }
 
-# 检查argo状态
-check_argo() {
-    check_service "argo" "${work_dir}/argo"
-}
-
 # 检查nginx状态
 check_nginx() {
     command_exists nginx || { red "not installed"; return 2; }
@@ -2806,10 +2801,6 @@ latest_version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/release
 TAR="sing-box-${latest_version}-linux-${ARCH}-${LIBC}.tar.gz"
 URL="https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/${TAR}"
 curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$work_dir" && mv "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}/sing-box" "${work_dir}/sing-box" && chmod +x "${work_dir}/sing-box" && rm -rf "${work_dir}/${TAR}" "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}"
-       
-    CF_ARCH=$(uname -m); case "$CF_ARCH" in x86_64) CF_ARCH=amd64;; aarch64|arm64) CF_ARCH=arm64;; armv7l) CF_ARCH=armv7;; i386|i686) CF_ARCH=386;; esac
-    curl -sLo "${work_dir}/argo" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
-  
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
     
     # 放行端口
@@ -2867,63 +2858,6 @@ cat > "${conf_dir}/outbounds.json" << EOF
       "server_port": 40000
     }
   ]
-}
-EOF
-cat > "${conf_dir}/inbounds.json" << EOF
-{
-    "inbounds": [
-        {
-            "type": "vmess",
-            "tag": "vmess-ws-argo",
-            "listen": "::",
-            "listen_port": 8001,
-            "users": [
-                {
-                    "uuid": "$uuid"
-                }
-            ],
-            "transport": {
-                "type": "ws",
-                "path": "/asasbsbs-vmess",
-				"max_early_data": 2048,
-                "early_data_header_name": "Sec-WebSocket-Protocol"
-            }
-        },
-        {
-            "type": "vless",
-            "tag": "vless-ws-argo",
-            "listen": "::",
-            "listen_port": 8002,
-            "users": [
-                {
-                    "uuid": "$uuid"
-                }
-            ],
-            "transport": {
-                "type": "ws",
-                "path": "/asasbsbs-vless",
-				"max_early_data": 2048,
-                "early_data_header_name": "Sec-WebSocket-Protocol"
-            }
-        },
-        {
-            "type": "trojan",
-            "tag": "trojan-ws-argo",
-            "listen": "::",
-            "listen_port": 8003,
-            "users": [
-                {
-                    "password": "$uuid"
-                }
-            ],
-            "transport": {
-                "type": "ws",
-                "path": "/asasbsbs-trojan",
-				"max_early_data": 2048,
-                "early_data_header_name": "Sec-WebSocket-Protocol"
-            }
-        }
-    ]
 }
 EOF
     cat > "${conf_dir}/endpoints.json" << EOF
@@ -2993,22 +2927,6 @@ LimitNOFILE=infinity
 WantedBy=multi-user.target
 EOF
 
-    cat > /etc/systemd/system/argo.service << EOF
-[Unit]
-Description=Cloudflare Tunnel
-After=network.target
-
-[Service]
-Type=simple
-NoNewPrivileges=yes
-TimeoutStartSec=0
-ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --url http://localhost:8001 --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/sing-box/argo.log 2>&1"
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-EOF
     if [ -f /etc/centos-release ]; then
         yum install -y chrony
         systemctl start chronyd
@@ -3020,8 +2938,6 @@ EOF
     systemctl daemon-reload 
     systemctl enable sing-box
     systemctl start sing-box
-    systemctl enable argo
-    systemctl start argo
 }
 
 # 创建快捷指令（自动下载脚本到本地保存）
@@ -3059,69 +2975,8 @@ command_args="run -C /etc/sing-box/conf"
 command_background=true
 pidfile="/var/run/sing-box.pid"
 EOF
-
-    cat > /etc/init.d/argo << 'EOF'
-#!/sbin/openrc-run
-
-description="Cloudflare Tunnel"
-command="/bin/sh"
-command_args="-c '/etc/sing-box/argo tunnel --url http://localhost:8001 --no-autoupdate --edge-ip-version auto --protocol http2 > /etc/sing-box/argo.log 2>&1'"
-command_background=true
-pidfile="/var/run/argo.pid"
-EOF
-
     chmod +x /etc/init.d/sing-box
-    chmod +x /etc/init.d/argo
-
     rc-update add sing-box default > /dev/null 2>&1
-    rc-update add argo default > /dev/null 2>&1
-
-}
-
-# 生成节点和订阅链接
-get_info() {  
-  yellow "\nip检测中,请稍等...\n"
-  server_ip=$(get_realip)
-  local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
-      isp=$(printf $(echo "$cc" | awk '{
-          chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-          i1 = index(chars, substr($0, 1, 1))
-          i2 = index(chars, substr($0, 2, 1))
-          printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
-      }'))
-  else
-      isp="🌐" 
-  fi
-  clear
-  if [ -f "${work_dir}/argo.log" ]; then
-      for i in {1..5}; do
-          purple "第 $i 次尝试获取ArgoDoamin中..."
-          argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log")
-          [ -n "$argodomain" ] && break
-          sleep 2
-      done
-  else
-      restart_argo
-      sleep 6
-      argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "${work_dir}/argo.log")
-  fi
-
-  green "\nArgoDomain：${purple}$argodomain${re}\n"
-
-  VMESS="{ \"v\": \"2\", \"ps\": \"${isp}_vmess_ws_argo\", \"add\": \"${CFIP}\", \"port\": \"${CFPORT}\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${argodomain}\", \"path\": \"/asasbsbs-vmess?ed=2048\", \"tls\": \"tls\", \"sni\": \"${argodomain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowlnsecure\": \"flase\"}"
-    
-  cat > ${work_dir}/url.txt <<EOF
-vmess://$(echo "$VMESS"| base64 -w0)
-
-EOF
-echo ""
-while IFS= read -r line; do echo -e "${purple}$line"; done < ${work_dir}/url.txt
-base64 -w0 ${work_dir}/url.txt > ${work_dir}/sub.txt
-chmod 644 ${work_dir}/sub.txt
-yellow "\n温馨提醒：需打开V2rayN或其他软件里的 "跳过证书验证"，或将节点的Insecure或TLS里设置为"true"\n"
-green "V2rayN,Shadowrocket,Nekobox,Loon,Karing,Sterisand订阅链接：http://${server_ip}:${nginx_port}/${password}\n"
 }
 
 # nginx订阅配置
@@ -7961,337 +7816,6 @@ manage_singbox() {
     esac
 }            
 
-# Argo 管理
-manage_argo() {
-    # 检查Argo状态
-    local argo_status=$(check_argo 2>/dev/null)
-    local argo_installed=$?
-
-    clear
-    echo ""
-    green "=== Argo 隧道管理 ===\n"
-	printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
-    green "1. 启动Argo服务"
-    skyblue "------------"
-    green "2. 停止Argo服务"
-    skyblue "------------"
-    green "3. 重启Argo服务"
-    skyblue "------------"
-    green "4. CF"
-    skyblue "----------------"
-	green "5. 添加固定隧道"
-    skyblue "----------------"
-    green "6. 切换回Argo临时隧道"
-    skyblue "------------------"
-    green "7. 重新获取Argo临时域名"
-    skyblue "-------------------"
-    purple "0. 返回主菜单"
-    skyblue "-----------"
-    reading "\n请输入选择: " choice
-    case "${choice}" in
-        1)  start_argo ;;
-        2)  stop_argo ;; 
-        3)  clear
-            if command_exists rc-service 2>/dev/null; then
-                grep -Fq -- '--url http://localhost' /etc/init.d/argo && get_quick_tunnel && change_argo_domain || { green "\n当前使用固定隧道,无需获取临时域名"; sleep 2; menu; }
-            else
-                grep -q 'ExecStart=.*--url http://localhost' /etc/systemd/system/argo.service && get_quick_tunnel && change_argo_domain || { green "\n当前使用固定隧道,无需获取临时域名"; sleep 2; menu; }
-            fi
-         ;; 
-        4)
-clear
-skyblue "请选择 Cloudflare 验证方式："
-echo -e " ${green}1)${re} Cloudflare API Token"
-echo -e " ${green}2)${re} Cloudflare Global API Key"
-local auth_choice
-reading "请输入选择 [1-2]（默认 1）: " auth_choice
-[[ -z "$auth_choice" ]] && auth_choice=1
-case "$auth_choice" in
-    1)
-        cf_auth_token || return 1
-        ;;
-    2)
-        cf_auth_global || return 1
-        ;;
-    *)
-        red "无效选择！"
-        return 1
-        ;;
-esac
-while true; do
-    echo -e "${skyblue}==========================================${re}"
-    echo -e "${skyblue}        Cloudflare ${re}"
-    echo -e "${skyblue}==========================================${re}"
-    green "1. 查看隧道"
-    green "2. 添加固定隧道"
-	green "3. 添加隧道路由"
-	green "4. 添加dns解析"
-	green "5. 删除dns解析"
-	green "6. 新建回源规则"
-    green "7. 删除回源规则"
-    echo -e "  ${red}0)${re} 返回"
-    echo -e "${skyblue}==========================================${re}"
-    local cf_tunnel_choice
-    reading "请输入选择 [0-5]: " cf_tunnel_choice
-    case "$cf_tunnel_choice" in
-        1)
-            clear
-            if ! cf_get_account_id; then
-                red "获取 Cloudflare Account ID 失败！"
-            else
-                cf_list_tunnels
-            fi
-            echo
-            reading "按回车返回..." _
-            clear
-            ;;
-        2)
-            clear
-            if ! cf_create_tunnel; then
-                red "Cloudflare Tunnel 创建失败！"
-                echo
-                reading "按回车返回..." _
-                clear
-                continue
-            fi
-            if [[ -z "${argo_auth:-}" || -z "${ArgoDomain:-}" ]]; then
-                red "Tunnel Token 或域名获取失败！"
-                echo
-                reading "按回车返回..." _
-                clear
-                continue
-            fi
-            real_token="$argo_auth"
-            if command_exists rc-service 2>/dev/null; then
-                if [[ -f /etc/init.d/argo ]]; then
-                    sed -i '/^[[:space:]]*command_args=/d' /etc/init.d/argo
-                    sed -i "/^[[:space:]]*command=/i command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
-                else
-                    red "/etc/init.d/argo 不存在！"
-                    continue
-                fi
-            else
-                if [[ -f /etc/systemd/system/argo.service ]]; then
-                    sed -i '/^[[:space:]]*ExecStart=/d' /etc/systemd/system/argo.service
-                    sed -i "/^\[Service\]/a ExecStart=/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1\"" /etc/systemd/system/argo.service
-                    systemctl daemon-reload &>/dev/null
-                else
-                    red "/etc/systemd/system/argo.service 不存在！"
-                    continue
-                fi
-            fi
-            restart_argo
-            sleep 1
-            change_argo_domain
-            systemctl stop argo-watchdog &>/dev/null
-            systemctl disable argo-watchdog &>/dev/null
-            systemctl daemon-reload &>/dev/null
-            green "Cloudflare Tunnel 创建并启动成功！"
-            green "Tunnel 域名: $ArgoDomain"
-            echo
-            reading "按回车返回..." _
-            clear
-            ;;
-		4)
-    cf_auth_token || return 1
-    cf_select_zone || return 1
-    local subdomain domain raw_ip server_ip
-    server_ip=$(get_realip)
-    echo
-    green "检测到本机公网 IP: $server_ip"
-    reading "请输入主机记录（例如 www，直接回车表示根域名）: " subdomain
-    reading "请输入 IP 地址（直接回车使用本机 IP）: " raw_ip
-    [[ -z "$raw_ip" ]] && raw_ip="$server_ip"
-    if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
-        domain="$zone_domain"
-    else
-        domain="${subdomain}.${zone_domain}"
-    fi
-    cf_upsert_dns "$zone_id" "$domain" "$raw_ip"
-    green "DNS 解析添加成功"
-    green "$domain → $raw_ip"
-    ;;
-	5)
-    while true; do
-        cf_select_zone || break
-        cf_select_dns_record_menu
-    done
-    ;;
-	3)
-    cf_add_tunnel_route ;;
-	6)
-    clear
-    cf_add_origin_rule_menu
-    echo
-    reading "按回车返回..." _
-    clear
-    ;;
-    7)
-    clear
-    cf_delete_origin_rule_menu
-    echo
-    reading "按回车返回..." _
-    clear
-    ;;
-	0)
-    break
-    ;;
-*)
-    red "无效的选项！"
-    ;;
-esac
-done
-;;
-        5)
-            clear
-            yellow "\n固定隧道可为json或token，固定隧道端口为8001，自行在cf后台设置\n\njson在f佬维护的站点里获取，获取地址：${purple}https://fscarmen.cloudflare.now.cc${re}\n"
-            reading "\n请输入你的argo域名: " argo_domain
-            ArgoDomain=$argo_domain
-            reading "\n请输入你的argo密钥(token或json): " argo_auth
-            if [[ $argo_auth =~ TunnelSecret ]]; then
-                echo $argo_auth > ${work_dir}/tunnel.json
-                cat > ${work_dir}/tunnel.yml << EOF
-tunnel: $(cut -d\" -f12 <<< "$argo_auth")
-credentials-file: ${work_dir}/tunnel.json
-protocol: http2
-                                           
-ingress:
-  - hostname: $ArgoDomain
-    service: http://localhost:8001
-    originRequest:
-      noTLSVerify: true
-  - service: http_status:404
-EOF
-
-                if command_exists rc-service 2>/dev/null; then
-                    sed -i '/^command_args=/c\command_args="-c '\''/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1'\''"' /etc/init.d/argo
-                else
-                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --config /etc/sing-box/tunnel.yml run 2>&1"' /etc/systemd/system/argo.service
-                fi
-                restart_argo
-                sleep 1 
-                change_argo_domain
-				systemctl stop argo-watchdog &>/dev/null
-                systemctl disable argo-watchdog &>/dev/null
-                systemctl daemon-reload &>/dev/null 
-				
-			elif [[ $argo_auth =~ [A-Za-z0-9=]{120,250} ]]; then
-                real_token=$(echo "$argo_auth" | grep -oE '[A-Za-z0-9=]{120,250}')        
-                if command_exists rc-service 2>/dev/null; then
-                    sed -i "/^command_args=/c\command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
-                else
-                    sed -i '/^ExecStart=/c ExecStart=/bin/sh -c "/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token '$real_token' 2>&1"' /etc/systemd/system/argo.service
-                fi
-                restart_argo
-                sleep 1 
-                change_argo_domain
-                systemctl stop argo-watchdog &>/dev/null
-                systemctl disable argo-watchdog &>/dev/null
-                systemctl daemon-reload &>/dev/null  
-            else
-                yellow "你输入的argo域名或token不匹配，请重新输入"
-                manage_argo            
-            fi
-            ;; 
-        6)
-    clear
-    if command_exists rc-service 2>/dev/null; then
-        alpine_openrc_services
-    else
-        main_systemd_services
-    fi
-    systemctl enable argo-watchdog &>/dev/null
-    systemctl daemon-reload &>/dev/null 
-    systemctl restart argo-watchdog &>/dev/null
-    get_quick_tunnel
-    change_argo_domain
-	content=$(cat "$client_dir")
-    content=$(printf '%s\n' "$content" | grep -v '_vless-ws-argo')
-    content=$(printf '%s\n' "$content" | grep -v '_trojan-ws-argo')
-    printf '%s\n' "$content" |
-    awk 'NF{print; blank=0} !NF && !blank{print; blank=1}' > "$client_dir"
-    printf '\n' >> "$client_dir"
-    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-    ;;
-        7)  
-            if command_exists rc-service 2>/dev/null; then
-                if grep -Fq -- '--url http://localhost' "/etc/init.d/argo"; then
-                    get_quick_tunnel
-                    change_argo_domain 
-                else
-                    yellow "当前使用固定隧道，无法获取临时隧道"
-                    sleep 2
-                    menu
-                fi
-            else
-                if grep -q 'ExecStart=.*--url http://localhost' "/etc/systemd/system/argo.service"; then
-                    get_quick_tunnel
-                    change_argo_domain 
-                else
-                    yellow "当前使用固定隧道，无法获取临时隧道"
-                    sleep 2
-                    menu
-                fi
-            fi 
-            ;; 
-        0)  menu ;; 
-        *)  red "无效的选项！" ;;
-    esac
-}
-
-# 获取argo临时隧道
-get_quick_tunnel() {
-restart_argo
-yellow "获取临时argo域名中，请稍等...\n"
-sleep 3
-if [ -f /etc/sing-box/argo.log ]; then
-  for i in {1..5}; do
-      purple "第 $i 次尝试获取ArgoDoamin中..."
-      get_argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "/etc/sing-box/argo.log")
-      [ -n "$get_argodomain" ] && break
-      sleep 2
-  done
-else
-  restart_argo
-  sleep 6
-  get_argodomain=$(sed -n 's|.*https://\([^/]*trycloudflare\.com\).*|\1|p' "/etc/sing-box/argo.log")
-fi
-green "ArgoDomain：${purple}$get_argodomain${re}\n"
-ArgoDomain=$get_argodomain
-}
-
-# 更新Argo域名到订阅
-change_argo_domain() {
-    generate_vars
-    content=$(cat "$client_dir")
-    vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
-    vmess_prefix="vmess://"
-    encoded_vmess="${vmess_url#"$vmess_prefix"}"
-    decoded_vmess=$(echo "$encoded_vmess" | base64 --decode)
-    updated_vmess=$(echo "$decoded_vmess" | jq --arg new_domain "$ArgoDomain" '.host = $new_domain | .sni = $new_domain')
-    encoded_updated_vmess=$(echo "$updated_vmess" | base64 | tr -d '\n')
-    new_vmess_url="${vmess_prefix}${encoded_updated_vmess}"
-    new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
-    echo "$new_content" > "$client_dir"
-
-    # 获取 VLESS 节点
-    vless_uuid=$(jq -r '.inbounds[] | select(.type=="vless") | .users[0].uuid // empty' /etc/sing-box/conf/inbounds.json)
-    node_remark_vless="${isp}_vless-ws-argo"
-    vless_url="vless://${vless_uuid}@${CFIP:-'cf.877774.xyz'}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-vless#${node_remark_vless}"
-
-    # 获取 Trojan 节点
-    trojan_password=$(jq -r '.inbounds[] | select(.type=="trojan") | .users[0].password // empty' /etc/sing-box/conf/inbounds.json)
-    node_remark_trojan="${isp}_trojan-ws-argo"
-    trojan_url="trojan://${trojan_password}@${CFIP:-'cf.877774.xyz'}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&type=ws&host=${ArgoDomain}&sni=${ArgoDomain}&path=%2Fasasbsbs-trojan#${node_remark_trojan}"
-
-    # 在文件末尾追加：中间隔一个空行，末尾增加一个空行
-    printf "\n%s\n\n%s\n\n" "$vless_url" "$trojan_url" >> "$client_dir"
-
-    base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-
-    green "Argo节点已更新，更新订阅或手动复制节点："
-}
-
 # 查看节点信息和订阅链接
 check_nodes() {
     if [ -f "${work_dir}/url.txt" ]; then
@@ -9405,14 +8929,12 @@ while true; do
                     alpine_openrc_services
                     change_hosts
                     rc-service sing-box restart
-                    rc-service argo restart
                 else
                     echo "Unsupported init system"
                     exit 1 
                 fi
 
                 sleep 5
-                get_info
                 add_nginx_conf
 				create_shortcut
             fi
