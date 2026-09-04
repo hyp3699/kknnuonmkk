@@ -8333,49 +8333,57 @@ warp_manage() {
     if [ $? -eq 2 ]; then
         yellow "sing-box 尚未安装！"; sleep 1; menu; return
     fi
-
-    clear
-    route_file="${conf_dir}/route.json"
-    outbound_file="${conf_dir}/outbounds.json"
-
-    echo ""
-    green "=== WARP / 节点分流管理 ===\n"
-
-    local current_final
-    current_final=$(jq -r '.route.final // empty' "$route_file" 2>/dev/null)
-    if [ -z "$current_final" ] || [ "$current_final" == "direct" ] || [ "$current_final" == "null" ]; then
-        echo -e "当前全局默认出站: ${skyblue}direct (服务器原IP直连)${re}\n"
-    else
-        echo -e "当前全局默认出站: ${purple}${current_final} ${yellow}[全局代理已开启]${re}\n"
-    fi
-    green "当前已启用的分流规则 (输入对应字母可快捷切换出站):"
-    
-    local has_rules=0
-    local rule_letters=("a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z")
-    local rule_indices=()
-    local rule_count=0
-
-    while IFS='|' read -r p1 p2 p3 r_idx; do
-        [ -z "$p1" ] && continue
-        local current_letter="${rule_letters[$rule_count]}"
-        echo -e "  - ${yellow}[${current_letter}]${re} ${skyblue}${p1}${re} - ${green}${p2}${re} - ${purple}出站: ${p3}${re}"
-        rule_indices[$rule_count]="$r_idx"
-        rule_count=$((rule_count + 1))
-        has_rules=1
-    done < <(jq -r '
-        {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap
-        | (.route.rules // []) | to_entries[]
-        | select(.value.rule_set != null or .value.domain_suffix != null)
-        | .key as $idx
-        | .value as $r
-        | ($r | if .rule_set then "[预设规则] \(.rule_set | join(", "))" elif .domain_suffix then "[域名] \(.domain_suffix | join(", "))" else "[所有流量]" end) as $p1
-        | ($r | if .inbound and (.inbound | length > 0) then ($inMap[.inbound[0]] // .inbound[0]) else "全部节点" end) as $p2
-        | $r.outbound as $p3
-        | "\($p1)|\($p2)|\($p3)|\($idx)"
-    ' "$route_file" 2>/dev/null)
-
-    [ $has_rules -eq 0 ] && echo "    无"
-
+    clear  
+    route_file="${conf_dir}/route.json"  
+    outbound_file="${conf_dir}/outbounds.json"  
+    echo ""  
+    green "=== WARP / 节点分流管理 ===\n"  
+    local current_final  
+    current_final=$(jq -r '.route.final // empty' "$route_file" 2>/dev/null)  
+    if [ -z "$current_final" ] || [ "$current_final" == "direct" ] || [ "$current_final" == "null" ]; then  
+        echo -e "当前全局默认出站: ${skyblue}direct (服务器原IP直连)${re}\n"  
+    else  
+        echo -e "当前全局默认出站: ${purple}${current_final} ${yellow}[全局代理已开启]${re}\n"  
+    fi  
+    green "当前已启用的分流规则 (输入对应字母可快捷切换出站):"  
+    local has_rules=0  
+    local rule_letters=("a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z")  
+    local rule_indices=()  
+    local rule_count=0  
+    while IFS='|' read -r p1 p2 p3 r_idx; do  
+        [ -z "$p1" ] && continue  
+        local current_letter="${rule_letters[$rule_count]}"  
+        echo -e "  - ${yellow}[${current_letter}]${re} ${skyblue}${p1}${re} - ${green}${p2}${re} - ${purple}出站: ${p3}${re}"  
+        rule_indices[$rule_count]="$r_idx"  
+        rule_count=$((rule_count + 1))  
+        has_rules=1  
+    done < <(jq -r '  
+        {"vmess-ws": "vmess-argo", "vless-reality": "xtls-reality", "hysteria2": "hysteria2", "tuic": "tuic"} as $inMap  
+        | (.route.rules // []) | to_entries[]  
+        | .key as $idx  
+        | .value as $r  
+        | (
+            if $r.rule_set then "[预设规则] \($r.rule_set | join(", "))" 
+            elif $r.domain_suffix then "[域名后缀] \($r.domain_suffix | join(", "))" 
+            elif $r.domain_keyword then "[域名关键字] \($r.domain_keyword | join(", "))" 
+            elif $r.domain then "[全域名] \($r.domain | join(", "))" 
+            elif $r.geosite then "[GeoSite] \($r.geosite | join(", "))" 
+            elif $r.geoip then "[GeoIP] \($r.geoip | join(", "))" 
+            elif $r.ip_cidr then "[IP/CIDR] \($r.ip_cidr | join(", "))" 
+            else "[所有流量]" end
+          ) as $p1  
+        | (
+            if $r.inbound and (.inbound | length > 0) then 
+               ($inMap[.inbound[0]] // .inbound[0]) 
+            else "全部节点" end
+          ) as $p2  
+        | $r.outbound as $p3  
+        | "\($p1)|\($p2)|\($p3)|\($idx)"  
+    ' "$route_file" 2>/dev/null)  
+    [ $has_rules -eq 0 ] && echo "    无"  
+    echo ""  
+    green "已添加的 Socks/HTTP 代理出站:"  
+    jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | "  - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "    无"  
     echo ""
     green "已添加的 Socks/HTTP 代理出站:"
     jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | "  - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "    无"
@@ -8687,92 +8695,49 @@ select_outbound_target() {
 # 选择规则生效的节点 (入站 Inbound)
 select_inbound_target() {
     echo ""
-    green "第一步：请选择该规则要生效的节点 (如果不选，则默认所有节点生效)"
-    echo -e "  ${green}0.${re} 全部节点 (默认)"
-    
+    green "第一步：请选择该规则要生效的节点 (必须选择)"
+
     local idx=1
-    in_names=()
     in_tags=()
 
-    # 1. vmess-argo (默认常驻)
-    echo -e "  ${green}${idx}.${re} vmess-argo"
-    in_names+=("vmess-argo")
-    in_tags+=("vmess-ws")
-    ((idx++))
+    # 【优化项】动态扫描所有 conf 目录下的 json 文件，提取 inbounds 里面的 tag
+    # 使用 sort -u 去重，排除可能是 null 的异常数据
+    local available_tags=($(jq -r '.inbounds[]?.tag // empty' /etc/sing-box/conf/*.json 2>/dev/null | sort -u))
 
-    # 2. hysteria2
-    if [ -f "/etc/sing-box/conf/hysteria2.json" ]; then
-        echo -e "  ${green}${idx}.${re} hysteria2"
-        in_names+=("hysteria2")
-        in_tags+=("hysteria2")
-        ((idx++))
+    # 检查是否扫描到了入站节点
+    if [ ${#available_tags[@]} -eq 0 ]; then
+        red "未在 /etc/sing-box/conf/ 目录下的配置中找到任何节点！"
+        return 1
     fi
 
-    # 3. xtls-reality
-    if [ -f "/etc/sing-box/conf/xtls-reality.json" ]; then
-        echo -e "  ${green}${idx}.${re} xtls-reality"
-        in_names+=("xtls-reality")
-        in_tags+=("vless-reality")
+    # 遍历打印所有扫描到的节点
+    for tag in "${available_tags[@]}"; do
+        # 排除掉 sing-box 的内置基础入站 (可选项：如果不希望用户选 dns-in 这种，可以放开下面这行判断)
+        # if [[ "$tag" == "dns-in" || "$tag" == "mixed-in" ]]; then continue; fi
+        
+        echo -e "  ${green}${idx}.${re} ${tag}"
+        in_tags+=("$tag")
         ((idx++))
-    fi
-
-    # 4. tuic
-    if [ -f "/etc/sing-box/conf/tuic.json" ]; then
-        echo -e "  ${green}${idx}.${re} tuic"
-        in_names+=("tuic")
-        in_tags+=("tuic")
-        ((idx++))
-    fi
-
-	# 5. anytls
-    if [ -f "/etc/sing-box/conf/anytls.json" ]; then
-        echo -e "  ${green}${idx}.${re} anytls"
-        in_names+=("anytls")
-        in_tags+=("anytls")
-        ((idx++))
-    fi
-	# 6. vless-ws-cdn
-    if [ -f "/etc/sing-box/conf/vless-ws-cdn.json" ]; then
-        echo -e "  ${green}${idx}.${re} vless-ws-cdn"
-        in_names+=("vless-ws-cdn")
-        in_tags+=("vless-ws-cdn")
-        ((idx++))
-    fi
-	# 7. vmess-ws-cdn
-    if [ -f "/etc/sing-box/conf/vmess-ws-cdn.json" ]; then
-        echo -e "  ${green}${idx}.${re} vmess-ws-cdn"
-        in_names+=("vmess-ws-cdn")
-        in_tags+=("vmess-ws-cdn")
-        ((idx++))
-    fi
-	# 7. trojan-ws-cdn
-    if [ -f "/etc/sing-box/conf/trojan-ws-cdn.json" ]; then
-        echo -e "  ${green}${idx}.${re} trojan-ws-cdn"
-        in_names+=("trojan-ws-cdn")
-        in_tags+=("trojan-ws-cdn")
-        ((idx++))
-    fi
+    done
 
     echo ""
-    reading "请输入节点编号 (直接回车默认选 0): " in_choice
     
-    if [ -z "$in_choice" ] || [ "$in_choice" == "0" ]; then
-        selected_inbound=""
-        selected_inbound_name="全部节点"
-        return 0
-    fi
+    # 【优化项】强制选择循环：必须输入正确的数字才放行
+    while true; do
+        reading "请输入节点编号 (必须选择): " in_choice
+        
+        if [[ "$in_choice" =~ ^[0-9]+$ ]] && [ "$in_choice" -ge 1 ] && [ "$in_choice" -le "${#in_tags[@]}" ]; then
+            selected_inbound="${in_tags[$((in_choice-1))]}"
+            selected_inbound_name="${selected_inbound}"
+            break
+        else
+            red "输入无效，请重新输入正确的节点编号！"
+        fi
+    done
 
-    if [[ ! "$in_choice" =~ ^[0-9]+$ ]] || [ "$in_choice" -lt 1 ] || [ "$in_choice" -ge "$idx" ]; then
-        yellow "无效选择，将默认应用于 [全部节点]"
-        selected_inbound=""
-        selected_inbound_name="全部节点"
-        return 0
-    fi
-
-    selected_inbound="${in_tags[$((in_choice-1))]}"
-    selected_inbound_name="${in_names[$((in_choice-1))]}"
     return 0
 }
+
 
 
 add_rule_menu() {
