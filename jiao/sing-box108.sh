@@ -2827,7 +2827,7 @@ cat > "${config_dir}" << EOF
     "output": "$work_dir/sb.log",
     "timestamp": true
   },
-  "inbounds": [
+    "inbounds": [
     {
       "type": "cloudflared",
       "tag": "cloudflared-in",
@@ -2835,7 +2835,8 @@ cat > "${config_dir}" << EOF
       "ha_connections": 4,
       "protocol": "quic",
       "post_quantum": true
-    },
+    }
+    ],
   "dns": {
     "servers": [
       {
