@@ -7704,7 +7704,7 @@ manage_singbox() {
 }            
 
 # cf 管理
-manage_cf() {      
+manage_cf() {
 clear
 skyblue "请选择 Cloudflare 验证方式："
 echo -e " ${green}1)${re} Cloudflare API Token"
@@ -7730,15 +7730,15 @@ while true; do
     echo -e "${skyblue}==========================================${re}"
     green "1. 查看隧道"
     green "2. 添加固定隧道"
-	green "3. 添加隧道路由"
-	green "4. 添加dns解析"
-	green "5. 删除dns解析"
-	green "6. 新建回源规则"
+    green "3. 添加隧道路由"
+    green "4. 添加dns解析"
+    green "5. 删除dns解析"
+    green "6. 新建回源规则"
     green "7. 删除回源规则"
     echo -e "  ${red}0)${re} 返回"
     echo -e "${skyblue}==========================================${re}"
     local cf_tunnel_choice
-    reading "请输入选择 [0-5]: " cf_tunnel_choice
+    reading "请输入选择 [0-7]: " cf_tunnel_choice
     case "$cf_tunnel_choice" in
         1)
             clear
@@ -7751,7 +7751,7 @@ while true; do
             reading "按回车返回..." _
             clear
             ;;
-           2)
+        2)
             clear
             if ! cf_create_tunnel; then
                 red "Cloudflare Tunnel 创建失败！"
@@ -7775,54 +7775,56 @@ while true; do
             reading "按回车返回..." _
             clear
             ;;
-		4)
-    cf_auth_token || return 1
-    cf_select_zone || return 1
-    local subdomain domain raw_ip server_ip
-    server_ip=$(get_realip)
-    echo
-    green "检测到本机公网 IP: $server_ip"
-    reading "请输入主机记录（例如 www，直接回车表示根域名）: " subdomain
-    reading "请输入 IP 地址（直接回车使用本机 IP）: " raw_ip
-    [[ -z "$raw_ip" ]] && raw_ip="$server_ip"
-    if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
-        domain="$zone_domain"
-    else
-        domain="${subdomain}.${zone_domain}"
-    fi
-    cf_upsert_dns "$zone_id" "$domain" "$raw_ip"
-    green "DNS 解析添加成功"
-    green "$domain → $raw_ip"
-    ;;
-	5)
-    while true; do
-        cf_select_zone || break
-        cf_select_dns_record_menu
-    done
-    ;;
-	3)
-    cf_add_tunnel_route ;;
-	6)
-    clear
-    cf_add_origin_rule_menu
-    echo
-    reading "按回车返回..." _
-    clear
-    ;;
-    7)
-        clear
-        cf_delete_origin_rule_menu
-        echo
-        reading "按回车返回..." _
-        clear
-        ;;
-    0)
-        break
-        ;;
-    *)
-        red "无效的选项！"
-        ;;
-esac
+        3)
+            cf_add_tunnel_route
+            ;;
+        4)
+            cf_auth_token || return 1
+            cf_select_zone || return 1
+            local subdomain domain raw_ip server_ip
+            server_ip=$(get_realip)
+            echo
+            green "检测到本机公网 IP: $server_ip"
+            reading "请输入主机记录（例如 www，直接回车表示根域名）: " subdomain
+            reading "请输入 IP 地址（直接回车使用本机 IP）: " raw_ip
+            [[ -z "$raw_ip" ]] && raw_ip="$server_ip"
+            if [[ -z "$subdomain" || "$subdomain" == "@" ]]; then
+                domain="$zone_domain"
+            else
+                domain="${subdomain}.${zone_domain}"
+            fi
+            cf_upsert_dns "$zone_id" "$domain" "$raw_ip"
+            green "DNS 解析添加成功"
+            green "$domain → $raw_ip"
+            ;;
+        5)
+            while true; do
+                cf_select_zone || break
+                cf_select_dns_record_menu
+            done
+            ;;
+        6)
+            clear
+            cf_add_origin_rule_menu
+            echo
+            reading "按回车返回..." _
+            clear
+            ;;
+        7)
+            clear
+            cf_delete_origin_rule_menu
+            echo
+            reading "按回车返回..." _
+            clear
+            ;;
+        0)
+            break
+            ;;
+        *)
+            red "无效的选项！"
+            ;;
+    esac
+done
 }
 
 # 查看节点信息和订阅链接
