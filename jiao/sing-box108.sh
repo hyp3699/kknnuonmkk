@@ -1549,7 +1549,65 @@ cf_select_dns_record_menu() {
         done
     done
 }
-    
+# ── 获取 Cloudflare Account ID ──
+cf_get_account_id() {
+    local zones
+    local account_id account_name
+    local -a account_ids
+    local -a account_names
+    local choice i total
+    zones=$(cf_call GET "/zones?per_page=500" 2>/dev/null | \
+        jq -r '.result[]? | "\(.account.id)|\(.account.name // "")"')
+    if [[ -z "$zones" ]]; then
+        red "没有找到可用的 Cloudflare Account！"
+        return 1
+    fi
+    i=1
+    while IFS='|' read -r account_id account_name; do
+        [[ -z "$account_id" ]] && continue
+        if [[ -z "${account_ids[*]}" ]] || ! printf '%s\n' "${account_ids[@]}" | grep -qx "$account_id"; then
+            account_ids[$i]="$account_id"
+            account_names[$i]="$account_name"
+            ((i++))
+        fi
+    done <<< "$zones"
+    total=$((i - 1))
+    if [[ "$total" -lt 1 ]]; then
+        red "没有找到可用的 Cloudflare Account！"
+        return 1
+    fi
+    if [[ "$total" -eq 1 ]]; then
+        CF_ACCOUNT_ID="${account_ids[1]}"
+        export CF_ACCOUNT_ID
+        return 0
+    fi
+    echo "=========================================="
+    skyblue "请选择 Cloudflare Account："
+    echo "=========================================="
+    for ((i=1; i<=total; i++)); do
+        if [[ -n "${account_names[$i]}" ]]; then
+            echo "  $i) ${account_names[$i]}"
+        else
+            echo "  $i) ${account_ids[$i]}"
+        fi
+    done
+    echo "=========================================="
+    reading "请输入选择 [1-$total]: " choice
+    if [[ -z "$choice" ||
+          ! "$choice" =~ ^[0-9]+$ ||
+          "$choice" -lt 1 ||
+          "$choice" -gt "$total" ]]; then
+        red "无效选择！"
+        return 1
+    fi
+    CF_ACCOUNT_ID="${account_ids[$choice]}"
+    if [[ -z "$CF_ACCOUNT_ID" ]]; then
+        red "获取 Cloudflare Account ID 失败！"
+        return 1
+    fi
+    export CF_ACCOUNT_ID
+    return 0
+}
 # ── 创建 Cloudflare Tunnel ──
 cf_create_tunnel() {
     local prefix hostname
