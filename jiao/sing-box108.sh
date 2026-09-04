@@ -9082,7 +9082,7 @@ delete_socks5_proxy() {
     clear
     green "=== 出站代理管理 (删除) ==="
     
-    local tags=($(jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireproxy" and .tag != "wireguard-out") | .tag' "$outbound_file" 2>/dev/null))
+    local tags=($(jq -r '.outbounds[] | select(.tag != "direct" and .tag != "wireguard-out") | .tag' "$outbound_file" 2>/dev/null))
     
     if [ ${#tags[@]} -eq 0 ]; then
         yellow "当前没有可管理的自定义出站。"
@@ -9172,8 +9172,8 @@ delete_socks5_proxy() {
         
         local tag="${tags[$((input-1))]}"
         
-        if [[ "$tag" == "wireproxy" || "$tag" == "wireguard-out" || "$tag" == "direct" ]]; then
-            red "系统内置出站，不可删除！"
+        if [[ "$tag" == "wireguard-out" || "$tag" == "direct" ]]; then
+            red "脚本内置出站，不可删除！"
             sleep 2; delete_socks5_proxy; return
         fi
 
