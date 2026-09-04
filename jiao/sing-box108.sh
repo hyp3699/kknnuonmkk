@@ -7810,17 +7810,18 @@ while true; do
     clear
     ;;
     7)
-    clear
-    cf_delete_origin_rule_menu
-    echo
-    reading "按回车返回..." _
-    clear
-    ;;
-	0)
-    break
-    ;;
-    red "无效的选项！"
-    ;;
+        clear
+        cf_delete_origin_rule_menu
+        echo
+        reading "按回车返回..." _
+        clear
+        ;;
+    0)
+        break
+        ;;
+    *)
+        red "无效的选项！"
+        ;;
 esac
 }
 
