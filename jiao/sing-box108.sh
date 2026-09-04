@@ -1367,6 +1367,60 @@ cf_select_zone() {
     green "Zone ID: $zone_id"
     return 0
 }
+cf_update_dns_proxy() {
+    local zone_id="$1"
+    local record_id="$2"
+    local proxy="$3"
+    local response payload
+    payload=$(jq -n \
+        --argjson p "$proxy" \
+        '{proxied:$p}')
+    response=$(cf_call PATCH \
+        "/zones/${zone_id}/dns_records/${record_id}" \
+        "$payload")
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        green "小黄云状态修改成功"
+    else
+        red "修改失败"
+        echo "$response" | jq -r '.errors[]?.message // empty'
+    fi
+}
+cf_update_dns_name() {
+    local zone_id="$1"
+    local record_id="$2"
+    local new_name="$3"
+    local response payload
+    payload=$(jq -n \
+        --arg n "$new_name" \
+        '{name:$n}')
+    response=$(cf_call PATCH \
+        "/zones/${zone_id}/dns_records/${record_id}" \
+        "$payload")
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        green "域名前缀修改成功"
+    else
+        red "修改失败"
+        echo "$response" | jq -r '.errors[]?.message // empty'
+    fi
+}
+cf_update_dns_content() {
+    local zone_id="$1"
+    local record_id="$2"
+    local new_ip="$3"
+    local response payload
+    payload=$(jq -n \
+        --arg c "$new_ip" \
+        '{content:$c}')
+    response=$(cf_call PATCH \
+        "/zones/${zone_id}/dns_records/${record_id}" \
+        "$payload")
+    if echo "$response" | jq -e '.success == true' >/dev/null 2>&1; then
+        green "解析IP修改成功"
+    else
+        red "修改失败"
+        echo "$response" | jq -r '.errors[]?.message // empty'
+    fi
+}
 #── 拉取 DNS 解析 ──
 cf_select_dns_record_menu() {
     local records id type name content proxied i choice color cloud
@@ -1448,17 +1502,29 @@ cf_select_dns_record_menu() {
             reading "请选择 [0-5]: " dns_action
             case "$dns_action" in
                 1)
-                    cf_update_dns_proxy "$zone_id" "$selected_dns_id" true
-                    ;;
+    cf_update_dns_proxy "$zone_id" "$selected_dns_id" true
+    sleep 1
+    break
+    ;;
                 2)
-                    cf_update_dns_proxy "$zone_id" "$selected_dns_id" false
-                    ;;
+    cf_update_dns_proxy "$zone_id" "$selected_dns_id" false
+    sleep 1
+    break
+    ;;
                 3)
-                    reading "请输入新的前缀: " new_name
-                    ;;
+    reading "请输入新的域名: " new_name
+    [[ -z "$new_name" ]] && continue
+    cf_update_dns_name "$zone_id" "$selected_dns_id" "$new_name"
+    sleep 1
+    break
+    ;;
                 4)
-                    reading "请输入新的IP: " new_ip
-                    ;;
+    reading "请输入新的解析IP: " new_ip
+    [[ -z "$new_ip" ]] && continue
+    cf_update_dns_content "$zone_id" "$selected_dns_id" "$new_ip"
+    sleep 1
+    break
+    ;;
                 5)
                     yellow "准备删除："
                     echo "$selected_dns_name → $selected_dns_content"
