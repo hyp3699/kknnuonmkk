@@ -992,178 +992,145 @@ cf_tunnel_detail() {
 }
 # ── 添加 Cloudflare Tunnel 路由 ──
 cf_add_tunnel_route() {
-    local port token tunnel_id server_ip
-    local tunnel_data tunnel_name tunnel_status
-    local connections zone_response
-    local domain zone_id prefix hostname
-    local config_data ingress new_config response
-    local account_response choice i total
-    declare -a zone_names
-    declare -a zone_ids
-    if [[ -z "$CF_TOKEN" && ( -z "$CF_EMAIL" || -z "$CF_KEY" ) ]]; then
-        red "未配置 Cloudflare API 信息！"
-        return 1
-    fi
-    if [[ -z "$CF_ACCOUNT_ID" ]]; then
-        if [[ -n "$CF_TOKEN" ]]; then
-            account_response=$(curl -sS \
-                "https://api.cloudflare.com/client/v4/accounts" \
-                -H "Authorization: Bearer $CF_TOKEN" \
-                -H "Content-Type: application/json")
-        else
-            account_response=$(curl -sS \
-                "https://api.cloudflare.com/client/v4/accounts" \
-                -H "X-Auth-Email: $CF_EMAIL" \
-                -H "X-Auth-Key: $CF_KEY" \
-                -H "Content-Type: application/json")
-        fi
-        CF_ACCOUNT_ID=$(echo "$account_response" | jq -r '.result[0].id // empty')
-        if [[ -z "$CF_ACCOUNT_ID" ]]; then
-            red "获取 Cloudflare Account ID 失败！"
-            return 1
-        fi
-        export CF_ACCOUNT_ID
-    fi
-    reading "请输入程序端口: " port
-    if [[ -z "$port" || ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
-        red "端口无效！"
-        return 1
-    fi
-    if [[ ! -f "/etc/sing-box/conf/cloudflared.json" ]]; then
-    red "未找到 /etc/sing-box/conf/cloudflared.json！"
-    red "请先创建 Cloudflare Tunnel！"
+local port="${1:-}"
+local token tunnel_id tunnel_data tunnel_name
+local zone_response domain zone_id prefix hostname
+local config_data ingress new_config response
+local account_response choice i total
+declare -a zone_names zone_ids
+
+if [[ -z "$CF_TOKEN" && ( -z "$CF_EMAIL" || -z "$CF_KEY" ) ]]; then
+    red "未配置 Cloudflare API 信息！"
     return 1
+fi
+if [[ -z "$CF_ACCOUNT_ID" ]]; then
+    if [[ -n "$CF_TOKEN" ]]; then
+        account_response=$(curl -sS "https://api.cloudflare.com/client/v4/accounts" \
+            -H "Authorization: Bearer $CF_TOKEN" \
+            -H "Content-Type: application/json")
+    else
+        account_response=$(curl -sS "https://api.cloudflare.com/client/v4/accounts" \
+            -H "X-Auth-Email: $CF_EMAIL" \
+            -H "X-Auth-Key: $CF_KEY" \
+            -H "Content-Type: application/json")
     fi
-    token=$(jq -r '.inbounds[]? | select(.type == "cloudflared") | .token // empty' \
+    CF_ACCOUNT_ID=$(echo "$account_response" | jq -r '.result[0].id // empty')
+    if [[ -z "$CF_ACCOUNT_ID" ]]; then
+        red "获取 Cloudflare Account ID 失败！"
+        return 1
+    fi
+    export CF_ACCOUNT_ID
+fi
+if [[ -z "$port" ]]; then
+    reading "请输入程序端口: " port
+fi
+if [[ ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
+    red "端口无效！"
+    return 1
+fi
+if [[ ! -f "/etc/sing-box/conf/cloudflared.json" ]]; then
+    red "未找到 cloudflared.json，请先创建 Cloudflare Tunnel！"
+    return 1
+fi
+token=$(jq -r '.inbounds[]? | select(.type == "cloudflared") | .token // empty' \
     /etc/sing-box/conf/cloudflared.json | head -n1)
-    if [[ -z "$token" ]]; then
+if [[ -z "$token" ]]; then
     red "无法从 cloudflared.json 获取 Tunnel Token！"
     return 1
-    fi
-    tunnel_id=$(echo "$token" | base64 -d 2>/dev/null | jq -r '.t // empty' 2>/dev/null)
-    if [[ -z "$tunnel_id" ]]; then
+fi
+tunnel_id=$(echo "$token" | base64 -d 2>/dev/null | jq -r '.t // empty' 2>/dev/null)
+if [[ -z "$tunnel_id" ]]; then
     red "无法获取 Tunnel ID！"
     return 1
-    fi
-    tunnel_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
-    if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
-        red "Tunnel 不存在或无权访问！"
-        return 1
-    fi
-    tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
-    tunnel_status=$(echo "$tunnel_data" | jq -r '.result.status // "unknown"')
-    ip_address
-    if [[ -z "$ipv4_address" && -z "$ipv6_address" ]]; then
-        red "无法获取 VPS 公网 IP！"
-        return 1
-    fi
-    connections=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/connections" 2>/dev/null)
-    if [[ "$(echo "$connections" | jq -r '.success // false')" != "true" ]]; then
-        red "获取 Tunnel 连接失败！"
-        return 1
-    fi
-    if ! echo "$connections" | jq -e \
-        --arg ipv4 "$ipv4_address" \
-        --arg ipv6 "$ipv6_address" \
-        'any(.result[]?.conns[]?.origin_ip; (. == $ipv4 and $ipv4 != "") or (. == $ipv6 and $ipv6 != ""))' \
-        >/dev/null 2>&1; then
-        red "Tunnel 与当前 VPS IP 不匹配！"
-        return 1
-    fi
-    green "已找到当前 VPS Tunnel"
-    echo "Tunnel: $tunnel_name"
-    echo "ID: $tunnel_id"
-    if [[ -n "$ipv4_address" ]]; then
-        echo "IPv4: $ipv4_address"
-    fi
-    if [[ -n "$ipv6_address" ]]; then
-        echo "IPv6: $ipv6_address"
-    fi
-    zone_response=$(cf_call GET "/zones?per_page=500" 2>/dev/null)
-    if [[ "$(echo "$zone_response" | jq -r '.success // false')" != "true" ]]; then
-        red "获取 Cloudflare 域名失败！"
-        return 1
-    fi
-    i=1
-    while IFS='|' read -r domain zone_id; do
-        [[ -z "$domain" || -z "$zone_id" ]] && continue
-        echo "$i) $domain"
-        zone_names[$i]="$domain"
-        zone_ids[$i]="$zone_id"
-        ((i++))
-    done < <(echo "$zone_response" | jq -r '.result[]? | "\(.name)|\(.id)"')
-    total=$((i - 1))
-    [[ "$total" -lt 1 ]] && {
-        red "没有找到 Cloudflare 域名！"
-        return 1
-    }
-    reading "请选择域名 [1-$total]: " choice
-    if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
-        red "无效选择！"
-        return 1
-    fi
-    domain="${zone_names[$choice]}"
-    zone_id="${zone_ids[$choice]}"
-    reading "请输入前缀或完整域名: " prefix
-    prefix=$(echo "$prefix" | tr -d '[:space:]')
-    prefix="${prefix#.}"
-    prefix="${prefix%.}"
-    if [[ -z "$prefix" ]]; then
-        hostname="$domain"
-    elif [[ "$prefix" == "$domain" || "$prefix" == *".${domain}" ]]; then
-        hostname="$prefix"
-    else
-        hostname="${prefix}.${domain}"
-    fi
-    echo "=========================================="
-    echo "Tunnel: $tunnel_name"
-    echo "Tunnel ID: $tunnel_id"
-    echo "域名: $hostname"
-    echo "端口: $port"
-    echo "=========================================="
-    reading "确认添加路由？[y/N]: " choice
-    [[ ! "$choice" =~ ^[Yy]$ ]] && return 0
-    config_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" 2>/dev/null)
-    if [[ "$(echo "$config_data" | jq -r '.success // false')" != "true" ]]; then
-        red "获取 Tunnel 配置失败！"
-        return 1
-    fi
-    ingress=$(echo "$config_data" | jq -c '.result.config.ingress // []')
-    if echo "$ingress" | jq -e --arg h "$hostname" 'any(.[]?; .hostname == $h)' >/dev/null 2>&1; then
-        red "域名已存在！"
-        return 1
-    fi
-    new_config=$(jq -n \
-        --arg hostname "$hostname" \
-        --arg service "http://127.0.0.1:$port" \
-        --argjson ingress "$ingress" \
-        '{
-            config: {
-                ingress: (
-                    $ingress
-                    | map(select(.service != "http_status:404"))
-                    + [{
-                        hostname: $hostname,
-                        service: $service
-                    }]
-                    + [{
-                        service: "http_status:404"
-                    }]
-                )
-            }
-        }')
-    response=$(cf_call PUT \
-        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-        "$new_config" 2>/dev/null)
-    if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
-        green "Tunnel 路由添加成功！"
-        green "域名: $hostname"
-        green "端口: $port"
-        return 0
-    fi
-    red "Tunnel 路由添加失败！"
-    echo "$response" | jq -r '.errors[]? | if (.code // "") != "" then "错误码: \(.code)\n错误信息: \(.message)" else .message // empty end'
+fi
+tunnel_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
+if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
+    red "Tunnel 不存在或无权访问！"
     return 1
+fi
+tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
+green "Tunnel: $tunnel_name"
+zone_response=$(cf_call GET "/zones?per_page=500" 2>/dev/null)
+if [[ "$(echo "$zone_response" | jq -r '.success // false')" != "true" ]]; then
+    red "获取 Cloudflare 域名失败！"
+    return 1
+fi
+i=1
+while IFS='|' read -r domain zone_id; do
+    [[ -z "$domain" || -z "$zone_id" ]] && continue
+    echo "$i) $domain"
+    zone_names[$i]="$domain"
+    zone_ids[$i]="$zone_id"
+    ((i++))
+done < <(echo "$zone_response" | jq -r '.result[]? | "\(.name)|\(.id)"')
+
+total=$((i - 1))
+if [[ "$total" -lt 1 ]]; then
+    red "没有找到 Cloudflare 域名！"
+    return 1
+fi
+reading "请选择域名 [1-$total]: " choice
+if [[ ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
+    red "无效选择！"
+    return 1
+fi
+domain="${zone_names[$choice]}"
+zone_id="${zone_ids[$choice]}"
+reading "请输入前缀或完整域名: " prefix
+prefix=$(echo "$prefix" | tr -d '[:space:]')
+prefix="${prefix#.}"
+prefix="${prefix%.}"
+if [[ -z "$prefix" ]]; then
+    hostname="$domain"
+elif [[ "$prefix" == "$domain" || "$prefix" == *".${domain}" ]]; then
+    hostname="$prefix"
+else
+    hostname="${prefix}.${domain}"
+fi
+echo "Tunnel: $tunnel_name"
+echo "域名: $hostname"
+echo "端口: $port"
+reading "确认添加路由？[y/N]: " choice
+[[ ! "$choice" =~ ^[Yy]$ ]] && return 0
+config_data=$(cf_call GET \
+    "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" 2>/dev/null)
+if [[ "$(echo "$config_data" | jq -r '.success // false')" != "true" ]]; then
+    red "获取 Tunnel 配置失败！"
+    return 1
+fi
+ingress=$(echo "$config_data" | jq -c '.result.config.ingress // []')
+if echo "$ingress" | jq -e --arg h "$hostname" 'any(.[]?; .hostname == $h)' >/dev/null 2>&1; then
+    red "域名已存在！"
+    return 1
+fi
+new_config=$(jq -n \
+    --arg hostname "$hostname" \
+    --arg service "http://127.0.0.1:$port" \
+    --argjson ingress "$ingress" \
+    '{
+        config: {
+            ingress: (
+                $ingress
+                | map(select(.service != "http_status:404"))
+                + [{hostname: $hostname, service: $service}]
+                + [{service: "http_status:404"}]
+            )
+        }
+    }')
+response=$(cf_call PUT \
+    "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+    "$new_config" 2>/dev/null)
+if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
+    ArgoDomain="$hostname"
+    export ArgoDomain
+    green "Tunnel 路由添加成功！"
+    green "域名: $ArgoDomain"
+    green "端口: $port"
+    return 0
+fi
+red "Tunnel 路由添加失败！"
+echo "$response" | jq -r '.errors[]? | if (.code // "") != "" then "错误码: \(.code)\n错误信息: \(.message)" else .message // empty end'
+return 1
 }
     
 
