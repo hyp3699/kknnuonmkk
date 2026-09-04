@@ -998,10 +998,28 @@ local zone_response domain zone_id prefix hostname
 local config_data ingress new_config response
 local account_response choice i total
 declare -a zone_names zone_ids
-
-if [[ -z "$CF_TOKEN" && ( -z "$CF_EMAIL" || -z "$CF_KEY" ) ]]; then
-    red "未配置 Cloudflare API 信息！"
-    return 1
+# 没有认证信息时请求
+if [[ -z "${CF_TOKEN:-}" &&
+      ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+    echo
+    skyblue "请输入 Cloudflare 验证信息"
+    green "1) Cloudflare API Token"
+    green "2) Cloudflare Global API Key (邮箱 + Key)"
+    local cf_type
+    reading "请输入选择 [1-2]（默认 1）: " cf_type
+    [[ -z "$cf_type" ]] && cf_type=1
+    case "$cf_type" in
+    1)
+        cf_auth_token || return 1
+        ;;
+    2)
+        cf_auth_global || return 1
+        ;;
+    *)
+        red "无效选择！"
+        return 1
+        ;;
+    esac
 fi
 if [[ -z "$CF_ACCOUNT_ID" ]]; then
     if [[ -n "$CF_TOKEN" ]]; then
