@@ -1607,11 +1607,9 @@ cf_get_account_id() {
 }
 # ── 创建 Cloudflare Tunnel ──
 cf_create_tunnel() {
-    local prefix hostname
     local tunnel_name tunnel_data
     local create_response tunnel_id
     local tunnel_token_response tunnel_token
-    local dns_response dns_id dns_payload
     local account_response
     local cloudflared_file="/etc/sing-box/conf/cloudflared.json"
     if [[ -z "$CF_TOKEN" &&
@@ -1619,21 +1617,19 @@ cf_create_tunnel() {
         red "未配置 Cloudflare API 信息！"
         return 1
     fi
-    cf_select_zone || return 1
     if [[ -z "$CF_ACCOUNT_ID" ]]; then
         skyblue "正在获取 Cloudflare Account ID..."
-
         if [[ -n "$CF_TOKEN" ]]; then
             account_response=$(curl -sS \
-            "https://api.cloudflare.com/client/v4/accounts" \
-            -H "Authorization: Bearer $CF_TOKEN" \
-            -H "Content-Type: application/json")
+                "https://api.cloudflare.com/client/v4/accounts" \
+                -H "Authorization: Bearer $CF_TOKEN" \
+                -H "Content-Type: application/json")
         else
             account_response=$(curl -sS \
-            "https://api.cloudflare.com/client/v4/accounts" \
-            -H "X-Auth-Email: $CF_EMAIL" \
-            -H "X-Auth-Key: $CF_KEY" \
-            -H "Content-Type: application/json")
+                "https://api.cloudflare.com/client/v4/accounts" \
+                -H "X-Auth-Email: $CF_EMAIL" \
+                -H "X-Auth-Key: $CF_KEY" \
+                -H "Content-Type: application/json")
         fi
         CF_ACCOUNT_ID=$(echo "$account_response" | jq -r '.result[0].id // empty')
         if [[ -z "$CF_ACCOUNT_ID" ]]; then
@@ -1642,25 +1638,12 @@ cf_create_tunnel() {
         fi
         export CF_ACCOUNT_ID
     fi
-    reading "请输入域名前缀（留空使用 ${zone_domain}）: " prefix
-    prefix=$(echo "$prefix" | tr -d '[:space:]')
-    prefix="${prefix#.}"
-    prefix="${prefix%.}"
-    if [[ -n "$prefix" && ! "$prefix" =~ ^[a-zA-Z0-9.-]+$ ]]; then
-        red "域名前缀格式无效！"
-        return 1
-    fi
-    if [[ -n "$prefix" ]]; then
-        hostname="${prefix}.${zone_domain}"
-    else
-        hostname="$zone_domain"
-    fi
     tunnel_name="sing-box-$(date +%Y%m%d%H%M%S)"
     tunnel_data=$(jq -n \
         --arg name "$tunnel_name" \
         '{
-            name:$name,
-            config_src:"cloudflare"
+            name: $name,
+            config_src: "cloudflare"
         }')
     create_response=$(cf_call POST \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" \
@@ -1693,64 +1676,31 @@ cf_create_tunnel() {
     fi
     mkdir -p /etc/sing-box/conf
     jq -n \
-    --arg token "$tunnel_token" \
-    '{
-        inbounds:[
-            {
-                type:"cloudflared",
-                tag:"cloudflared-in",
-                token:$token,
-                ha_connections:4,
-                protocol:"http2",
-                post_quantum:false
-            }
-        ]
-    }' > "$cloudflared_file"
+        --arg token "$tunnel_token" \
+        '{
+            inbounds: [
+                {
+                    type: "cloudflared",
+                    tag: "cloudflared-in",
+                    token: $token,
+                    ha_connections: 4,
+                    protocol: "http2",
+                    post_quantum: false
+                }
+            ]
+        }' > "$cloudflared_file"
 
     if [[ ! -s "$cloudflared_file" ]]; then
         red "cloudflared.json 创建失败！"
         return 1
     fi
-    cname_target="${tunnel_id}.cfargotunnel.com"
-    dns_response=$(cf_call GET \
-        "/zones/${selected_zone_id}/dns_records?type=CNAME&name=${hostname}")
-    dns_id=$(echo "$dns_response" | jq -r '.result[0].id // empty')
-    dns_payload=$(jq -n \
-        --arg name "$hostname" \
-        --arg content "$cname_target" \
-        '{
-            type:"CNAME",
-            name:$name,
-            content:$content,
-            proxied:true,
-            ttl:1
-        }')
-
-
-    if [[ -n "$dns_id" ]]; then
-
-        cf_call PUT \
-            "/zones/${selected_zone_id}/dns_records/${dns_id}" \
-            "$dns_payload" >/dev/null
-    else
-        dns_response=$(cf_call POST \
-            "/zones/${selected_zone_id}/dns_records" \
-            "$dns_payload")
-        if [[ "$(echo "$dns_response" | jq -r '.success // false')" != "true" ]]; then
-            red "Tunnel DNS 记录创建失败！"
-            echo "$dns_response" | jq -r '.errors[]?.message // empty'
-            return 1
-        fi
-
-    fi
-    ArgoDomain="$hostname"
     argo_auth="$tunnel_token"
-    export ArgoDomain
     export argo_auth
     export CF_ACCOUNT_ID
     green "Cloudflare Tunnel 创建成功！"
-    green "Tunnel 域名: $ArgoDomain"
+    green "Tunnel ID: $tunnel_id"
     green "cloudflared 入站文件: $cloudflared_file"
+    return 0
 }
 
 # 查看已申请证书
