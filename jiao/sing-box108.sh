@@ -2916,12 +2916,12 @@ EOF
       {"tag":"telegram","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/telegram.srs"},
       {"tag":"youtube","type":"remote","format":"binary","url":"https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/sing/geo-lite/geosite/youtube.srs"}
     ],
-    "rules": [{"rule_set": [
-       {
+    "rules": [
+      {
         "inbound": ["cloudflared-in"],
         "outbound": "vless-wsargo"
       }
-	]}],
+    ],
     "final": "direct"
   }
 }
