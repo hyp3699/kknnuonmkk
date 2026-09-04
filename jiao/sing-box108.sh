@@ -2757,7 +2757,7 @@ TAR="sing-box-${latest_version}-linux-${ARCH}-${LIBC}.tar.gz"
 URL="https://github.com/SagerNet/sing-box/releases/download/v${latest_version}/${TAR}"
 curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "$work_dir" && mv "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}/sing-box" "${work_dir}/sing-box" && chmod +x "${work_dir}/sing-box" && rm -rf "${work_dir}/${TAR}" "${work_dir}/sing-box-${latest_version}-linux-${ARCH}-${LIBC}"
        
-    chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name} ${work_dir}/argo
+    chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
     
     # 放行端口
     allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
@@ -8825,74 +8825,10 @@ delete_rule_menu() {
     warp_manage
 }
 
-
-change_cfip() {
-    clear
-    yellow "修改vmess-argo优选域名\n"
-    green "1: cf.090227.xyz  2: cf.877774.xyz  3: cf.877771.xyz  4: cdns.doon.eu.org  5: cf.zhetengsha.eu.org  6: time.is\n"
-    reading "请输入你的优选域名或优选IP\n(请输入1至6选项,可输入域名:端口 或 IP:端口,直接回车默认使用1): " cfip_input
-
-    if [ -z "$cfip_input" ]; then
-        cfip="cf.090227.xyz"
-        cfport="443"
-    else
-        case "$cfip_input" in
-            "1")
-                cfip="cf.090227.xyz"
-                cfport="443"
-                ;;
-            "2")
-                cfip="cf.877774.xyz"
-                cfport="443"
-                ;;
-            "3")
-                cfip="cf.877771.xyz"
-                cfport="443"
-                ;;
-            "4")
-                cfip="cdns.doon.eu.org"
-                cfport="443"
-                ;;
-            "5")
-                cfip="cf.zhetengsha.eu.org"
-                cfport="443"
-                ;;
-            "6")
-                cfip="time.is"
-                cfport="443"
-                ;;
-            *)
-                if [[ "$cfip_input" =~ : ]]; then
-                    cfip=$(echo "$cfip_input" | cut -d':' -f1)
-                    cfport=$(echo "$cfip_input" | cut -d':' -f2)
-                else
-                    cfip="$cfip_input"
-                    cfport="443"
-                fi
-                ;;
-        esac
-    fi
-
-content=$(cat "$client_dir")
-vmess_url=$(grep -o 'vmess://[^ ]*' "$client_dir")
-encoded_part="${vmess_url#vmess://}"
-decoded_json=$(echo "$encoded_part" | base64 --decode 2>/dev/null)
-updated_json=$(echo "$decoded_json" | jq --arg cfip "$cfip" --argjson cfport "$cfport" \
-    '.add = $cfip | .port = $cfport')
-new_encoded_part=$(echo "$updated_json" | base64 -w0)
-new_vmess_url="vmess://$new_encoded_part"
-new_content=$(echo "$content" | sed "s|$vmess_url|$new_vmess_url|")
-echo "$new_content" > "$client_dir"
-base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt"
-green "\nvmess节点优选域名已更新为：${purple}${cfip}:${cfport},${green}更新订阅或手动复制以下vmess-argo节点${re}\n"
-purple "$new_vmess_url\n"
-}
-
 # 主菜单
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
-   argo_status=$(check_argo 2>/dev/null)
    update_xray_status
    
    clear
@@ -8902,13 +8838,12 @@ menu() {
    green "${purple}快捷命令sb或者b${re}"
    purple "=== 老王sing-box四合一安装脚本 1.0===\n"
    printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
-   printf "${purple}---Argo 状态: %s${re}\n" "$(to_chinese "$argo_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
    printf "%b%-28s%b%s%b\n" "$green" "1. 安装sing-box" "$red" "10. 开启BBR" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "2. 卸载sing-box" "$red" "11. 更新脚本" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. iptables" "$re"
-   printf "%b%-30s%b%s%b\n" "$green" "4. Argo隧道管理" "$red" "13. 快捷指令" "$re"
+   printf "%b%-34s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "6. 修改节点配置" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. xray管理" "$re"
