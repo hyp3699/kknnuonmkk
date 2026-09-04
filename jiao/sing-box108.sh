@@ -7751,7 +7751,7 @@ while true; do
             reading "按回车返回..." _
             clear
             ;;
-        2)
+           2)
             clear
             if ! cf_create_tunnel; then
                 red "Cloudflare Tunnel 创建失败！"
@@ -7767,33 +7767,10 @@ while true; do
                 clear
                 continue
             fi
-            real_token="$argo_auth"
-            if command_exists rc-service 2>/dev/null; then
-                if [[ -f /etc/init.d/argo ]]; then
-                    sed -i '/^[[:space:]]*command_args=/d' /etc/init.d/argo
-                    sed -i "/^[[:space:]]*command=/i command_args=\"-c '/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1'\"" /etc/init.d/argo
-                else
-                    red "/etc/init.d/argo 不存在！"
-                    continue
-                fi
-            else
-                if [[ -f /etc/systemd/system/argo.service ]]; then
-                    sed -i '/^[[:space:]]*ExecStart=/d' /etc/systemd/system/argo.service
-                    sed -i "/^\[Service\]/a ExecStart=/bin/sh -c \"/etc/sing-box/argo tunnel --edge-ip-version auto --no-autoupdate --protocol http2 run --token $real_token 2>&1\"" /etc/systemd/system/argo.service
-                    systemctl daemon-reload &>/dev/null
-                else
-                    red "/etc/systemd/system/argo.service 不存在！"
-                    continue
-                fi
-            fi
-            restart_argo
-            sleep 1
-            change_argo_domain
-            systemctl stop argo-watchdog &>/dev/null
-            systemctl disable argo-watchdog &>/dev/null
-            systemctl daemon-reload &>/dev/null
-            green "Cloudflare Tunnel 创建并启动成功！"
+            green "Cloudflare Tunnel 创建成功！"
             green "Tunnel 域名: $ArgoDomain"
+            green "sing-box cloudflared 入站配置已生成"
+            systemctl restart sing-box &>/dev/null
             echo
             reading "按回车返回..." _
             clear
@@ -7842,7 +7819,6 @@ while true; do
 	0)
     break
     ;;
-*)
     red "无效的选项！"
     ;;
 esac
