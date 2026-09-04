@@ -8969,7 +8969,12 @@ add_socks5_proxy() {
     reading "请输入代理URL (支持 socks://, socks5://, http:// 以及包含 #别名 的链接): " proxy_url
     [ -z "$proxy_url" ] && { red "输入为空！"; sleep 1; warp_manage; return; }
     proto=$(echo "$proxy_url" | grep -oP '^[a-zA-Z0-9]+(?=://)')
-    [[ ! "$proto" =~ ^(socks5|socks|http)$ ]] && { red "不支持的协议！仅支持 socks5/socks/http"; sleep 2; warp_manage; return; }
+    [[ ! "$proto" =~ ^(socks5|socks|http)$ ]] && {
+        red "不支持的协议！仅支持 socks5/socks/http"
+        sleep 2
+        warp_manage
+        return
+    }
     case "$proto" in
         socks|socks5) outbound_type="socks" ;;
         http)         outbound_type="http" ;;
@@ -8983,71 +8988,65 @@ add_socks5_proxy() {
         tag_from_url=""
     fi
     if [[ "$after_proto" == *"@"* ]]; then
-        user_pass="${after_proto%%@*}"; host_port="${after_proto##*@}"
+        user_pass="${after_proto%%@*}"
+        host_port="${after_proto##*@}"
     else
-        user_pass=""; host_port="$after_proto"
+        user_pass=""
+        host_port="$after_proto"
     fi
-    user=""; password=""
+    user=""
+    password=""
     if [ -n "$user_pass" ]; then
         decoded=$(echo "$user_pass" | base64 -d 2>/dev/null)
         if [ -n "$decoded" ] && [[ "$decoded" != "$user_pass" ]] && [[ "$decoded" == *":"* ]]; then
-            user="${decoded%%:*}"; password="${decoded#*:}"
+            user="${decoded%%:*}"
+            password="${decoded#*:}"
         elif [[ "$user_pass" == *":"* ]]; then
-            user="${user_pass%%:*}"; password="${user_pass#*:}"
+            user="${user_pass%%:*}"
+            password="${user_pass#*:}"
         else
             user="$user_pass"
         fi
     fi
-    server="${host_port%%:*}"; port="${host_port##*:}"
-    [ -z "$server" ] || [ -z "$port" ] && { red "格式错误：缺少 IP 或端口！"; sleep 2; warp_manage; return; }
-    [[ "$proto" == "socks" || "$proto" == "socks5" ]] && check_proto="socks5" || check_proto="$proto"
-    local is_local=false
-    if [[ "$server" == "127.0.0.1" || "$server" == "::1" || "$server" == "localhost" ]]; then
-        is_local=true
-    fi
-    local proxy_auth=""
-[ -n "$user" ] && [ -n "$password" ] && proxy_auth="${user}:${password}@" || \
-    { [ -n "$user" ] && proxy_auth="${user}@"; }
-yellow "正在测试代理 ${check_proto}://${server}:${port} ..."
-local curl_proxy_url="${check_proto}://${proxy_auth}${server}:${port}"
-local test_result
-test_result=$(curl -s --max-time 8 \
-    --proxy "$curl_proxy_url" \
-    "https://api.ip.sb/ip" 2>/dev/null)
-if [ -z "$test_result" ]; then
-    yellow "代理测试失败！"
-    reading "是否仍然强制添加此代理？(y/n): " force_add
-    [[ ! "$force_add" =~ ^[yY]$ ]] && {
-        yellow "已取消添加。"
-        sleep 1
+    server="${host_port%%:*}"
+    port="${host_port##*:}"
+    [ -z "$server" ] || [ -z "$port" ] && {
+        red "格式错误：缺少 IP 或端口！"
+        sleep 2
         warp_manage
         return
     }
-else
-    green "代理验证成功！"
-    green "出口 IP: $test_result"
-fi
+    [[ "$proto" == "socks" || "$proto" == "socks5" ]] && \
+        check_proto="socks5" || \
+        check_proto="$proto"
+    local proxy_auth=""
+    [ -n "$user" ] && [ -n "$password" ] && \
+        proxy_auth="${user}:${password}@" || \
+        { [ -n "$user" ] && proxy_auth="${user}@"; }
+    yellow "正在测试代理 ${check_proto}://${server}:${port} ..."
+    local curl_proxy_url="${check_proto}://${proxy_auth}${server}:${port}"
+    local test_result
+    test_result=$(curl -s --max-time 8 \
+        --proxy "$curl_proxy_url" \
+        "https://api.ip.sb/ip" 2>/dev/null)
+    if [ -z "$test_result" ]; then
+        yellow "代理测试失败！"
+        reading "是否仍然强制添加此代理？(y/n): " force_add
+        [[ ! "$force_add" =~ ^[yY]$ ]] && {
+            yellow "已取消添加。"
+            sleep 1
+            warp_manage
+            return
+        }
     else
-        yellow "正在测试代理 ${check_proto}://${server}:${port} ..."
-        local api_response
-        api_response=$(curl -s --max-time 8 -G \
-            --data-urlencode "proxy=${check_proto}://${proxy_auth}${server}:${port}" \
-            "https://check.socks5.cmliussss.net/check" 2>/dev/null)
-        [ -z "$api_response" ] && { red "API 请求失败"; sleep 2; warp_manage; return; }
-
-        success=$(echo "$api_response" | jq -r '.success')
-        if [ "$success" != "true" ]; then
-            error_msg=$(echo "$api_response" | jq -r '.error // "未知错误"')
-            red "代理不可用: $error_msg"; sleep 2; warp_manage; return
-        fi
-        exit_ip=$(echo "$api_response" | jq -r '.exit.ip // empty')
         green "代理验证成功！"
-        [ -n "$exit_ip" ] && green "出口 IP: $exit_ip"
+        green "出口 IP: $test_result"
     fi
     [ -n "$tag_from_url" ] && tag="$tag_from_url" || tag="${check_proto}-${server}"
     local base_tag="$tag"
     local count=1
-    while jq -e --arg t "$tag" '.outbounds[] | select(.tag == $t)' "$outbound_file" >/dev/null 2>&1; do
+    while jq -e --arg t "$tag" '.outbounds[] | select(.tag == $t)' \
+        "$outbound_file" >/dev/null 2>&1; do
         tag="${base_tag}_${count}"
         ((count++))
     done
@@ -9055,21 +9054,41 @@ fi
         yellow "注意：标签 '${base_tag}' 已存在，自动重命名为 '${tag}'"
     fi
     if [ -n "$user" ] && [ -n "$password" ]; then
-        jq --arg type "$outbound_type" --arg tag "$tag" --arg server "$server" \
-           --arg port "$port" --arg user "$user" --arg password "$password" \
-           '.outbounds += [{"type":$type,"tag":$tag,"server":$server,"server_port":($port|tonumber),"username":$user,"password":$password}]' \
-           "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
-    else
-        jq --arg type "$outbound_type" --arg tag "$tag" --arg server "$server" \
+        jq --arg type "$outbound_type" \
+           --arg tag "$tag" \
+           --arg server "$server" \
            --arg port "$port" \
-           '.outbounds += [{"type":$type,"tag":$tag,"server":$server,"server_port":($port|tonumber)}]' \
-           "$outbound_file" > "${outbound_file}.tmp" && mv "${outbound_file}.tmp" "$outbound_file"
+           --arg user "$user" \
+           --arg password "$password" \
+           '.outbounds += [{
+               "type":$type,
+               "tag":$tag,
+               "server":$server,
+               "server_port":($port|tonumber),
+               "username":$user,
+               "password":$password
+           }]' \
+           "$outbound_file" > "${outbound_file}.tmp" && \
+           mv "${outbound_file}.tmp" "$outbound_file"
+    else
+        jq --arg type "$outbound_type" \
+           --arg tag "$tag" \
+           --arg server "$server" \
+           --arg port "$port" \
+           '.outbounds += [{
+               "type":$type,
+               "tag":$tag,
+               "server":$server,
+               "server_port":($port|tonumber)
+           }]' \
+           "$outbound_file" > "${outbound_file}.tmp" && \
+           mv "${outbound_file}.tmp" "$outbound_file"
     fi
     restart_singbox
     green "\n代理出站 '${tag}' 已成功添加！"
-    sleep 1.5; warp_manage
+    sleep 1.5
+    warp_manage
 }
-
 
 delete_socks5_proxy() {
     clear
