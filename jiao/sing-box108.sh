@@ -3498,7 +3498,7 @@ cat > "${xray_conf_dir}/outbounds.json" << EOF
     },
     {
       "protocol": "socks",
-      "tag": "wireproxy",
+      "tag": "warp-40000",
       "settings": {
         "servers": [
           {
@@ -8623,11 +8623,10 @@ select_outbound_target() {
     echo ""
     green "正在检测已添加出站的连通性及延迟，请稍候 (最长5秒)..."
     
-    local out_tags=("wireguard-out" "wireproxy")
+    local out_tags=("wireguard-out")
     local display_lines=()
-    display_lines+=("  ${green}1.${re} ${skyblue}wireguard-out${re} (系统内置 WARP 出站)")
-    display_lines+=("  ${green}2.${re} ${skyblue}wireproxy${re} (wireproxy)")
-    local custom_tags=($(jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out" and .tag != "wireproxy") | .tag' "$outbound_file" 2>/dev/null))
+    display_lines+=("  ${green}1.${re} ${skyblue}wireguard-out${re} (脚本 WARP 出站)")
+    local custom_tags=($(jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | .tag' "$outbound_file" 2>/dev/null))
     local tmp_dir=$(mktemp -d)
     local i=3
     for tag in "${custom_tags[@]}"; do
