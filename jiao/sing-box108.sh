@@ -9006,20 +9006,27 @@ add_socks5_proxy() {
         is_local=true
     fi
     local proxy_auth=""
-    [ -n "$user" ] && [ -n "$password" ] && proxy_auth="${user}:${password}@" || \
-        { [ -n "$user" ] && proxy_auth="${user}@"; }
-    if [ "$is_local" = true ]; then
-        yellow "检测到本地代理 ${check_proto}://${server}:${port}，正在用 curl 测试连通性..."
-        local curl_proxy_url="${check_proto}://${proxy_auth}${server}:${port}"
-        local test_result
-        test_result=$(curl -s --max-time 8 --proxy "$curl_proxy_url" "https://api.ip.sb/ip" 2>/dev/null)
-        if [ -z "$test_result" ]; then
-            yellow "警告：通过本地代理访问外网失败，请确认本地代理服务已启动。"
-            reading "是否仍然强制添加此代理？(y/n): " force_add
-            [[ ! "$force_add" =~ ^[yY]$ ]] && { yellow "已取消添加。"; sleep 1; warp_manage; return; }
-        else
-            green "本地代理可用，出口 IP: $test_result"
-        fi
+[ -n "$user" ] && [ -n "$password" ] && proxy_auth="${user}:${password}@" || \
+    { [ -n "$user" ] && proxy_auth="${user}@"; }
+yellow "正在测试代理 ${check_proto}://${server}:${port} ..."
+local curl_proxy_url="${check_proto}://${proxy_auth}${server}:${port}"
+local test_result
+test_result=$(curl -s --max-time 8 \
+    --proxy "$curl_proxy_url" \
+    "https://api.ip.sb/ip" 2>/dev/null)
+if [ -z "$test_result" ]; then
+    yellow "代理测试失败！"
+    reading "是否仍然强制添加此代理？(y/n): " force_add
+    [[ ! "$force_add" =~ ^[yY]$ ]] && {
+        yellow "已取消添加。"
+        sleep 1
+        warp_manage
+        return
+    }
+else
+    green "代理验证成功！"
+    green "出口 IP: $test_result"
+fi
     else
         yellow "正在测试代理 ${check_proto}://${server}:${port} ..."
         local api_response
