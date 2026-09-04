@@ -7197,10 +7197,17 @@ iptables_ssl() {
                 if nft list chain inet filter input 2>/dev/null | grep -qw "$o_port"; then
                     yellow "端口 $o_port 规则已存在，无需重复添加"
                 else
-                    nft add rule inet filter input tcp dport $o_port accept comment "$tag" 2>/dev/null
-                    nft add rule inet filter input udp dport $o_port accept comment "$tag" 2>/dev/null
-                    save_nft_rules
-                    green "成功：端口 $o_port 已放行 (原生双栈生效)"
+                    read -p "请输入允许连接的IP(回车允许所有IP): " allow_ip
+if [ -n "$allow_ip" ]; then
+    nft add rule inet filter input ip saddr "$allow_ip" tcp dport $o_port accept comment "$tag" 2>/dev/null
+    nft add rule inet filter input ip saddr "$allow_ip" udp dport $o_port accept comment "$tag" 2>/dev/null
+    green "成功：端口 $o_port 已放行，仅允许 $allow_ip 连接"
+else
+    nft add rule inet filter input tcp dport $o_port accept comment "$tag" 2>/dev/null
+    nft add rule inet filter input udp dport $o_port accept comment "$tag" 2>/dev/null
+    green "成功：端口 $o_port 已放行，允许所有IP连接"
+fi
+save_nft_rules
                 fi
             fi
             sleep 1 && iptables_ssl ;;
