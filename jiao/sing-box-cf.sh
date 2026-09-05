@@ -1125,47 +1125,34 @@ cf_add_tunnel_route() {
     fi
 # ── 查找当前服务器 Tunnel / 创建 Tunnel ──
 cloudflared_conf="/etc/sing-box/conf/cloudflared.json"
-
 local tunnel_list tunnel_data tunnel_id tunnel_name tunnel_token
 local connections connections_ips origin_ip
 local is_local_tunnel=0
-
 ip_address
-
-# 查询 Account 下所有 Tunnel
 tunnel_list=$(cf_call GET \
     "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?per_page=100" \
     2>/dev/null)
-
 if [[ "$(echo "$tunnel_list" |
     jq -r '.success // false' 2>/dev/null)" == "true" ]]; then
-
     while read -r tunnel_id; do
         [[ -z "$tunnel_id" ]] && continue
-
         tunnel_data=$(cf_call GET \
             "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
             2>/dev/null)
-
         [[ "$(echo "$tunnel_data" |
             jq -r '.success // false' 2>/dev/null)" != "true" ]] && continue
-
         connections_ips=$(echo "$tunnel_data" |
             jq -r '.result.connections[]?.origin_ip // empty' |
             sort -u)
-
         is_local_tunnel=0
-
         if [[ -n "$ipv4_address" ]] &&
            echo "$connections_ips" | grep -Fxq "$ipv4_address"; then
             is_local_tunnel=1
         fi
-
         if [[ -n "$ipv6_address" ]] &&
            echo "$connections_ips" | grep -Fxq "$ipv6_address"; then
             is_local_tunnel=1
         fi
-
         if [[ "$is_local_tunnel" == "1" ]]; then
             tunnel_name=$(echo "$tunnel_data" |
                 jq -r '.result.name // "-"')
@@ -1176,42 +1163,31 @@ if [[ "$(echo "$tunnel_list" |
             jq -r '.result[]?.id // empty'
     )
 fi
-
 # ── 当前服务器已有 Tunnel：获取 Token ──
 if [[ "$is_local_tunnel" == "1" ]]; then
-
     green "检测到当前服务器已有 Cloudflare Tunnel"
     green "Tunnel: $tunnel_name"
-
     tunnel_token_response=$(cf_call GET \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/token" \
         2>/dev/null)
-
     tunnel_token=$(echo "$tunnel_token_response" |
         jq -r '.result // empty')
-
     if [[ -z "$tunnel_token" || "$tunnel_token" == "null" ]]; then
         red "获取 Tunnel Token 失败！"
         return 1
     fi
-
 # ── 当前服务器没有 Tunnel：创建新的 ──
 else
-
     yellow "未检测到当前服务器的 Cloudflare Tunnel，正在创建..."
-
     if ! cf_create_tunnel; then
         red "Cloudflare Tunnel 创建失败！"
         return 1
     fi
-
     tunnel_token="$argo_auth"
-
     if [[ -z "$tunnel_token" ]]; then
         red "新 Tunnel Token 获取失败！"
         return 1
     fi
-
     tunnel_id=$(echo "$tunnel_token" |
         base64 -d 2>/dev/null |
         jq -r '.t // empty' 2>/dev/null)
@@ -1220,7 +1196,6 @@ else
         red "新 Tunnel ID 获取失败！"
         return 1
     fi
-
     tunnel_data=$(cf_call GET \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
         2>/dev/null)
@@ -1230,14 +1205,11 @@ else
         red "新创建的 Tunnel 验证失败！"
         return 1
     fi
-
     tunnel_name=$(echo "$tunnel_data" |
         jq -r '.result.name // "-"')
 fi
-
 # ── 无论新建还是已有，都重新生成 cloudflared.json ──
 mkdir -p /etc/sing-box/conf
-
 jq -n \
     --arg token "$tunnel_token" \
     '{
@@ -1259,7 +1231,6 @@ if [[ ! -s "$cloudflared_conf" ]]; then
     red "cloudflared.json 生成失败！"
     return 1
 fi
-
 token="$tunnel_token"
 # ── 获取 Tunnel 名称 ──
 tunnel_name=$(echo "$tunnel_data" |
@@ -8158,7 +8129,6 @@ manage_singbox() {
     skyblue "-------------------"
     green "3. 重启sing-box服务"
     skyblue "-------------------"
-	skyblue "-------------------"
     green "4. Tunnel 隧道连接 IP：自动"
     green "5. Tunnel 隧道连接 IP：仅IPv4"
     green "6. Tunnel 隧道连接 IP：仅IPv6"
