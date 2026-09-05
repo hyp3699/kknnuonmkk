@@ -5730,7 +5730,9 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "$vmess_path"
+        "path": "$trojan_path",
+		"max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     },
     {
@@ -5745,7 +5747,9 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "$vless_path"
+        "path": "$trojan_path",
+		"max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     },
     {
@@ -5760,38 +5764,37 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "$trojan_path"
+        "path": "$trojan_path",
+		"max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
       }
     }
   ]
 }
 EOF
 
-    if [[ ! -s "$ws_cdn_config" ]]; then
-        red "Tunnel 节点配置文件创建失败！"
-        return 1
-    fi
-
-    vmess_remark="${isp}_VMess-Tunnel"
-    vless_remark="{$isp}_VLESS-Tunnel"
-    trojan_remark="{$isp}_Trojan-Tunnel"
-    VMESS="{\"v\":\"2\",\"ps\":\"$vmess_remark\",\"add\":\"$CFIP\",\"port\":\"443\",\"id\":\"$uuid\",\"aid\":\"0\",\"encryption\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"${vmess_path}?ed=2048\",\"tls\":\"tls\",\"sni\":\"$domain\",\"alpn\":\"\",\"fp\":\"firefox\",\"allowInsecure\":false}"
-    vmess_url="vmess://$(printf '%s' "$VMESS" | base64 -w0)"
-    vless_url="vless://${uuid}@${CFIP}:443?ed=2048&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}%3Fed%3D2048#${vless_remark}"
-    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2048&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}%3Fed%3D2048#${trojan_remark}"
-    touch /etc/sing-box/url.txt
-    sed -i \
-        -e "/#${vmess_remark}$/d" \
-        -e "/#${vless_remark}$/d" \
-        -e "/#${trojan_remark}$/d" \
-        /etc/sing-box/url.txt
+	vmess_remark="${isp}_Tunnelvmess_ws_argo"
+    vless_remark="${isp}_Tunnelvless_ws_argo"
+    trojan_remark="${isp}_Tunneltrojan_ws_argo"
+    VMESS="{ \"v\": \"2\", \"ps\": \"${vmess_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${vmess_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+    vmess_url="vmess://$(echo -n "$VMESS" | base64 -w0)"
+    vless_remark_enc=$(echo -n "$vless_remark" | jq -sRr @uri)
+    vless_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}?ed=2048#${vless_remark_enc}"
+    trojan_remark_enc=$(echo -n "$trojan_remark" | jq -sRr @uri)
+    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}?ed=2048#${trojan_remark_enc}"
+	if [ -f "/etc/sing-box/url.txt" ]; then
+        sed -i "/${vmess_remark}/d" /etc/sing-box/url.txt
+        sed -i "/${vless_remark}/d" /etc/sing-box/url.txt
+        sed -i "/${trojan_remark}/d" /etc/sing-box/url.txt
+    fi                              
     echo "$vmess_url" >> /etc/sing-box/url.txt
+	echo "" >> /etc/sing-box/url.txt
     echo "$vless_url" >> /etc/sing-box/url.txt
+	echo "" >> /etc/sing-box/url.txt
     echo "$trojan_url" >> /etc/sing-box/url.txt
-    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
-    echo >> /etc/sing-box/sub.txt
+	echo "" >> /etc/sing-box/url.txt  
+    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
     restart_singbox
-    echo
 	green "--------------------------------------------------"
     green "$vmess_url"
     green "$vless_url"
