@@ -9230,7 +9230,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}"
-   purple "=== 老王sing-box四合一安装脚本 1.0===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.01===\n"
    printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    printf "${purple}singbox 状态: %s${re}\n\n" "$(to_chinese "$singbox_status")" 
