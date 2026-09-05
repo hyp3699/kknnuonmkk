@@ -1123,45 +1123,73 @@ cf_add_tunnel_route() {
             route_paths[$i]="$path"
         done
     fi
-    # ── 没有 Tunnel 就自动创建 ──
-    if [[ ! -s "/etc/sing-box/conf/cloudflared.json" ]]; then
-        yellow "未检测到 Cloudflare Tunnel，正在创建..."
-
-        cf_create_tunnel || return 1
-
-        if [[ ! -s "/etc/sing-box/conf/cloudflared.json" ]]; then
-            red "Cloudflare Tunnel 创建失败！"
-            return 1
+    # ── 检查 / 创建 Cloudflare Tunnel ──
+cloudflared_conf="/etc/sing-box/conf/cloudflared.json"
+need_create_tunnel=0
+if [[ ! -s "$cloudflared_conf" ]]; then
+    need_create_tunnel=1
+else
+    token=$(jq -r '
+        .inbounds[]? |
+        select(.type == "cloudflared") |
+        .token // empty
+    ' "$cloudflared_conf" | head -n1)
+    if [[ -z "$token" ]]; then
+        need_create_tunnel=1
+    else
+        tunnel_id=$(echo "$token" |
+            base64 -d 2>/dev/null |
+            jq -r '.t // empty' 2>/dev/null)
+        if [[ -z "$tunnel_id" ]]; then
+            need_create_tunnel=1
+        else
+            tunnel_data=$(cf_call GET \
+                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
+                2>/dev/null)
+            if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
+                need_create_tunnel=1
+            fi
         fi
     fi
-    # ── 获取 Tunnel Token ──
-    token=$(jq -r \
-        '.inbounds[]? |
-         select(.type == "cloudflared") |
-         .token // empty' \
-        /etc/sing-box/conf/cloudflared.json | head -n1)
-
-    if [[ -z "$token" ]]; then
-        red "无法从 cloudflared.json 获取 Tunnel Token！"
+fi
+if [[ "$need_create_tunnel" == "1" ]]; then
+    yellow "Tunnel 不存在或配置已失效，正在重新创建..."
+    rm -f "$cloudflared_conf"
+    cf_create_tunnel
+    if [[ ! -s "$cloudflared_conf" ]]; then
+        red "Cloudflare Tunnel 创建失败！"
         return 1
     fi
-    # ── 获取 Tunnel ID ──
+    token=$(jq -r '
+        .inbounds[]? |
+        select(.type == "cloudflared") |
+        .token // empty
+    ' "$cloudflared_conf" | head -n1)
+    if [[ -z "$token" ]]; then
+        red "新 Tunnel Token 获取失败！"
+        rm -f "$cloudflared_conf"
+        return 1
+    fi
     tunnel_id=$(echo "$token" |
         base64 -d 2>/dev/null |
         jq -r '.t // empty' 2>/dev/null)
-
     if [[ -z "$tunnel_id" ]]; then
-        red "无法获取 Tunnel ID！"
+        red "新 Tunnel ID 获取失败！"
+        rm -f "$cloudflared_conf"
         return 1
     fi
-    # ── 检查 Tunnel ──
     tunnel_data=$(cf_call GET \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
         2>/dev/null)
     if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
-        red "Tunnel 不存在或无权访问！"
+        red "新创建的 Tunnel 验证失败！"
+        rm -f "$cloudflared_conf"
         return 1
     fi
+fi
+# ── 获取 Tunnel 名称 ──
+tunnel_name=$(echo "$tunnel_data" |
+    jq -r '.result.name // "-"')
     tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
     zone_response=$(cf_call GET "/zones?per_page=500" 2>/dev/null)
     if [[ "$(echo "$zone_response" | jq -r '.success // false')" != "true" ]]; then
