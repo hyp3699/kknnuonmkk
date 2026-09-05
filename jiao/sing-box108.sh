@@ -22,18 +22,39 @@ skyblue() { echo -e "\e[1;36m$1\033[0m"; }
 reading() { read -p "$(red "$1")" "$2"; }
 
 generate_vars() {
-  local cc=$(curl -sm 3 "https://api.ip.sb/geoip" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  [ -z "$cc" ] && cc=$(curl -sm 3 "https://ipapi.co/json" | awk -F\" '{for(x=1;x<=NF;x++) if($x=="country_code") print $(x+2)}' | head -n 1)
-  if echo "$cc" | grep -q '^[A-Z][A-Z]$'; then
-      isp=$(printf $(echo "$cc" | awk '{
-          chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-          i1 = index(chars, substr($0, 1, 1))
-          i2 = index(chars, substr($0, 2, 1))
-          printf("\\xF0\\x9F\\x87\\x%X\\xF0\\x9F\\x87\\x%X", 165+i1, 165+i2)
-      }'))
-  else
-      isp="🌐" 
-  fi     
+    local cc=""
+    local c1 c2 n1 n2
+    local response
+    response=$(curl -4 -sS --connect-timeout 3 --max-time 5 \
+        "https://api.ip.sb/geoip" 2>/dev/null)
+    cc=$(echo "$response" |
+        jq -r '.country_code // empty' 2>/dev/null |
+        tr '[:lower:]' '[:upper:]')
+    if [[ ! "$cc" =~ ^[A-Z]{2}$ ]]; then
+        response=$(curl -4 -sS --connect-timeout 3 --max-time 5 \
+            "https://ipapi.co/json/" 2>/dev/null)
+        cc=$(echo "$response" |
+            jq -r '.country_code // empty' 2>/dev/null |
+            tr '[:lower:]' '[:upper:]')
+    fi
+    if [[ ! "$cc" =~ ^[A-Z]{2}$ ]]; then
+        response=$(curl -4 -sS --connect-timeout 3 --max-time 5 \
+            "https://ipinfo.io/json" 2>/dev/null)
+
+        cc=$(echo "$response" |
+            jq -r '.country // empty' 2>/dev/null |
+            tr '[:lower:]' '[:upper:]')
+    fi
+    if [[ "$cc" =~ ^[A-Z]{2}$ ]]; then
+        printf -v c1 '%d' "'${cc:0:1}"
+        printf -v c2 '%d' "'${cc:1:1}"
+        n1=$((0x1F1E6 + c1 - 65))
+        n2=$((0x1F1E6 + c2 - 65))
+        printf -v isp '%b' \
+            "\\U$(printf '%08X' "$n1")\\U$(printf '%08X' "$n2")"
+    else
+        isp="🌐"
+    fi
 }
 
 # 用于存放已分配端口的数组
