@@ -6634,14 +6634,7 @@ EOF
         green " 节点已移除！"
         green "==============================================="
         if [[ -n "$cdn_domain" ]]; then
-    cf_remove_cdn_rules "$cdn_domain"
-
-    if cf_get_zone_id_by_domain "$cdn_domain"; then
-        cf_delete_dns "$selected_zone_id" "$cdn_domain"
-        green "DNS 解析已删除：$cdn_domain"
-    fi
-
-    if [[ -s "/etc/sing-box/conf/cloudflared.json" ]]; then
+        if [[ -s "/etc/sing-box/conf/cloudflared.json" ]]; then
         tunnel_token=$(jq -r \
             '.inbounds[]? |
              select(.type == "cloudflared") |
@@ -6666,7 +6659,11 @@ EOF
                         {
                             config: {
                                 ingress: (
-                                    map(select(.hostname != $h))
+                                    map(select(
+                                        (.hostname // "") != $h and
+                                        (.service // "") != "http_status:404"
+                                    ))
+                                    + [{service:"http_status:404"}]
                                 )
                             }
                         }')
@@ -6683,10 +6680,25 @@ EOF
                     echo "$response" |
                         jq -r '.errors[]?.message // empty'
                 fi
+            else
+                red "获取 Tunnel 配置失败！"
+                echo "$config_data" |
+                    jq -r '.errors[]?.message // empty'
             fi
+        else
+            red "无法获取 Tunnel ID 或 Account ID！"
         fi
+    else
+        yellow "未找到 cloudflared.json，跳过 Tunnel 路由删除"
     fi
-fi
+
+    if cf_get_zone_id_by_domain "$cdn_domain"; then
+        cf_delete_dns "$selected_zone_id" "$cdn_domain"
+        green "DNS 解析已删除：$cdn_domain"
+    else
+        yellow "未找到 DNS 所属 Zone：$cdn_domain"
+    fi
+fi          
     else
         red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
     fi
