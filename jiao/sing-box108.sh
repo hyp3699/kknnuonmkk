@@ -4614,6 +4614,7 @@ manage_nodes_menu() {
     "$CONF_DIR/http.json|HTTP|9"
     "$CONF_DIR/vless-wstls-cdn.json|vless-ws-tls-cdn|10"
     "$CONF_DIR/vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|11"
+	"$CONF_DIR/tunnel-ws-argo.json|Vless-Vmess-Trojan-argo|12"
     "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|13"
     "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|14"
     "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|15"
