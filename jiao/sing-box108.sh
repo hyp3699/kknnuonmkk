@@ -6570,6 +6570,127 @@ EOF
         red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
     fi
     ;;
+	62)
+    targets=("_Tunnelvmess_ws_argo" "_Tunnelvless_ws_argo" "_Tunneltrojan_ws_argo")
+    configs=("/etc/sing-box/conf/tunnel-ws-argo.json")
+    exist_flag=0
+    for conf in "${configs[@]}"; do
+        [ -f "$conf" ] && exist_flag=1 && break
+    done
+    if [ "$exist_flag" -eq 1 ]; then
+        cdn_domain=""
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            while IFS= read -r line; do
+                if [[ "$line" == trojan://*"_Tunneltrojan_ws_argo"* ]]; then
+                    cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
+                    break
+                fi
+            done < /etc/sing-box/url.txt
+        fi
+        for conf in "${configs[@]}"; do
+            if [ -f "$conf" ]; then
+                port=$(grep '"listen_port"' "$conf" | tr -cd '0-9')
+                if [ -n "$port" ]; then
+                    nft delete rule inet filter input handle $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}') 2>/dev/null
+                fi
+                rm -f "$conf"
+            fi
+        done
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
+        if [ -f "/etc/sing-box/url.txt" ]; then
+            tmp_file=$(mktemp)
+            while IFS= read -r line || [ -n "$line" ]; do
+                skip=0
+                if [[ "$line" == vmess://* ]]; then
+                    b64_str="${line#vmess://}"
+                    decoded=$(echo "$b64_str" | base64 -d 2>/dev/null)
+                    for t in "${targets[@]}"; do
+                        if [[ "$decoded" == *"$t"* ]]; then
+                            skip=1
+                            break
+                        fi
+                    done
+                else
+                    for t in "${targets[@]}"; do
+                        if [[ "$line" == *"$t"* ]]; then
+                            skip=1
+                            break
+                        fi
+                    done
+                fi
+                [ "$skip" -eq 0 ] && echo "$line" >> "$tmp_file"
+            done < "/etc/sing-box/url.txt"
+            mv "$tmp_file" /etc/sing-box/url.txt
+            sed -i '/^$/N;/\n$/D' /etc/sing-box/url.txt
+            echo "" >> /etc/sing-box/url.txt
+        fi
+        if [ -s "/etc/sing-box/url.txt" ]; then
+            base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
+        else
+            truncate -s 0 /etc/sing-box/sub.txt
+        fi
+        restart_singbox
+        green "==============================================="
+        green " 节点已移除！"
+        green "==============================================="
+        if [[ -n "$cdn_domain" ]]; then
+    cf_remove_cdn_rules "$cdn_domain"
+
+    if cf_get_zone_id_by_domain "$cdn_domain"; then
+        cf_delete_dns "$selected_zone_id" "$cdn_domain"
+        green "DNS 解析已删除：$cdn_domain"
+    fi
+
+    if [[ -s "/etc/sing-box/conf/cloudflared.json" ]]; then
+        tunnel_token=$(jq -r \
+            '.inbounds[]? |
+             select(.type == "cloudflared") |
+             .token // empty' \
+            /etc/sing-box/conf/cloudflared.json | head -n1)
+
+        tunnel_id=$(echo "$tunnel_token" |
+            base64 -d 2>/dev/null |
+            jq -r '.t // empty' 2>/dev/null)
+
+        if [[ -n "$tunnel_id" && -n "${CF_ACCOUNT_ID:-}" ]]; then
+            config_data=$(cf_call GET \
+                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+                2>/dev/null)
+
+            if [[ "$(echo "$config_data" | jq -r '.success // false')" == "true" ]]; then
+                ingress=$(echo "$config_data" |
+                    jq -c '.result.config.ingress // []')
+
+                new_config=$(echo "$ingress" |
+                    jq -c --arg h "$cdn_domain" '
+                        {
+                            config: {
+                                ingress: (
+                                    map(select(.hostname != $h))
+                                )
+                            }
+                        }')
+
+                response=$(cf_call PUT \
+                    "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+                    "$new_config" \
+                    2>/dev/null)
+
+                if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
+                    green "Tunnel 路由已删除：$cdn_domain"
+                else
+                    red "Tunnel 路由删除失败！"
+                    echo "$response" |
+                        jq -r '.errors[]?.message // empty'
+                fi
+            fi
+        fi
+    fi
+fi
+    else
+        red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
+    fi
+    ;;
 	65)
     target="_xray_vless_xhttp_tls"
     target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
