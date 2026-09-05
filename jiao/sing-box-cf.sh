@@ -1153,7 +1153,7 @@ else
     fi
 fi
 if [[ "$need_create_tunnel" == "1" ]]; then
-    yellow "Tunnel 不存在或配置已失效，正在重新创建..."
+    yellow "Tunnel 正在创建..."
     rm -f "$cloudflared_conf"
     cf_create_tunnel
     if [[ ! -s "$cloudflared_conf" ]]; then
