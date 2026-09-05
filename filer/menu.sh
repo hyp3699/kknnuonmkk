@@ -1234,6 +1234,20 @@ net() {
   local RETRY_BY_WIREGUARD_GO_DONE=0
   hint " $(text 11)\n $(text 12) "
   [ "$SYSTEM" != Alpine ] && [[ $(systemctl is-active wg-quick@warp) != 'active' ]] && wg-quick down warp >/dev/null 2>&1
+
+  # ===== Alpine 上按 openresolv 官方方式接管并重建签名，避免 signature mismatch 导致 wg-quick 回滚 =====
+  if [ "$SYSTEM" = 'Alpine' ] && [ -x "$(type -p resolvconf)" ]; then
+    # 幂等地把当前 resolv.conf 注入 openresolv(control) 并重建签名; 文件不存在/为空时兜底清空
+    if ! resolvconf -l >/dev/null 2>&1; then
+      [ -s /etc/resolv.conf ] && cat /etc/resolv.conf | resolvconf -a control 2>/dev/null || : > /etc/resolv.conf
+    fi
+    resolvconf -u 2>/dev/null || true
+  fi
+  # ===================================================================================
+
+  # 消除 wg-quick 的 "world accessible" 告警（warp.conf 不含执行位）
+  [ -f /etc/wireguard/warp.conf ] && chmod 600 /etc/wireguard/warp.conf 2>/dev/null
+
   ${SYSTEMCTL_START[int]} >/dev/null 2>&1
   wg-quick up warp >/dev/null 2>&1
   ss -nltp | grep dnsmasq >/dev/null 2>&1 && systemctl restart dnsmasq >/dev/null 2>&1
@@ -1289,7 +1303,7 @@ net() {
         ln -sf /usr/bin/wg-quick.reserved /usr/bin/wg-quick
         KERNEL_OR_WIREGUARD_GO='wireguard-go with reserved'
         wg-quick down warp >/dev/null 2>&1
-        [ -s /etc/resolv.conf.origin ] && cp -f /etc/resolv.conf.origin /etc/resolv.conf
+        [ -s /etc/resolv.conf.origin ] && cp -f /etc/resolv.conf.origin /etc/resolv.conf && resolvconf -u 2>/dev/null || true
         unset IP4 IP6 WAN4 WAN6 COUNTRY4 COUNTRY6 ASNORG4 ASNORG6 TRACE4 TRACE6 PLUS4 PLUS6 WARPSTATUS4 WARPSTATUS6 TYPE
         i=1
         hint " $(text 11)\n $(text 12) "
@@ -1301,7 +1315,7 @@ net() {
       wg-quick down warp >/dev/null 2>&1
       ERROR_MESSAGE=$(wg-quick up warp 2>&1)
       wg-quick down warp >/dev/null 2>&1
-      [ -s /etc/resolv.conf.origin ] && cp -f /etc/resolv.conf.origin /etc/resolv.conf
+      [ -s /etc/resolv.conf.origin ] && cp -f /etc/resolv.conf.origin /etc/resolv.conf && resolvconf -u 2>/dev/null || true
       echo -e " ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓\n $(text 20): $SYS\n\n $(text 21):$(uname -r) \n\n $(text 40): ${MENU_OPTION[MENU_CHOOSE]} \n\n $ERROR_MESSAGE\n ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ "
       error " $(text 13) "
     fi
@@ -2179,7 +2193,7 @@ $ALLOW6
 Endpoint = engage.cloudflareclient.com:2408
 PersistentKeepalive = 30
 EOF
-  chmod +x /etc/wireguard/warp.conf
+  chmod 600 /etc/wireguard/warp.conf
   info "\n $(text 81) \n"
 
   # 对于 CentOS 9 / AlmaLinux 9 / RockyLinux 9 及类似系统的处理
