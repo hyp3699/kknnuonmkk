@@ -5730,7 +5730,7 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "$trojan_path",
+        "path": "$vmess_path",
 		"max_early_data": 2048,
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
@@ -5747,7 +5747,7 @@ EOF
       ],
       "transport": {
         "type": "ws",
-        "path": "$trojan_path",
+        "path": "$vless_path",
 		"max_early_data": 2048,
         "early_data_header_name": "Sec-WebSocket-Protocol"
       }
@@ -8967,7 +8967,7 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "1. 安装sing-box" "$red" "10. 开启BBR" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "2. 卸载sing-box" "$red" "11. 更新脚本" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. iptables" "$re"
-   printf "%b%-30s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
+   printf "%b%-28s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "6. 修改节点配置" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. xray管理" "$re"
