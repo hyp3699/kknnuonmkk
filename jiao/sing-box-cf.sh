@@ -2964,7 +2964,7 @@ EOF
 
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
-    local remote_url="http://sb.133134.xyz"
+    local remote_url="http://cfsb.133134.xyz"
     local local_file="$work_dir/sb.sh"
     if [ ! -s "$local_file" ]; then
         mkdir -p "$work_dir"
@@ -6839,7 +6839,7 @@ fi
 
 #更新脚本
 update_script() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box108.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-cf.sh"
     local local_file="$work_dir/sb.sh"
 
     if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
