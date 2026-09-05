@@ -286,8 +286,10 @@ get_realip() {
     fi
 }
 ip_address() {
-    ipv4_address=$(curl -s -m 3 ipv4.ip.sb)
-    ipv6_address=$(curl -s -m 3 ipv6.ip.sb)
+    ipv4_address=$(curl -4 -sS -L -m 3 https://ipv4.ip.sb 2>/dev/null | tr -d '[:space:]')
+    ipv6_address=$(curl -6 -sS -L -m 3 https://ipv6.ip.sb 2>/dev/null | tr -d '[:space:]')
+    [[ "$ipv4_address" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ipv4_address=""
+    [[ "$ipv6_address" =~ : ]] || ipv6_address=""
 }
 nginx_get_domain() {
     local file="$1"
@@ -972,36 +974,66 @@ cf_tunnel_detail() {
     reading "请输入选择 [0-1]: " choice
 
     case "$choice" in
-        1)
-            delete_response=$(cf_call DELETE "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
-
-            if [[ "$(echo "$delete_response" | jq -r '.success // false')" == "true" ]]; then
-                green "Cloudflare Tunnel 删除成功！"
-
-                if [[ -n "$hostnames" ]]; then
-                    while read -r dns_name; do
-                        [[ -z "$dns_name" ]] && continue
-
-                        dns_zone_id=$(cf_call GET "/zones?name=${dns_name#*.}&per_page=1" 2>/dev/null | jq -r '.result[0].id // empty')
-                        [[ -z "$dns_zone_id" ]] && continue
-
-                        dns_record=$(cf_call GET "/zones/${dns_zone_id}/dns_records?name=${dns_name}&type=CNAME&per_page=100" 2>/dev/null)
-
-                        echo "$dns_record" | jq -r '.result[]?.id // empty' |
-                        while read -r dns_id; do
-                            [[ -z "$dns_id" ]] && continue
-                            cf_call DELETE "/zones/${dns_zone_id}/dns_records/${dns_id}" >/dev/null 2>&1
-                            green "DNS 已删除: $dns_name"
-                        done
-                    done <<< "$hostnames"
-                fi
-            else
-                red "Cloudflare Tunnel 删除失败！"
-                echo "$delete_response" | jq -r '.errors[]? | if (.code // "") != "" then "错误码: \(.code)\n错误信息: \(.message)" else .message // empty end'
-            fi
-
-            reading "按回车返回..." _
-            ;;
+ 1)
+    local connections_ips is_local_tunnel
+    local dns_name dns_zone_id dns_record dns_id
+    ip_address
+    connections_ips=$(echo "$connections" |
+        jq -r '.result[]?.conns[]?.origin_ip // empty' |
+        sort -u)
+    is_local_tunnel=0
+    if [[ -n "$ipv4_address" ]] &&
+       echo "$connections_ips" | grep -Fxq "$ipv4_address"; then
+        is_local_tunnel=1
+    fi
+    if [[ -n "$ipv6_address" ]] &&
+       echo "$connections_ips" | grep -Fxq "$ipv6_address"; then
+        is_local_tunnel=1
+    fi
+    if [[ "$is_local_tunnel" == "1" ]]; then
+        systemctl stop sing-box 2>/dev/null
+        sleep 2
+    fi
+    delete_response=$(cf_call DELETE \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
+        2>/dev/null)
+    if [[ "$(echo "$delete_response" | jq -r '.success // false')" == "true" ]]; then
+        if [[ "$is_local_tunnel" == "1" ]]; then
+            rm -f /etc/sing-box/conf/cloudflared.json
+        fi
+        if [[ -n "$hostnames" ]]; then
+            while read -r dns_name; do
+                [[ -z "$dns_name" ]] && continue
+                dns_zone_id=$(cf_call GET \
+                    "/zones?name=${dns_name#*.}&per_page=1" \
+                    2>/dev/null |
+                    jq -r '.result[0].id // empty')
+                [[ -z "$dns_zone_id" ]] && continue
+                dns_record=$(cf_call GET \
+                    "/zones/${dns_zone_id}/dns_records?name=${dns_name}&type=CNAME&per_page=100" \
+                    2>/dev/null)
+                while read -r dns_id; do
+                    [[ -z "$dns_id" ]] && continue
+                    cf_call DELETE \
+                        "/zones/${dns_zone_id}/dns_records/${dns_id}" \
+                        >/dev/null 2>&1
+                done < <(echo "$dns_record" | jq -r '.result[]?.id // empty')
+            done <<< "$(echo "$hostnames" | tr ',' '\n')"
+        fi
+        if [[ "$is_local_tunnel" == "1" ]]; then
+            systemctl restart sing-box 2>/dev/null
+        fi
+        green "Tunnel 删除成功！"
+    else
+        if [[ "$is_local_tunnel" == "1" ]]; then
+            systemctl start sing-box 2>/dev/null
+        fi
+        red "Tunnel 删除失败！"
+        echo "$delete_response" |
+            jq -r '.errors[]?.message // empty'
+    fi
+    reading "按回车返回..." _
+    ;;
         0)
             return 0
             ;;
