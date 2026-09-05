@@ -1151,7 +1151,7 @@ else
                 2>/dev/null)
 
             if [[ "$(echo "$tunnel_data" |
-                jq -r '.success // false')" != "true" ]]; then
+                jq -r '.success // false' 2>/dev/null)" != "true" ]]; then
                 need_create_tunnel=1
             fi
         fi
@@ -1159,7 +1159,7 @@ else
 fi
 
 if [[ "$need_create_tunnel" == "1" ]]; then
-    yellow "Tunnel 正在创建..."
+    yellow "Tunnel 不存在或配置已失效，正在重新创建..."
 
     rm -f "$cloudflared_conf"
 
@@ -1200,16 +1200,16 @@ if [[ "$need_create_tunnel" == "1" ]]; then
         2>/dev/null)
 
     if [[ "$(echo "$tunnel_data" |
-        jq -r '.success // false')" != "true" ]]; then
+        jq -r '.success // false' 2>/dev/null)" != "true" ]]; then
         red "新创建的 Tunnel 验证失败！"
         rm -f "$cloudflared_conf"
         return 1
     fi
-
-    restart_singbox
-    sleep 2
 fi
 
+# ── 获取 Tunnel 名称 ──
+tunnel_name=$(echo "$tunnel_data" |
+    jq -r '.result.name // "-"')
 # ── 获取 Tunnel 名称 ──
 tunnel_name=$(echo "$tunnel_data" |
     jq -r '.result.name // "-"')
