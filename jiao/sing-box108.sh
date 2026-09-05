@@ -1217,14 +1217,63 @@ cf_add_tunnel_route() {
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
         "$new_config" \
         2>/dev/null)
-    if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
+        if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
+        local dns_response dns_record_id dns_type dns_payload dns_content
+        dns_content="${tunnel_id}.cfargotunnel.com"
+        dns_response=$(cf_call GET \
+            "/zones/${zone_id}/dns_records?name=${hostname}" \
+            2>/dev/null)
+        if [[ "$(echo "$dns_response" | jq -r '.success // false')" != "true" ]]; then
+            red "获取 DNS 记录失败！"
+            return 1
+        fi
+        dns_type=$(echo "$dns_response" |
+            jq -r '.result[0].type // empty')
+        if [[ -n "$dns_type" ]]; then
+            if [[ "$dns_type" != "CNAME" ]]; then
+                red "DNS 记录已存在且类型为 ${dns_type}，无法创建 Tunnel CNAME！"
+                return 1
+            fi
+            dns_record_id=$(echo "$dns_response" |
+                jq -r '.result[0].id // empty')
+            dns_payload=$(jq -n \
+                --arg n "$hostname" \
+                --arg c "$dns_content" \
+                '{type:"CNAME",name:$n,content:$c,proxied:true,ttl:1}')
+            dns_response=$(cf_call PUT \
+                "/zones/${zone_id}/dns_records/${dns_record_id}" \
+                "$dns_payload" \
+                2>/dev/null)
+            if [[ "$(echo "$dns_response" | jq -r '.success // false')" != "true" ]]; then
+                red "DNS CNAME 修改失败！"
+                echo "$dns_response" |
+                    jq -r '.errors[]?.message // empty'
+                return 1
+            fi
+            green "DNS CNAME 已修改：${hostname} → ${dns_content}"
+        else
+            dns_payload=$(jq -n \
+                --arg n "$hostname" \
+                --arg c "$dns_content" \
+                '{type:"CNAME",name:$n,content:$c,proxied:true,ttl:1}')
+            dns_response=$(cf_call POST \
+                "/zones/${zone_id}/dns_records" \
+                "$dns_payload" \
+                2>/dev/null)
+            if [[ "$(echo "$dns_response" | jq -r '.success // false')" != "true" ]]; then
+                red "DNS CNAME 添加失败！"
+                echo "$dns_response" |
+                    jq -r '.errors[]?.message // empty'
+                return 1
+            fi
+            green "DNS CNAME 添加成功：${hostname} → ${dns_content}"
+        fi
         ArgoDomain="$hostname"
         export ArgoDomain
         green "Tunnel 路由添加成功！"
         for ((i=0; i<${#route_ports[@]}; i++)); do
             green "${hostname}${route_paths[$i]} → 127.0.0.1:${route_ports[$i]}"
         done
-
         return 0
     fi
     red "Tunnel 路由添加失败！"
@@ -5658,9 +5707,9 @@ EOF
     trojan_path="/trojan-ws"
     ws_cdn_config="${conf_dir}/tunnel-ws-argo.json"
     cf_add_tunnel_route \
-        "$vmess_ws_argo_port" "$vmess_path" \
-        "$vless_ws_argo_port" "$vless_path" \
-        "$trojan_ws_argo_port" "$trojan_path" || return 1
+        "$vmess_ws_argo_port" "$v10kss_path" \
+        "$vless_ws_argo_port" "$v20kss_path" \
+        "$trojan_ws_argo_port" "$t30kan_path" || return 1
     domain="$ArgoDomain"
     [[ -z "$domain" ]] && {
         red "未获取到 Tunnel 域名！"
@@ -5671,7 +5720,7 @@ EOF
   "inbounds": [
     {
       "type": "vmess",
-      "tag": "vmess-ws-cdn",
+      "tag": "vmess-ws-argo",
       "listen": "127.0.0.1",
       "listen_port": $vmess_ws_argo_port,
       "users": [
@@ -5686,7 +5735,7 @@ EOF
     },
     {
       "type": "vless",
-      "tag": "vless-ws-cdn",
+      "tag": "vless-ws-argo",
       "listen": "127.0.0.1",
       "listen_port": $vless_ws_argo_port,
       "users": [
@@ -5701,7 +5750,7 @@ EOF
     },
     {
       "type": "trojan",
-      "tag": "trojan-ws-cdn",
+      "tag": "trojan-ws-argo",
       "listen": "127.0.0.1",
       "listen_port": $trojan_ws_argo_port,
       "users": [
@@ -5723,38 +5772,31 @@ EOF
         return 1
     fi
 
-    vmess_remark="VMess-Tunnel"
-    vless_remark="VLESS-Tunnel"
-    trojan_remark="Trojan-Tunnel"
-
+    vmess_remark="{isp}_VMess-Tunnel"
+    vless_remark="{isp}_VLESS-Tunnel"
+    trojan_remark="{isp}_Trojan-Tunnel"
     VMESS="{\"v\":\"2\",\"ps\":\"$vmess_remark\",\"add\":\"$CFIP\",\"port\":\"443\",\"id\":\"$uuid\",\"aid\":\"0\",\"encryption\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"${vmess_path}?ed=2048\",\"tls\":\"tls\",\"sni\":\"$domain\",\"alpn\":\"\",\"fp\":\"firefox\",\"allowInsecure\":false}"
     vmess_url="vmess://$(printf '%s' "$VMESS" | base64 -w0)"
-
     vless_url="vless://${uuid}@${CFIP}:443?ed=2048&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}%3Fed%3D2048#${vless_remark}"
     trojan_url="trojan://${uuid}@${CFIP}:443?ed=2048&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}%3Fed%3D2048#${trojan_remark}"
-
     touch /etc/sing-box/url.txt
     sed -i \
         -e "/#${vmess_remark}$/d" \
         -e "/#${vless_remark}$/d" \
         -e "/#${trojan_remark}$/d" \
         /etc/sing-box/url.txt
-
     echo "$vmess_url" >> /etc/sing-box/url.txt
     echo "$vless_url" >> /etc/sing-box/url.txt
     echo "$trojan_url" >> /etc/sing-box/url.txt
-
     base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
     echo >> /etc/sing-box/sub.txt
-
     restart_singbox
-
     echo
+	green "--------------------------------------------------"
     green "$vmess_url"
     green "$vless_url"
     green "$trojan_url"
-
-    read -r -p "按 Enter 返回..."
+	green "--------------------------------------------------"
     ;;
 	14)
 	check_xray
