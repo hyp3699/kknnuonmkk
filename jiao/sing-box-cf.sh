@@ -1248,7 +1248,9 @@ jq -n \
                 token: $token,
                 ha_connections: 4,
                 protocol: "http2",
-                post_quantum: false
+                post_quantum: true,
+				"edge_ip_version": 0,
+				"datagram_version": "v3"
             }
         ]
     }' > "$cloudflared_conf"
@@ -8156,6 +8158,11 @@ manage_singbox() {
     skyblue "-------------------"
     green "3. 重启sing-box服务"
     skyblue "-------------------"
+	skyblue "-------------------"
+    green "4. Tunnel 隧道连接 IP：自动"
+    green "5. Tunnel 隧道连接 IP：仅IPv4"
+    green "6. Tunnel 隧道连接 IP：仅IPv6"
+    skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
     reading "\n请输入选择: " choice
@@ -8163,6 +8170,27 @@ manage_singbox() {
         1) start_singbox ;;  
         2) stop_singbox ;;
         3) restart_singbox ;;
+		4)
+           jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 0 else . end' \
+           /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
+           mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
+           systemctl restart sing-box
+           green "隧道连接 IP 已切换为：自动"
+           ;;
+5)
+    jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 4 else . end' \
+        /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
+    mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
+    systemctl restart sing-box
+    green "隧道连接 IP 已切换为：仅IPv4"
+    ;;
+6)
+    jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 6 else . end' \
+        /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
+    mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
+    systemctl restart sing-box
+    green "隧道连接 IP 已切换为：仅IPv6"
+    ;;
         0) menu ;;
         *) red "无效的选项！" && sleep 1 && manage_singbox;;
     esac
