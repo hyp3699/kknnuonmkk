@@ -5705,17 +5705,17 @@ EOF
     vmess_path="/vmess-ws"
     vless_path="/vless-ws"
     trojan_path="/trojan-ws"
-    ws_cdn_config="${conf_dir}/tunnel-ws-argo.json"
+    ws_argo_config="${conf_dir}/tunnel-ws-argo.json"
     cf_add_tunnel_route \
-        "$vmess_ws_argo_port" "$v10kss_path" \
-        "$vless_ws_argo_port" "$v20kss_path" \
-        "$trojan_ws_argo_port" "$t30kan_path" || return 1
+        "$vmess_ws_argo_port" "$vmess_path" \
+        "$vless_ws_argo_port" "$vless_path" \
+        "$trojan_ws_argo_port" "$trojan_path" || return 1
     domain="$ArgoDomain"
     [[ -z "$domain" ]] && {
         red "未获取到 Tunnel 域名！"
         return 1
     }
-    cat > "$ws_cdn_config" <<EOF
+    cat > "$ws_argo_config" <<EOF
 {
   "inbounds": [
     {
@@ -5772,9 +5772,9 @@ EOF
         return 1
     fi
 
-    vmess_remark="{isp}_VMess-Tunnel"
-    vless_remark="{isp}_VLESS-Tunnel"
-    trojan_remark="{isp}_Trojan-Tunnel"
+    vmess_remark="${isp}_VMess-Tunnel"
+    vless_remark="{$isp}_VLESS-Tunnel"
+    trojan_remark="{$isp}_Trojan-Tunnel"
     VMESS="{\"v\":\"2\",\"ps\":\"$vmess_remark\",\"add\":\"$CFIP\",\"port\":\"443\",\"id\":\"$uuid\",\"aid\":\"0\",\"encryption\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"${vmess_path}?ed=2048\",\"tls\":\"tls\",\"sni\":\"$domain\",\"alpn\":\"\",\"fp\":\"firefox\",\"allowInsecure\":false}"
     vmess_url="vmess://$(printf '%s' "$VMESS" | base64 -w0)"
     vless_url="vless://${uuid}@${CFIP}:443?ed=2048&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}%3Fed%3D2048#${vless_remark}"
@@ -8964,7 +8964,7 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "1. 安装sing-box" "$red" "10. 开启BBR" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "2. 卸载sing-box" "$red" "11. 更新脚本" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. iptables" "$re"
-   printf "%b%-34s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
+   printf "%b%-30s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "6. 修改节点配置" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. xray管理" "$re"
