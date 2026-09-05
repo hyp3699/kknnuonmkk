@@ -1186,6 +1186,13 @@ if [[ "$need_create_tunnel" == "1" ]]; then
         rm -f "$cloudflared_conf"
         return 1
     fi
+	if [[ "$need_create_tunnel" == "1" ]]; then
+    ...
+    cf_create_tunnel
+    ...
+    restart_singbox
+    sleep 2
+    fi
 fi
 # ── 获取 Tunnel 名称 ──
 tunnel_name=$(echo "$tunnel_data" |
