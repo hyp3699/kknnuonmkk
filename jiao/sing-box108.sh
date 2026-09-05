@@ -992,166 +992,247 @@ cf_tunnel_detail() {
 }
 # ── 添加 Cloudflare Tunnel 路由 ──
 cf_add_tunnel_route() {
-local port="${1:-}"
-local token tunnel_id tunnel_data tunnel_name
-local zone_response domain zone_id prefix hostname
-local config_data ingress new_config response
-local account_response choice i total
-declare -a zone_names zone_ids
-# 没有认证信息时请求
-if [[ -z "${CF_TOKEN:-}" &&
-      ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
-    echo
-    skyblue "请输入 Cloudflare 验证信息"
-    green "1) Cloudflare API Token"
-    green "2) Cloudflare Global API Key (邮箱 + Key)"
-    local cf_type
-    reading "请输入选择 [1-2]（默认 1）: " cf_type
-    [[ -z "$cf_type" ]] && cf_type=1
-    case "$cf_type" in
-    1)
-        cf_auth_token || return 1
-        ;;
-    2)
-        cf_auth_global || return 1
-        ;;
-    *)
+    local account_response
+    local tunnel_data tunnel_id tunnel_name token
+    local zone_response domain zone_id prefix hostname
+    local config_data ingress new_config response
+    local choice i total
+    local port path
+    declare -a zone_names zone_ids
+    declare -a route_ports route_paths
+    # ── 检查 Cloudflare API ──
+    if [[ -z "${CF_TOKEN:-}" &&
+          ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+        echo
+        skyblue "请输入 Cloudflare 验证信息"
+        green "1) Cloudflare API Token"
+        green "2) Cloudflare Global API Key (邮箱 + Key)"
+        local cf_type
+        reading "请输入选择 [1-2]（默认 1）: " cf_type
+        [[ -z "$cf_type" ]] && cf_type=1
+        case "$cf_type" in
+            1) cf_auth_token || return 1 ;;
+            2) cf_auth_global || return 1 ;;
+            *) red "无效选择！"; return 1 ;;
+        esac
+    fi
+    # ── 获取 Account ID ──
+    if [[ -z "${CF_ACCOUNT_ID:-}" ]]; then
+        skyblue "正在获取 Cloudflare Account ID..."
+        if [[ -n "$CF_TOKEN" ]]; then
+            account_response=$(curl -sS \
+                "https://api.cloudflare.com/client/v4/accounts" \
+                -H "Authorization: Bearer $CF_TOKEN" \
+                -H "Content-Type: application/json")
+        else
+            account_response=$(curl -sS \
+                "https://api.cloudflare.com/client/v4/accounts" \
+                -H "X-Auth-Email: $CF_EMAIL" \
+                -H "X-Auth-Key: $CF_KEY" \
+                -H "Content-Type: application/json")
+        fi
+        CF_ACCOUNT_ID=$(echo "$account_response" | jq -r '.result[0].id // empty')
+        if [[ -z "$CF_ACCOUNT_ID" ]]; then
+            red "获取 Cloudflare Account ID 失败！"
+            return 1
+        fi
+        export CF_ACCOUNT_ID
+    fi
+    if [[ $# -eq 0 ]]; then
+        reading "请输入程序端口: " port
+        if [[ ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
+            red "端口无效！"
+            return 1
+        fi
+        route_ports[0]="$port"
+        route_paths[0]="/"
+    else
+        if (( $# % 2 != 0 )); then
+            red "参数错误！"
+            red "格式：端口 路径 端口 路径 ..."
+            return 1
+        fi
+        local args=("$@")
+        local count=$(( $# / 2 ))
+        for ((i=0; i<count; i++)); do
+            port="${args[$((i * 2))]}"
+            path="${args[$((i * 2 + 1))]}"
+
+            if [[ ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
+                red "端口无效：$port"
+                return 1
+            fi
+
+            [[ -z "$path" ]] && path="/"
+            [[ "$path" != /* ]] && path="/$path"
+
+            route_ports[$i]="$port"
+            route_paths[$i]="$path"
+        done
+    fi
+    # ── 没有 Tunnel 就自动创建 ──
+    if [[ ! -s "/etc/sing-box/conf/cloudflared.json" ]]; then
+        yellow "未检测到 Cloudflare Tunnel，正在创建..."
+
+        cf_create_tunnel || return 1
+
+        if [[ ! -s "/etc/sing-box/conf/cloudflared.json" ]]; then
+            red "Cloudflare Tunnel 创建失败！"
+            return 1
+        fi
+    fi
+    # ── 获取 Tunnel Token ──
+    token=$(jq -r \
+        '.inbounds[]? |
+         select(.type == "cloudflared") |
+         .token // empty' \
+        /etc/sing-box/conf/cloudflared.json | head -n1)
+
+    if [[ -z "$token" ]]; then
+        red "无法从 cloudflared.json 获取 Tunnel Token！"
+        return 1
+    fi
+    # ── 获取 Tunnel ID ──
+    tunnel_id=$(echo "$token" |
+        base64 -d 2>/dev/null |
+        jq -r '.t // empty' 2>/dev/null)
+
+    if [[ -z "$tunnel_id" ]]; then
+        red "无法获取 Tunnel ID！"
+        return 1
+    fi
+    # ── 检查 Tunnel ──
+    tunnel_data=$(cf_call GET \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" \
+        2>/dev/null)
+    if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
+        red "Tunnel 不存在或无权访问！"
+        return 1
+    fi
+    tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
+    zone_response=$(cf_call GET "/zones?per_page=500" 2>/dev/null)
+    if [[ "$(echo "$zone_response" | jq -r '.success // false')" != "true" ]]; then
+        red "获取 Cloudflare 域名失败！"
+        return 1
+    fi
+    i=1
+    while IFS='|' read -r domain zone_id; do
+        [[ -z "$domain" || -z "$zone_id" ]] && continue
+        echo "$i) $domain"
+        zone_names[$i]="$domain"
+        zone_ids[$i]="$zone_id"
+        ((i++))
+    done < <(
+        echo "$zone_response" |
+            jq -r '.result[]? | "\(.name)|\(.id)"'
+    )
+    total=$((i - 1))
+    if [[ "$total" -lt 1 ]]; then
+        red "没有找到 Cloudflare 域名！"
+        return 1
+    fi
+    reading "请选择域名 [1-$total]: " choice
+    if [[ ! "$choice" =~ ^[0-9]+$ ||
+          "$choice" -lt 1 ||
+          "$choice" -gt "$total" ]]; then
         red "无效选择！"
         return 1
-        ;;
-    esac
-fi
-if [[ -z "$CF_ACCOUNT_ID" ]]; then
-    if [[ -n "$CF_TOKEN" ]]; then
-        account_response=$(curl -sS "https://api.cloudflare.com/client/v4/accounts" \
-            -H "Authorization: Bearer $CF_TOKEN" \
-            -H "Content-Type: application/json")
-    else
-        account_response=$(curl -sS "https://api.cloudflare.com/client/v4/accounts" \
-            -H "X-Auth-Email: $CF_EMAIL" \
-            -H "X-Auth-Key: $CF_KEY" \
-            -H "Content-Type: application/json")
     fi
-    CF_ACCOUNT_ID=$(echo "$account_response" | jq -r '.result[0].id // empty')
-    if [[ -z "$CF_ACCOUNT_ID" ]]; then
-        red "获取 Cloudflare Account ID 失败！"
+    domain="${zone_names[$choice]}"
+    zone_id="${zone_ids[$choice]}"
+    # ── 输入前缀 ──
+    reading "请输入前缀或完整域名: " prefix
+    prefix=$(echo "$prefix" | tr -d '[:space:]')
+    prefix="${prefix#.}"
+    prefix="${prefix%.}"
+    if [[ -z "$prefix" ]]; then
+        hostname="$domain"
+    elif [[ "$prefix" == "$domain" ||
+            "$prefix" == *".${domain}" ]]; then
+        hostname="$prefix"
+    else
+        hostname="${prefix}.${domain}"
+    fi
+    echo
+    green "Tunnel: $tunnel_name"
+    green "域名: $hostname"
+    for ((i=0; i<${#route_ports[@]}; i++)); do
+        echo "  ${hostname}${route_paths[$i]} → 127.0.0.1:${route_ports[$i]}"
+    done
+    # ── 获取现有配置 ──
+    config_data=$(cf_call GET \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+        2>/dev/null)
+    if [[ "$(echo "$config_data" | jq -r '.success // false')" != "true" ]]; then
+        red "获取 Tunnel 配置失败！"
         return 1
     fi
-    export CF_ACCOUNT_ID
-fi
-if [[ -z "$port" ]]; then
-    reading "请输入程序端口: " port
-fi
-if [[ ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
-    red "端口无效！"
-    return 1
-fi
-if [[ ! -f "/etc/sing-box/conf/cloudflared.json" ]]; then
-    red "未找到 cloudflared.json，请先创建 Cloudflare Tunnel！"
-    return 1
-fi
-token=$(jq -r '.inbounds[]? | select(.type == "cloudflared") | .token // empty' \
-    /etc/sing-box/conf/cloudflared.json | head -n1)
-if [[ -z "$token" ]]; then
-    red "无法从 cloudflared.json 获取 Tunnel Token！"
-    return 1
-fi
-tunnel_id=$(echo "$token" | base64 -d 2>/dev/null | jq -r '.t // empty' 2>/dev/null)
-if [[ -z "$tunnel_id" ]]; then
-    red "无法获取 Tunnel ID！"
-    return 1
-fi
-tunnel_data=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}" 2>/dev/null)
-if [[ "$(echo "$tunnel_data" | jq -r '.success // false')" != "true" ]]; then
-    red "Tunnel 不存在或无权访问！"
-    return 1
-fi
-tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
-green "Tunnel: $tunnel_name"
-zone_response=$(cf_call GET "/zones?per_page=500" 2>/dev/null)
-if [[ "$(echo "$zone_response" | jq -r '.success // false')" != "true" ]]; then
-    red "获取 Cloudflare 域名失败！"
-    return 1
-fi
-i=1
-while IFS='|' read -r domain zone_id; do
-    [[ -z "$domain" || -z "$zone_id" ]] && continue
-    echo "$i) $domain"
-    zone_names[$i]="$domain"
-    zone_ids[$i]="$zone_id"
-    ((i++))
-done < <(echo "$zone_response" | jq -r '.result[]? | "\(.name)|\(.id)"')
+    ingress=$(echo "$config_data" |
+        jq -c '.result.config.ingress // []')
+    # ── 检查重复路由 ──
+    for ((i=0; i<${#route_ports[@]}; i++)); do
+        if echo "$ingress" | jq -e \
+            --arg h "$hostname" \
+            --arg p "${route_paths[$i]}" \
+            'any(.[]?;
+                .hostname == $h and
+                (.path // "/") == $p
+            )' >/dev/null 2>&1; then
 
-total=$((i - 1))
-if [[ "$total" -lt 1 ]]; then
-    red "没有找到 Cloudflare 域名！"
+            red "路由已存在：${hostname}${route_paths[$i]}"
+            return 1
+        fi
+    done
+    # ── 构建新路由 ──
+    new_config=$(jq -n \
+        --argjson ingress "$ingress" \
+        --arg hostname "$hostname" \
+        --argjson ports \
+        "$(printf '%s\n' "${route_ports[@]}" |
+            jq -Rsc 'split("\n") | map(select(length > 0) | tonumber)')" \
+        --argjson paths \
+        "$(printf '%s\n' "${route_paths[@]}" |
+            jq -Rsc 'split("\n") | map(select(length > 0))')" \
+        '
+        {
+            config: {
+                ingress: (
+                    ($ingress | map(select(.service != "http_status:404")))
+                    +
+                    [
+                        range(0; ($ports | length)) as $i |
+                        {
+                            hostname: $hostname,
+                            path: $paths[$i],
+                            service: ("http://127.0.0.1:" + ($ports[$i] | tostring))
+                        }
+                    ]
+                    +
+                    [{service: "http_status:404"}]
+                )
+            }
+        }')
+    # ── 写入 Tunnel ──
+    response=$(cf_call PUT \
+        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+        "$new_config" \
+        2>/dev/null)
+    if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
+        ArgoDomain="$hostname"
+        export ArgoDomain
+        green "Tunnel 路由添加成功！"
+        for ((i=0; i<${#route_ports[@]}; i++)); do
+            green "${hostname}${route_paths[$i]} → 127.0.0.1:${route_ports[$i]}"
+        done
+
+        return 0
+    fi
+    red "Tunnel 路由添加失败！"
+    echo "$response" |
+        jq -r '.errors[]?.message // empty'
     return 1
-fi
-reading "请选择域名 [1-$total]: " choice
-if [[ ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
-    red "无效选择！"
-    return 1
-fi
-domain="${zone_names[$choice]}"
-zone_id="${zone_ids[$choice]}"
-reading "请输入前缀或完整域名: " prefix
-prefix=$(echo "$prefix" | tr -d '[:space:]')
-prefix="${prefix#.}"
-prefix="${prefix%.}"
-if [[ -z "$prefix" ]]; then
-    hostname="$domain"
-elif [[ "$prefix" == "$domain" || "$prefix" == *".${domain}" ]]; then
-    hostname="$prefix"
-else
-    hostname="${prefix}.${domain}"
-fi
-echo "Tunnel: $tunnel_name"
-echo "域名: $hostname"
-echo "端口: $port"
-reading "确认添加路由？[y/N]: " choice
-[[ ! "$choice" =~ ^[Yy]$ ]] && return 0
-config_data=$(cf_call GET \
-    "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" 2>/dev/null)
-if [[ "$(echo "$config_data" | jq -r '.success // false')" != "true" ]]; then
-    red "获取 Tunnel 配置失败！"
-    return 1
-fi
-ingress=$(echo "$config_data" | jq -c '.result.config.ingress // []')
-if echo "$ingress" | jq -e --arg h "$hostname" 'any(.[]?; .hostname == $h)' >/dev/null 2>&1; then
-    red "域名已存在！"
-    return 1
-fi
-new_config=$(jq -n \
-    --arg hostname "$hostname" \
-    --arg service "http://127.0.0.1:$port" \
-    --argjson ingress "$ingress" \
-    '{
-        config: {
-            ingress: (
-                $ingress
-                | map(select(.service != "http_status:404"))
-                + [{hostname: $hostname, service: $service}]
-                + [{service: "http_status:404"}]
-            )
-        }
-    }')
-response=$(cf_call PUT \
-    "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-    "$new_config" 2>/dev/null)
-if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
-    ArgoDomain="$hostname"
-    export ArgoDomain
-    green "Tunnel 路由添加成功！"
-    green "域名: $ArgoDomain"
-    green "端口: $port"
-    return 0
-fi
-red "Tunnel 路由添加失败！"
-echo "$response" | jq -r '.errors[]? | if (.code // "") != "" then "错误码: \(.code)\n错误信息: \(.message)" else .message // empty end'
-return 1
 }
     
-
 TOKEN_FILE="/etc/sing-box/token"
 token_manage() {
     mkdir -p /etc/sing-box
@@ -4533,15 +4614,15 @@ manage_nodes_menu() {
     "$CONF_DIR/http.json|HTTP|9"
     "$CONF_DIR/vless-wstls-cdn.json|vless-ws-tls-cdn|10"
     "$CONF_DIR/vless-ws-cdn.json|Vless-Vmess-Trojan-cdn|11"
-    "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|12"
-    "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|13"
-    "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|14"
-	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|15"
-	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|16"
-	"$CONF_DIR/vless-tcp-tls.json|vless-tcp-tls|17"
-	"$CONF_DIR/naive-tls.json|Naiveproxy|18"
-	"$CONF_DIR/vmess-ws.json|vmess-ws|19"
-	"$CONF_DIR/vless-ws.json|vless-ws|20"
+    "$XRAY_CONF_DIR/xhttp-reality.json|xhttp-reality|13"
+    "$XRAY_CONF_DIR/xhttp-cdn.json|xhttp-cdn|14"
+    "$XRAY_CONF_DIR/xhttp-cdn-tls.json|xhttp-cdn-tls|15"
+	"$XRAY_CONF_DIR/xhttp-udp-tls.json|xhttp-udp-tls|16"
+	"$XRAY_CONF_DIR/xhttp-tcpudp-tls.json|xhttp-tcpudp-cdn-tls|17"
+	"$CONF_DIR/vless-tcp-tls.json|vless-tcp-tls|18"
+	"$CONF_DIR/naive-tls.json|Naiveproxy|19"
+	"$CONF_DIR/vmess-ws.json|vmess-ws|20"
+	"$CONF_DIR/vless-ws.json|vless-ws|21"
 )
 		
         clear
@@ -4587,7 +4668,7 @@ manage_nodes_menu() {
         echo -ne "\n"
         reading "请选择操作: " choice
 		case "${choice}" in
-    1|2|3|4|5|6|7|8|9|12|17|19|20)
+    1|2|3|4|5|6|7|8|9|13|18|20|21)
     if [[ "$choice" == "12" ]]; then
         check_xray
         xray_status=$?
@@ -4637,16 +4718,16 @@ manage_nodes_menu() {
     9)
         default_port=$http_port
         ;;
-    12)
+    13)
         default_port=$xray_xhttp_reality
         ;;
-	17)
+	18)
         default_port=$vless_tcp_tls
         ;;
-	19)
+	20)
         default_port=60001
         ;;
-    20)
+    21)
         default_port=60002
         ;;
 esac
@@ -5051,7 +5132,7 @@ EOF
     url="http://${username}:${password}@${server_ip}:${custom_port}#${node_remark}"
     restart_service="singbox"
     ;;
-        12)
+        13)
             xray_xhttp_reality=$custom_port
             mkdir -p /etc/xray/conf
             cat > /etc/xray/conf/xhttp-reality.json << EOF
@@ -5098,7 +5179,7 @@ EOF
             url="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&flow=&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=%2Fxhttp&mode=auto#${node_remark}"
             restart_service="xray"
             ;;
-17)
+18)
     check_and_issue_ssl || return 1
 
     cat > /etc/sing-box/conf/vless-tcp-tls.json << EOF
@@ -5128,7 +5209,7 @@ EOF
     url="vless://${uuid}@${domain:-$server_ip}:${custom_port}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=tcp#${node_remark}"
     restart_service="singbox"
 	;;
-19) 
+20) 
     cat > /etc/sing-box/conf/vmess-ws.json <<EOF
 {
   "inbounds": [
@@ -5157,7 +5238,7 @@ EOF
     url="vmess://$(echo -n "$VMESS" | base64 -w0)"
     restart_service="singbox"
     ;;
-20) 
+21) 
     cat > /etc/sing-box/conf/vless-ws.json <<EOF
 {
   "inbounds": [
@@ -5565,7 +5646,116 @@ EOF
     echo "$trojan_url"
     green "--------------------------------------------------"
     ;;
-	13)
+	12)
+    skyblue "正在创建 Cloudflare Tunnel  节点..."
+    generate_vars
+    vmess_ws_argo_port=$(get_available_port)
+    vless_ws_argo_port=$(get_available_port)
+    trojan_ws_argo_port=$(get_available_port)
+    vmess_path="/vmess-ws"
+    vless_path="/vless-ws"
+    trojan_path="/trojan-ws"
+    ws_cdn_config="${conf_dir}/tunnel-ws-argo.json"
+    cf_add_tunnel_route \
+        "$vmess_ws_argo_port" "$vmess_path" \
+        "$vless_ws_argo_port" "$vless_path" \
+        "$trojan_ws_argo_port" "$trojan_path" || return 1
+    domain="$ArgoDomain"
+    [[ -z "$domain" ]] && {
+        red "未获取到 Tunnel 域名！"
+        return 1
+    }
+    cat > "$ws_cdn_config" <<EOF
+{
+  "inbounds": [
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-cdn",
+      "listen": "127.0.0.1",
+      "listen_port": $vmess_ws_argo_port,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "$vmess_path"
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "vless-ws-cdn",
+      "listen": "127.0.0.1",
+      "listen_port": $vless_ws_argo_port,
+      "users": [
+        {
+          "uuid": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "$vless_path"
+      }
+    },
+    {
+      "type": "trojan",
+      "tag": "trojan-ws-cdn",
+      "listen": "127.0.0.1",
+      "listen_port": $trojan_ws_argo_port,
+      "users": [
+        {
+          "password": "$uuid"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "$trojan_path"
+      }
+    }
+  ]
+}
+EOF
+
+    if [[ ! -s "$ws_cdn_config" ]]; then
+        red "Tunnel 节点配置文件创建失败！"
+        return 1
+    fi
+
+    vmess_remark="VMess-Tunnel"
+    vless_remark="VLESS-Tunnel"
+    trojan_remark="Trojan-Tunnel"
+
+    VMESS="{\"v\":\"2\",\"ps\":\"$vmess_remark\",\"add\":\"$CFIP\",\"port\":\"443\",\"id\":\"$uuid\",\"aid\":\"0\",\"encryption\":\"auto\",\"net\":\"ws\",\"type\":\"none\",\"host\":\"$domain\",\"path\":\"${vmess_path}?ed=2048\",\"tls\":\"tls\",\"sni\":\"$domain\",\"alpn\":\"\",\"fp\":\"firefox\",\"allowInsecure\":false}"
+    vmess_url="vmess://$(printf '%s' "$VMESS" | base64 -w0)"
+
+    vless_url="vless://${uuid}@${CFIP}:443?ed=2048&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${vless_path}%3Fed%3D2048#${vless_remark}"
+    trojan_url="trojan://${uuid}@${CFIP}:443?ed=2048&security=tls&sni=${domain}&type=ws&host=${domain}&path=${trojan_path}%3Fed%3D2048#${trojan_remark}"
+
+    touch /etc/sing-box/url.txt
+    sed -i \
+        -e "/#${vmess_remark}$/d" \
+        -e "/#${vless_remark}$/d" \
+        -e "/#${trojan_remark}$/d" \
+        /etc/sing-box/url.txt
+
+    echo "$vmess_url" >> /etc/sing-box/url.txt
+    echo "$vless_url" >> /etc/sing-box/url.txt
+    echo "$trojan_url" >> /etc/sing-box/url.txt
+
+    base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt
+    echo >> /etc/sing-box/sub.txt
+
+    restart_singbox
+
+    echo
+    green "$vmess_url"
+    green "$vless_url"
+    green "$trojan_url"
+
+    read -r -p "按 Enter 返回..."
+    ;;
+	14)
 	check_xray
     xray_status=$?
     if [ $xray_status -eq 2 ]; then
@@ -5717,7 +5907,7 @@ EOF
     echo "$vless_url"
     echo "--------------------------------------------------"
     ;;
-	14)
+	15)
 	check_xray
     xray_status=$?
     if [ $xray_status -eq 2 ]; then
@@ -5867,7 +6057,7 @@ fi
     fi
     green "--------------------------------------------------"
     ;;
-	15)
+	16)
 check_xray
     xray_status=$?
     if [ $xray_status -eq 2 ]; then
@@ -5955,7 +6145,7 @@ green "--------------------------------------------------"
 echo "$xhttp_h3"
 green "--------------------------------------------------"
 ;;
-16)
+17)
 check_xray
     xray_status=$?
     if [ $xray_status -eq 2 ]; then
@@ -6060,7 +6250,7 @@ green "--------------------------------------------------"
 echo "$xhttp_tcp"
 green "--------------------------------------------------"
 ;;
-18)
+19)
     check_and_issue_ssl || return 1
     generate_vars
     server_ip=$(get_realip)
@@ -6190,19 +6380,19 @@ EOF
 59)
     delete_node "_http" "/etc/sing-box/conf/http.json" "singbox"
     ;;
-62)
+63)
     delete_node "_xray_vless_xhttp_reality" "/etc/xray/conf/xhttp-reality.json" "xray"
     ;;
-63)
+64)
     delete_node "_vless_xhttp_cdn_notls" "/etc/xray/conf/xhttp-cnd.json" "xray"
     ;;
-65)
+66)
     delete_node "_xray_vless_xhttp_h3" "/etc/xray/conf/xhttp-udp-tls.json" "xray"
     ;;
-67)
+68)
     delete_node "_vless_tcp_tls" "/etc/sing-box/conf/vless-tcp-tls.json" "singbox"
     ;;
-70)
+71)
     delete_node "_vless_ws_notls" "/etc/sing-box/conf/vless-ws.json" "singbox"
     ;;
 
@@ -6334,7 +6524,7 @@ EOF
         red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
     fi
     ;;
-	64)
+	65)
     target="_xray_vless_xhttp_tls"
     target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
     if [ -f "$target_conf" ]; then
@@ -6376,7 +6566,7 @@ fi
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
-	66)
+	67)
     target="_xray_vless_xhttp_tcpudpcdn"
     target_conf="/etc/xray/conf/xhttp-tcpudp-tls.json"
     if [ -f "$target_conf" ]; then
@@ -6418,7 +6608,7 @@ fi
         red "错误: 未找到配置文件 ($target_conf)，删除取消。"
     fi
     ;;
-	69)
+	70)
     target="_vmess_ws_notls"
     target_conf="/etc/sing-box/conf/vmess-ws.json"
     if [ -f "$target_conf" ]; then
