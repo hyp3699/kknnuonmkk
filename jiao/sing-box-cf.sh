@@ -6655,75 +6655,105 @@ EOF
         green " 节点已移除！"
         green "==============================================="
         if [[ -n "$cdn_domain" ]]; then
+    echo
+    reading "是否删除 Cloudflare DNS 解析和 Tunnel 路由？[y/N]: " del_argo_cf
+    if [[ "$del_argo_cf" =~ ^[Yy]$ ]]; then
+        if [[ -z "${CF_TOKEN:-}" &&
+              ( -z "${CF_EMAIL:-}" || -z "${CF_KEY:-}" ) ]]; then
+            echo
+            skyblue "未检测到 Cloudflare API 权限，请先验证"
+            green "1) Cloudflare API Token"
+            green "2) Cloudflare Global API Key (邮箱 + Key)"
+            local cf_type
+            reading "请输入选择 [1-2]（默认 1）: " cf_type
+            [[ -z "$cf_type" ]] && cf_type=1
+
+            case "$cf_type" in
+                1)
+                    cf_auth_token || break
+                    ;;
+                2)
+                    cf_auth_global || break
+                    ;;
+                *)
+                    red "无效选择！"
+                    break
+                    ;;
+            esac
+        fi
+
         if [[ -s "/etc/sing-box/conf/cloudflared.json" ]]; then
-        tunnel_token=$(jq -r \
-            '.inbounds[]? |
-             select(.type == "cloudflared") |
-             .token // empty' \
-            /etc/sing-box/conf/cloudflared.json | head -n1)
+            tunnel_token=$(jq -r \
+                '.inbounds[]? |
+                 select(.type == "cloudflared") |
+                 .token // empty' \
+                /etc/sing-box/conf/cloudflared.json | head -n1)
 
-        tunnel_id=$(echo "$tunnel_token" |
-            base64 -d 2>/dev/null |
-            jq -r '.t // empty' 2>/dev/null)
+            tunnel_id=$(echo "$tunnel_token" |
+                base64 -d 2>/dev/null |
+                jq -r '.t // empty' 2>/dev/null)
 
-        if [[ -n "$tunnel_id" && -n "${CF_ACCOUNT_ID:-}" ]]; then
-            config_data=$(cf_call GET \
-                "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-                2>/dev/null)
-
-            if [[ "$(echo "$config_data" | jq -r '.success // false')" == "true" ]]; then
-                ingress=$(echo "$config_data" |
-                    jq -c '.result.config.ingress // []')
-
-                new_config=$(echo "$ingress" |
-                    jq -c --arg h "$cdn_domain" '
-                        {
-                            config: {
-                                ingress: (
-                                    map(select(
-                                        (.hostname // "") != $h and
-                                        (.service // "") != "http_status:404"
-                                    ))
-                                    + [{service:"http_status:404"}]
-                                )
-                            }
-                        }')
-
-                response=$(cf_call PUT \
+            if [[ -n "$tunnel_id" && -n "${CF_ACCOUNT_ID:-}" ]]; then
+                config_data=$(cf_call GET \
                     "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
-                    "$new_config" \
                     2>/dev/null)
 
-                if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
-                    green "Tunnel 路由已删除：$cdn_domain"
+                if [[ "$(echo "$config_data" | jq -r '.success // false')" == "true" ]]; then
+                    ingress=$(echo "$config_data" |
+                        jq -c '.result.config.ingress // []')
+
+                    new_config=$(echo "$ingress" |
+                        jq -c --arg h "$cdn_domain" '
+                            {
+                                config: {
+                                    ingress: (
+                                        map(select(
+                                            (.hostname // "") != $h and
+                                            (.service // "") != "http_status:404"
+                                        ))
+                                        + [{service:"http_status:404"}]
+                                    )
+                                }
+                            }')
+
+                    response=$(cf_call PUT \
+                        "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel/${tunnel_id}/configurations" \
+                        "$new_config" \
+                        2>/dev/null)
+
+                    if [[ "$(echo "$response" | jq -r '.success // false')" == "true" ]]; then
+                        green "Tunnel 路由已删除：$cdn_domain"
+                    else
+                        red "Tunnel 路由删除失败！"
+                        echo "$response" |
+                            jq -r '.errors[]?.message // empty'
+                    fi
                 else
-                    red "Tunnel 路由删除失败！"
-                    echo "$response" |
+                    red "获取 Tunnel 配置失败！"
+                    echo "$config_data" |
                         jq -r '.errors[]?.message // empty'
                 fi
             else
-                red "获取 Tunnel 配置失败！"
-                echo "$config_data" |
-                    jq -r '.errors[]?.message // empty'
+                red "无法获取 Tunnel ID 或 Account ID！"
             fi
         else
-            red "无法获取 Tunnel ID 或 Account ID！"
+            yellow "未找到 cloudflared.json，跳过 Tunnel 路由删除"
+        fi
+
+        if cf_get_zone_id_by_domain "$cdn_domain"; then
+            cf_delete_dns "$selected_zone_id" "$cdn_domain"
+            green "DNS 解析已删除：$cdn_domain"
+        else
+            yellow "未找到 DNS 所属 Zone：$cdn_domain"
         fi
     else
-        yellow "未找到 cloudflared.json，跳过 Tunnel 路由删除"
+        yellow "已跳过 Cloudflare DNS 和 Tunnel 路由删除"
     fi
-
-    if cf_get_zone_id_by_domain "$cdn_domain"; then
-        cf_delete_dns "$selected_zone_id" "$cdn_domain"
-        green "DNS 解析已删除：$cdn_domain"
-    else
-        yellow "未找到 DNS 所属 Zone：$cdn_domain"
-    fi
-fi          
-    else
-        red "错误: 未找到相关的 CDN 节点配置文件，删除取消。"
-    fi
-    ;;
+fi
+else
+    red "错误: 未找到节点配置文件，删除取消。"
+fi
+;;                       
 	65)
     target="_xray_vless_xhttp_tls"
     target_conf="/etc/xray/conf/xhttp-cdn-tls.json"
