@@ -8174,21 +8174,21 @@ manage_singbox() {
            jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 0 else . end' \
            /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
            mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
-           systemctl restart sing-box
+           restart_singbox
            green "隧道连接 IP 已切换为：自动"
            ;;
 5)
     jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 4 else . end' \
         /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
     mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
-    systemctl restart sing-box
+    restart_singbox
     green "隧道连接 IP 已切换为：仅IPv4"
     ;;
 6)
     jq '.inbounds[] |= if .type == "cloudflared" then .edge_ip_version = 6 else . end' \
         /etc/sing-box/conf/cloudflared.json > /tmp/cloudflared.json &&
     mv /tmp/cloudflared.json /etc/sing-box/conf/cloudflared.json
-    systemctl restart sing-box
+    restart_singbox
     green "隧道连接 IP 已切换为：仅IPv6"
     ;;
         0) menu ;;
