@@ -1187,9 +1187,7 @@ if [[ "$need_create_tunnel" == "1" ]]; then
         return 1
     fi
 	if [[ "$need_create_tunnel" == "1" ]]; then
-    ...
     cf_create_tunnel
-    ...
     restart_singbox
     sleep 2
     fi
