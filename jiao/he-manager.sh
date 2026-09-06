@@ -9,6 +9,8 @@ CONFIG_RECORD="/etc/he-ipv6.conf"
 LIST_FILE="/etc/he-ipv6-ips.list"
 IFACE="he-ipv6"
 PUBLIC_V4=""
+OUTBOUND_FILE="/etc/sing-box/conf/outbounds.json"
+ROUTE_FILE="/etc/sing-box/conf/route.json"
 # 检查 Root 权限
 [ "$(id -u)" != "0" ] && echo "错误: 请使用 root 权限运行此脚本！" && exit 1
 install_dep(){
@@ -23,6 +25,82 @@ detect_public_ipv4(){
         exit 1
     fi
     echo "检测到公网 IPv4: $PUBLIC_V4"
+}
+add_singbox_outbound(){
+    [ ! -f "$OUTBOUND_FILE" ] && return
+    local IP="$1"
+    local NUM
+    NUM=$(jq -r '
+        .outbounds[]?
+        | select(.tag|startswith("he-ipv6-"))
+        | .tag
+        | sub("he-ipv6-";"")
+    ' "$OUTBOUND_FILE" 2>/dev/null | sort -n | tail -1)
+    if [ -z "$NUM" ]; then
+        NUM=1
+    else
+        NUM=$((NUM+1))
+    fi
+    local TAG="he-ipv6-$NUM"
+    TMP_JSON=$(mktemp)
+    jq \
+    --arg tag "$TAG" \
+    --arg ip "$IP" \
+    '
+    .outbounds += [{
+        "type":"direct",
+        "tag":$tag,
+        "bind_interface":"he-ipv6",
+        "inet6_bind_address":$ip
+    }]
+    ' "$OUTBOUND_FILE" > "$TMP_JSON"
+    mv "$TMP_JSON" "$OUTBOUND_FILE"
+    echo "sing-box 出站添加成功:"
+    echo " tag: $TAG"
+    echo " ipv6: $IP"
+}
+delete_singbox_route(){
+    [ ! -f "$ROUTE_FILE" ] && return
+    local TAG="$1"
+    TMP_JSON=$(mktemp)
+    jq \
+    --arg tag "$TAG" \
+    '
+    .route.rules |= map(
+        select(
+            .outbound != $tag
+        )
+    )
+    ' "$ROUTE_FILE" > "$TMP_JSON"
+    mv "$TMP_JSON" "$ROUTE_FILE"
+    echo "route 规则删除:"
+    echo " outbound: $TAG"
+}
+delete_singbox_outbound(){
+    [ ! -f "$OUTBOUND_FILE" ] && return
+    local IP="$1"
+    TAG=$(jq -r \
+    --arg ip "$IP" '
+    .outbounds[]?
+    | select(.inet6_bind_address==$ip)
+    | .tag
+    ' "$OUTBOUND_FILE")
+    [ -z "$TAG" ] && return
+    TMP_JSON=$(mktemp)
+    jq \
+    --arg ip "$IP" \
+    '
+    .outbounds |= map(
+        select(.inet6_bind_address != $ip)
+    )
+    ' "$OUTBOUND_FILE" > "$TMP_JSON"
+    mv "$TMP_JSON" "$OUTBOUND_FILE"
+    echo "sing-box 出站删除:"
+    echo "$TAG"
+    delete_singbox_route "$TAG"
+    if systemctl is-active sing-box >/dev/null 2>&1; then
+        systemctl restart sing-box
+    fi
 }
 detect_mode(){
     if command -v netplan >/dev/null || [ -d /etc/netplan ]; then
@@ -269,6 +347,7 @@ fi
     echo "$NEW_IPV6" >> "$LIST_FILE"
     rebuild_and_apply
     echo "成功添加并启用 IPv6 地址: $NEW_IPV6"
+    add_singbox_outbound "$NEW_IPV6"
     read -p "按回车键继续..."
 }
 list_ipv6(){
@@ -293,6 +372,7 @@ delete_ipv6(){
     if [ -z "$DEL_IP" ]; then
         echo "输入的编号无效！"
         read -p "按回车键继续..."
+        delete_singbox_outbound "$DEL_IP"
         return
     fi
     sed -i "${NUM}d" "$LIST_FILE"
