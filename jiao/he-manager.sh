@@ -250,10 +250,9 @@ done
 
     if [ -n "$ROUTED_PREFIX" ]; then
 
-        ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed 's/::$//')
+    ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed -E 's|/.*||;s/::$//')
 
-    fi
-
+fi
 
     read -p "确认写入配置并启动? [y/N]: " OK
 
