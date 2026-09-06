@@ -298,6 +298,20 @@ EOF
 }
 delete_he(){
     echo "正在删除 HE 隧道..."
+    if [ -f "$OUTBOUND_FILE" ]; then
+        jq '
+        .outbounds |= map(
+            select((.tag // "") | startswith("he-ipv6-") | not)
+        )
+        ' "$OUTBOUND_FILE" > /tmp/out.json && mv /tmp/out.json "$OUTBOUND_FILE"
+    fi
+    if [ -f "$ROUTE_FILE" ]; then
+        jq '
+        .route.rules |= map(
+            select((.outbound // "") | startswith("he-ipv6-") | not)
+        )
+        ' "$ROUTE_FILE" > /tmp/route.json && mv /tmp/route.json "$ROUTE_FILE"
+    fi
     while ip -6 rule list 2>/dev/null | grep -q '200'; do ip -6 rule del table 200 2>/dev/null; done
     if [ "$MODE" = "ifupdown" ]; then
         ifdown "$IFACE" 2>/dev/null || true
@@ -309,6 +323,9 @@ delete_he(){
     ip link set "$IFACE" down 2>/dev/null || true
     ip tunnel del "$IFACE" 2>/dev/null || true
     rm -f "$CONFIG_RECORD" "$LIST_FILE"
+    if systemctl is-active sing-box >/dev/null 2>&1; then
+    systemctl restart sing-box
+    fi
     echo "HE 隧道已彻底清理完成！"
 }
 add_ipv6(){
@@ -372,9 +389,9 @@ delete_ipv6(){
     if [ -z "$DEL_IP" ]; then
         echo "输入的编号无效！"
         read -p "按回车键继续..."
-        delete_singbox_outbound "$DEL_IP"
         return
     fi
+    delete_singbox_outbound "$DEL_IP"
     sed -i "${NUM}d" "$LIST_FILE"
     echo "已移除记录: $DEL_IP"
     rebuild_and_apply
