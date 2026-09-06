@@ -1,9 +1,7 @@
 #!/bin/bash
-
 # ==========================================
-# HE IPv6 隧道一键管理脚本 (公网纯净版)
+# HE IPv6 隧道脚本 
 # ==========================================
-
 CONF_DIR="/etc/network/interfaces.d"
 CONF_FILE="$CONF_DIR/he-ipv6"
 NETPLAN_FILE="/etc/netplan/99-he-ipv6.yaml"
@@ -11,27 +9,21 @@ CONFIG_RECORD="/etc/he-ipv6.conf"
 LIST_FILE="/etc/he-ipv6-ips.list"
 IFACE="he-ipv6"
 PUBLIC_V4=""
-
 # 检查 Root 权限
 [ "$(id -u)" != "0" ] && echo "错误: 请使用 root 权限运行此脚本！" && exit 1
-
 install_dep(){
     if command -v apt >/dev/null; then
         command -v curl >/dev/null || (apt update -y && apt install curl iproute2 gawk -y)
     fi
 }
-
 detect_public_ipv4(){
     PUBLIC_V4=$(curl -4 -s --connect-timeout 5 https://ip.sb)
-
     if [ -z "$PUBLIC_V4" ]; then
         echo "无法获取公网 IPv4"
         exit 1
     fi
-
     echo "检测到公网 IPv4: $PUBLIC_V4"
 }
-
 detect_mode(){
     if command -v netplan >/dev/null || [ -d /etc/netplan ]; then
         MODE="netplan"
@@ -43,13 +35,11 @@ detect_mode(){
         exit 1
     fi
 }
-
 load_record(){
     if [ -f "$CONFIG_RECORD" ]; then
         source "$CONFIG_RECORD"
     fi
 }
-
 fix_interfaces_file(){
     if [ "$MODE" = "ifupdown" ]; then
         mkdir -p "$CONF_DIR"
@@ -58,7 +48,6 @@ fix_interfaces_file(){
             cat > "$MAIN_FILE" <<EOF
 auto lo
 iface lo inet loopback
-
 source /etc/network/interfaces.d/*
 EOF
         else
@@ -68,18 +57,14 @@ EOF
         fi
     fi
 }
-
 rebuild_and_apply(){
     load_record
     if [ -z "$HE_SERVER_V4" ] || [ -z "$CLIENT_IPV6" ]; then
         echo "错误: 缺少核心配置记录，请重新添加 HE 隧道。"
         return 1
     fi
-
     if [ "$MODE" = "ifupdown" ]; then
         fix_interfaces_file
-        
-        # 移除 local 参数，完全由内核根据公网路由自动匹配
         cat > "$CONF_FILE" <<EOF
 auto $IFACE
 iface $IFACE inet6 v4tunnel
@@ -94,17 +79,14 @@ EOF
                 [ -n "$ip" ] && echo "        up ip -6 addr add $ip/64 dev $IFACE || true" >> "$CONF_FILE"
             done < "$LIST_FILE"
         fi
-        
         echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE metric 2048 || true" >> "$CONF_FILE"
         echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE table 200 || true" >> "$CONF_FILE"
         echo "        post-up ip -6 rule add from $CLIENT_IPV6/128 table 200 || true" >> "$CONF_FILE"
         if [ -n "$ROUTED_PREFIX" ]; then
             echo "        post-up ip -6 rule add from ${ROUTED_PREFIX}::/64 table 200 || true" >> "$CONF_FILE"
         fi
-
     else
         mkdir -p /etc/netplan
-        # 移除 netplan 中的 local 字段
         cat > "$NETPLAN_FILE" <<EOF
 network:
   version: 2
@@ -120,7 +102,6 @@ EOF
                 [ -n "$ip" ] && echo "        - \"$ip/64\"" >> "$NETPLAN_FILE"
             done < "$LIST_FILE"
         fi
-
         cat >> "$NETPLAN_FILE" <<EOF
       routes:
         - to: default
@@ -140,26 +121,19 @@ EOF
 EOF
         fi
     fi
-
     apply_config
 }
-
 apply_config(){
     echo "正在应用网络配置..."
-    # 清理旧路由规则和隧道
     while ip -6 rule list 2>/dev/null | grep -q '200'; do ip -6 rule del table 200 2>/dev/null; done
     ip link set "$IFACE" down 2>/dev/null || true
     ip tunnel del "$IFACE" 2>/dev/null || true
-
     if [ "$MODE" = "ifupdown" ]; then
         ifdown "$IFACE" 2>/dev/null || true
     else
         netplan apply 2>/dev/null || true
     fi
-
-    # 底层强制拉起：完全省略 local 参数，由内核自动匹配公网网卡，根治缓冲区报错
     detect_public_ipv4
-
 ip tunnel add "$IFACE" mode sit \
 local "$PUBLIC_V4" \
 remote "$HE_SERVER_V4" \
@@ -170,78 +144,53 @@ ttl 255 || {
     ip link set "$IFACE" up
     ip link set "$IFACE" mtu 1480
     ip -6 addr add "$CLIENT_IPV6/64" dev "$IFACE" 2>/dev/null || true
-
     if [ -f "$LIST_FILE" ]; then
         while read -r ip; do
             [ -n "$ip" ] && ip -6 addr add "$ip/64" dev "$IFACE" 2>/dev/null || true
         done < "$LIST_FILE"
     fi
-
     ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" metric 2048 || true
     ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" table 200 || true
     ip -6 rule add pref 100 from "$CLIENT_IPV6/128" table 200 || true
     if [ -n "$ROUTED_PREFIX" ]; then
     if [[ "$ROUTED_PREFIX" == *:*:*:* ]]; then
-
     ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/64" table 200 || true
-
 else
-
     ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/48" table 200 || true
-
 fi
     fi
-
     echo "配置应用完成！"
 }
-
 add_he(){
-
     echo "========== 导入 HE IPv6 隧道配置 =========="
-    echo "请粘贴 HE 配置，输入 END 结束"
+    echo "请粘贴 HE 配置，回车结束"
     echo
-
     TMP="/tmp/he-config.txt"
 rm -f "$TMP"
-
 EMPTY_COUNT=0
-
 while true
 do
     read line
-
     if [ -z "$line" ]; then
         EMPTY_COUNT=$((EMPTY_COUNT+1))
     else
         EMPTY_COUNT=0
         echo "$line" >> "$TMP"
     fi
-
-
-    # 连续两个空行结束输入
-    if [ "$EMPTY_COUNT" -ge 2 ]; then
+    if [ "$EMPTY_COUNT" -ge 1 ]; then
         break
     fi
-
 done
-
-
     HE_SERVER_V4=$(grep -E 'endpoint ' "$TMP" | awk '{print $2}')
     HE_SERVER_V6=$(grep -E 'gateway ' "$TMP" | awk '{print $2}')
     CLIENT_IPV6=$(grep -E 'address ' "$TMP" | awk '{print $2}')
     PUBLIC_V4=$(grep -E 'local ' "$TMP" | awk '{print $2}')
-
-
     if [ -z "$HE_SERVER_V4" ] || \
        [ -z "$HE_SERVER_V6" ] || \
        [ -z "$CLIENT_IPV6" ]; then
-
         echo "配置解析失败，请检查 HE 配置格式"
         return
-
     fi
-
-
     echo
     echo "解析结果:"
     echo "----------------------"
@@ -251,24 +200,12 @@ done
     echo "网关 IPv6 : $HE_SERVER_V6"
     echo "----------------------"
     echo
-
-
-    read -p "请输入 Routed IPv6 前缀 (/64 或 /48): " ROUTED_PREFIX
-
-
+    read -p "请输入 he隧道 IPv6 前缀 (/64 或 /48): " ROUTED_PREFIX
     if [ -n "$ROUTED_PREFIX" ]; then
-
     ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed -E 's|/.*||;s/::$//')
-
 fi
-
     read -p "确认写入配置并启动? [y/N]: " OK
-
-
     [ "$OK" != "y" ] && return
-
-
-
     cat > "$CONFIG_RECORD" <<EOF
 HE_SERVER_V4="$HE_SERVER_V4"
 HE_SERVER_V6="$HE_SERVER_V6"
@@ -276,19 +213,11 @@ CLIENT_IPV6="$CLIENT_IPV6"
 PUBLIC_V4="$PUBLIC_V4"
 ROUTED_PREFIX="$ROUTED_PREFIX"
 EOF
-
-
     rm -f "$LIST_FILE"
-
-
     rebuild_and_apply
-
-
     echo
     echo "HE 隧道添加完成"
-
 }
-
 delete_he(){
     echo "正在删除 HE 隧道..."
     while ip -6 rule list 2>/dev/null | grep -q '200'; do ip -6 rule del table 200 2>/dev/null; done
@@ -304,7 +233,6 @@ delete_he(){
     rm -f "$CONFIG_RECORD" "$LIST_FILE"
     echo "HE 隧道已彻底清理完成！"
 }
-
 add_ipv6(){
     load_record
     if [ -z "$CLIENT_IPV6" ]; then
@@ -312,7 +240,6 @@ add_ipv6(){
         read -p "按回车键继续..."
         return
     fi
-
     BASE_PREFIX="$ROUTED_PREFIX"
     if [ -z "$BASE_PREFIX" ]; then
         read -p "未检测到预存的 Routed /64，请输入 (例: 2001:470:yy:yy): " INPUT_PREFIX
@@ -321,55 +248,36 @@ add_ipv6(){
         echo "ROUTED_PREFIX=\"$BASE_PREFIX\"" >> "$CONFIG_RECORD"
         ROUTED_PREFIX="$BASE_PREFIX"
     fi
-
     PREFIX=$(echo "$BASE_PREFIX" | sed 's|/.*||')
-
 HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-
 R1="${HEX:0:4}"
 R2="${HEX:4:4}"
 R3="${HEX:8:4}"
 R4="${HEX:12:4}"
 R5="${HEX:16:4}"
-
 IFS=':' read -ra PARTS <<< "$PREFIX"
-
-
 if [ "${#PARTS[@]}" -eq 3 ]; then
-
     # /48
-
     NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${R1}:${R2}:${R3}:${R4}:${R5}"
-
-
 elif [ "${#PARTS[@]}" -eq 4 ]; then
-
     # /64
-
     NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${PARTS[3]}:${R1}:${R2}:${R3}:${R4}"
-
-
 else
-
     echo "IPv6前缀格式错误"
     return
-
 fi
     echo "$NEW_IPV6" >> "$LIST_FILE"
     rebuild_and_apply
     echo "成功添加并启用 IPv6 地址: $NEW_IPV6"
     read -p "按回车键继续..."
 }
-
 list_ipv6(){
     if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
         echo "(暂无额外的附加 IPv6 地址)"
         return
     fi
-
     awk '{print NR ". " $0}' "$LIST_FILE"
 }
-
 delete_ipv6(){
     if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
         echo "没有可删除的额外 IPv6 地址"
@@ -381,20 +289,17 @@ delete_ipv6(){
     echo
     read -p "输入要删除的编号: " NUM
     [ -z "$NUM" ] && return
-    
     DEL_IP=$(sed -n "${NUM}p" "$LIST_FILE")
     if [ -z "$DEL_IP" ]; then
         echo "输入的编号无效！"
         read -p "按回车键继续..."
         return
     fi
-
     sed -i "${NUM}d" "$LIST_FILE"
     echo "已移除记录: $DEL_IP"
     rebuild_and_apply
     read -p "按回车键继续..."
 }
-
 status(){
     clear
     echo "========== HE IPv6 设备状态 =========="
@@ -412,39 +317,31 @@ status(){
     echo
     read -p "按回车键返回主菜单..."
 }
-
 test_ipv6(){
     echo ""
     echo "========== HE IPv6 全部 IP 测试 =========="
     echo ""
-
     if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
         echo "未找到额外 IPv6 地址列表：$LIST_FILE"
         read -p "按回车键继续..."
         return
     fi
-
     local total=0
     local success=0
     local failed=0
-
     while IFS= read -r TEST_IP; do
         # 跳过空行
         [ -z "$TEST_IP" ] && continue
-
         total=$((total + 1))
-
         echo "----------------------------------------"
         echo "[$total] 测试 IPv6:"
         echo "$TEST_IP"
         echo "正在连接..."
-
         # 记录请求开始时间
         local START_TIME
         local END_TIME
         local COST
         START_TIME=$(date +%s%3N)
-
         # 使用该 IPv6 作为源地址访问 ip.sb
         local RESULT
         RESULT=$(curl -6 \
@@ -453,27 +350,20 @@ test_ipv6(){
             --max-time 12 \
             -sS \
             https://ip.sb 2>/dev/null)
-
         local CURL_STATUS=$?
-
         END_TIME=$(date +%s%3N)
         COST=$((END_TIME - START_TIME))
-
         if [ "$CURL_STATUS" -eq 0 ] && [ -n "$RESULT" ]; then
             success=$((success + 1))
-
             echo "✓ 连通成功"
             echo "出口 IPv6: $RESULT"
             echo "请求耗时: ${COST} ms"
         else
             failed=$((failed + 1))
-
             echo "✗ 连通失败"
             echo "请求耗时: ${COST} ms"
         fi
-
     done < "$LIST_FILE"
-
     echo ""
     echo "========================================"
     echo "测试完成"
@@ -481,15 +371,13 @@ test_ipv6(){
     echo "成功:     $success"
     echo "失败:     $failed"
     echo "========================================"
-
     read -p "按回车键继续..."
 }
-
 menu(){
     while true
     do
         clear
-        echo "========== HE IPv6 隧道管理 ($MODE 模式) =========="
+        echo "========== HE IPv6 隧道 =========="
         echo "1. 添加/重置 HE 隧道"
         echo "2. 删除 HE 隧道"
         echo "3. 随机添加附加 IPv6 地址"
@@ -511,7 +399,6 @@ menu(){
         esac
     done
 }
-
 install_dep
 detect_mode
 menu
