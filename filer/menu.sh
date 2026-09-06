@@ -1235,15 +1235,14 @@ net() {
   hint " $(text 11)\n $(text 12) "
   [ "$SYSTEM" != Alpine ] && [[ $(systemctl is-active wg-quick@warp) != 'active' ]] && wg-quick down warp >/dev/null 2>&1
 
-  # ===== Alpine 上按 openresolv 官方方式接管并重建签名，避免 signature mismatch 导致 wg-quick 回滚 =====
+  # Alpine 上按 openresolv 官方方式接管并重建签名，避免 signature mismatch 导致 wg-quick 回滚
   if [ "$SYSTEM" = 'Alpine' ] && [ -x "$(type -p resolvconf)" ]; then
-    # 幂等地把当前 resolv.conf 注入 openresolv(control) 并重建签名; 文件不存在/为空时兜底清空
-    if ! resolvconf -l >/dev/null 2>&1; then
-      [ -s /etc/resolv.conf ] && cat /etc/resolv.conf | resolvconf -a control 2>/dev/null || : > /etc/resolv.conf
+    # openresolv 无上游记录时, 若当前 /etc/resolv.conf 仍带 nameserver, 原样注入重建, 保证 wg-quick 解析 Endpoint 不卡死
+    if ! resolvconf -l 2>/dev/null | grep -qi nameserver; then
+      grep -qi nameserver /etc/resolv.conf 2>/dev/null && cat /etc/resolv.conf | resolvconf -a control 2>/dev/null || true
     fi
     resolvconf -u 2>/dev/null || true
   fi
-  # ===================================================================================
 
   # 消除 wg-quick 的 "world accessible" 告警（warp.conf 不含执行位）
   [ -f /etc/wireguard/warp.conf ] && chmod 600 /etc/wireguard/warp.conf 2>/dev/null
@@ -1975,8 +1974,10 @@ esac
 EOF
       chmod +x /etc/wireguard/NonGlobal.sh
 
-      # 生成 WARP 保活脚本: 每 5 分钟检查 warp 接口, 接口存在则执行 wg n 刷IP(全局/非全局通用)
+# 生成 WARP 保活脚本: 每 5 分钟检查 warp 接口, 接口存在则执行 wg n 刷IP(全局/非全局通用)
       # 进程管理只用 ps + kill, 兼容 GNU procps / busybox / BSD 各系统(不依赖 pgrep/pkill/pidof)
+      # loop 的子进程(sleep / warp n)用 9>&- 断开 fd 9, 避免 loop 退出后残留子进程继续持锁
+      #   导致下次 PostUp 的 start 抢不到锁、保活起不来
       cat > /etc/wireguard/keepalive.sh <<'EOF'
 #!/usr/bin/env bash
 set -u
@@ -1986,9 +1987,13 @@ command -v flock >/dev/null 2>&1 && HAVE_FLOCK=1
 case "${1:-}" in
   start)
     if [ "$HAVE_FLOCK" = 1 ]; then
-      # flock 原子锁，无竞态：拿不到锁说明已有实例。子进程继承 fd 9 持锁，loop 结束自动释放
+      # flock 原子锁: 已有实例持锁则直接返回(已存在即成功); 旧实例被杀后 fd 释放有极短时间窗, 短时重试再放弃
       exec 9>"$LOCK"
-      flock -n 9 || exit 0
+      i=0
+      while ! flock -n 9; do
+        i=$((i+1)); [ "$i" -ge 5 ] && exit 0
+        sleep 1
+      done
     else
       # 无 flock(如 busybox/Alpine) 回退 ps+grep 检测
       ps -ef 2>/dev/null | grep -q '[k]eepalive.sh loop' && exit 0
@@ -1997,14 +2002,21 @@ case "${1:-}" in
     ;;
   stop)
     # 不删锁文件，kill 掉 loop 后 fd 9 自动关闭释放锁，避免新建 inode 造成二次竞态
-    for p in $(ps -ef 2>/dev/null | grep '[k]eepalive.sh loop' | awk '{print $2}'); do
+    # PID 提取兼容 GNU ps(第2列)/busybox ps(第1列): 第二列是数字取第二列, 否则取第一列, 避免 Alpine 上取到 USER
+    for p in $(ps -ef 2>/dev/null | grep '[k]eepalive.sh loop' | awk '{print ($2 ~ /^[0-9]+$/ ? $2 : $1)}'); do
       [ "$p" != "$$" ] && kill "$p" 2>/dev/null
     done
     ;;
   loop)
+    # trap + 全部任务后台化 + wait 等待子任务: 收到 TERM/INT 时 wait 立即返回并退出, 不受前台命令延后信号影响
+    # 子进程 9>&- 关闭 fd 9, 否则 loop 被杀后残留的 sleep/warp n 会继续持有锁
+    trap 'exit 0' TERM INT
     while true; do
-      wg | grep -q 'warp' && warp n >/dev/null 2>&1
-      sleep "${INTERVAL:-5m}"
+      if wg | grep -q 'warp'; then
+        warp n >/dev/null 2>&1 9>&- &
+      fi
+      sleep "${INTERVAL:-5m}" 9>&- &
+      wait 2>/dev/null
     done
     ;;
 esac
