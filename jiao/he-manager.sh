@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # ==========================================
-# HE IPv6 隧道一键管理脚本 (支持 Netplan & ifupdown)
+# HE IPv6 隧道一键管理脚本 (双线路由共存版)
+# 1. 自动过滤隐藏 fe80 本机本地 IP
+# 2. 引入 PBR 策略路由，与服务器原生 IPv6 完美双通共存
 # ==========================================
 
 CONF_DIR="/etc/network/interfaces.d"
@@ -23,8 +25,9 @@ install_dep(){
 detect_mode(){
     if command -v netplan >/dev/null || [ -d /etc/netplan ]; then
         MODE="netplan"
-    elif command -v ifup >/dev/null && [ -d /etc/network ]; then
+    elif command -v ifup >/dev/null || [ -d /etc/network ]; then
         MODE="ifupdown"
+        command -v ifup >/dev/null || apt install ifupdown -y
     else
         echo "错误: 未检测到支持的网络配置环境 (Netplan 或 ifupdown)"
         exit 1
@@ -32,7 +35,6 @@ detect_mode(){
 }
 
 get_local_ipv4(){
-    # 优先获取主网卡实际绑定的 IP（适用于 NAT 架构如 AWS/阿里云/腾讯云）
     LOCAL_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+')
     if [ -z "$LOCAL_IP" ]; then
         LOCAL_IP=$(curl -4 -s --connect-timeout 5 https://ip.sb)
@@ -46,7 +48,26 @@ load_record(){
     fi
 }
 
-# 重新生成配置文件并应用（彻底避免 sed 修改导致的 YAML 格式错乱）
+fix_interfaces_file(){
+    if [ "$MODE" = "ifupdown" ]; then
+        mkdir -p "$CONF_DIR"
+        local MAIN_FILE="/etc/network/interfaces"
+        
+        if [ ! -f "$MAIN_FILE" ]; then
+            cat > "$MAIN_FILE" <<EOF
+auto lo
+iface lo inet loopback
+
+source /etc/network/interfaces.d/*
+EOF
+        else
+            if ! grep -qE '^\s*source(-directory)?\s+/etc/network/interfaces\.d' "$MAIN_FILE"; then
+                echo -e "\n# 自动添加子目录加载指令以支持 HE IPv6\nsource /etc/network/interfaces.d/*" >> "$MAIN_FILE"
+            fi
+        fi
+    fi
+}
+
 rebuild_and_apply(){
     load_record
     if [ -z "$HE_SERVER_V4" ] || [ -z "$CLIENT_IPV6" ]; then
@@ -55,7 +76,8 @@ rebuild_and_apply(){
     fi
 
     if [ "$MODE" = "ifupdown" ]; then
-        mkdir -p "$CONF_DIR"
+        fix_interfaces_file
+        
         cat > "$CONF_FILE" <<EOF
 auto $IFACE
 iface $IFACE inet6 v4tunnel
@@ -66,16 +88,25 @@ iface $IFACE inet6 v4tunnel
         ttl 255
         gateway $HE_SERVER_V6
 EOF
-        # 追加额外的 IPv6 地址
+        # 追加额外 IP
         if [ -f "$LIST_FILE" ]; then
             while read -r ip; do
                 [ -n "$ip" ] && echo "        up ip -6 addr add $ip/64 dev $IFACE || true" >> "$CONF_FILE"
             done < "$LIST_FILE"
         fi
-        echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE metric 100 || true" >> "$CONF_FILE"
+        
+        # 配置 PBR 策略路由（让 HE 和原生 IPv6 同时通畅）
+        # metric 2048 作为系统最低级备用网关（当原生没有IPv6时发挥作用）
+        echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE metric 2048 || true" >> "$CONF_FILE"
+        # table 200 作为 HE 专属路由表
+        echo "        post-up ip -6 route add default via $HE_SERVER_V6 dev $IFACE table 200 || true" >> "$CONF_FILE"
+        echo "        post-up ip -6 rule add from $CLIENT_IPV6/128 table 200 || true" >> "$CONF_FILE"
+        if [ -n "$ROUTED_PREFIX" ]; then
+            echo "        post-up ip -6 rule add from ${ROUTED_PREFIX}::/64 table 200 || true" >> "$CONF_FILE"
+        fi
 
     else
-        # Netplan 模式
+        # Netplan 模式策略路由
         mkdir -p /etc/netplan
         cat > "$NETPLAN_FILE" <<EOF
 network:
@@ -98,19 +129,55 @@ EOF
       routes:
         - to: default
           via: "$HE_SERVER_V6"
+          metric: 2048
+        - to: default
+          via: "$HE_SERVER_V6"
+          table: 200
+      routing-policy:
+        - from: "$CLIENT_IPV6/128"
+          table: 200
 EOF
+        if [ -n "$ROUTED_PREFIX" ]; then
+            cat >> "$NETPLAN_FILE" <<EOF
+        - from: "${ROUTED_PREFIX}::/64"
+          table: 200
+EOF
+        fi
     fi
 
-    # 应用网络配置
     apply_config
 }
 
 apply_config(){
     echo "正在应用网络配置..."
+    # 彻底清理旧设备和策略路由规则
+    while ip -6 rule list 2>/dev/null | grep -q '200'; do ip -6 rule del table 200 2>/dev/null; done
+    
     if [ "$MODE" = "ifupdown" ]; then
         ifdown "$IFACE" 2>/dev/null || true
+        ip link set "$IFACE" down 2>/dev/null || true
         ip tunnel del "$IFACE" 2>/dev/null || true
-        ifup "$IFACE" 2>/dev/null || true
+
+        ifup "$IFACE" 2>/dev/null || {
+            echo "警告: ifup 执行异常，正在执行底层强制拉起..."
+            ip tunnel add "$IFACE" mode sit remote "$HE_SERVER_V4" local "$LOCAL_IPV4" ttl 255
+            ip link set "$IFACE" up
+            ip -6 addr add "$CLIENT_IPV6/64" dev "$IFACE"
+            
+            if [ -f "$LIST_FILE" ]; then
+                while read -r ip; do
+                    [ -n "$ip" ] && ip -6 addr add "$ip/64" dev "$IFACE" || true
+                done < "$LIST_FILE"
+            fi
+            
+            # 策略路由底层回退方案
+            ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" metric 2048 || true
+            ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" table 200 || true
+            ip -6 rule add from "$CLIENT_IPV6/128" table 200 || true
+            if [ -n "$ROUTED_PREFIX" ]; then
+                ip -6 rule add from "${ROUTED_PREFIX}::/64" table 200 || true
+            fi
+        }
     else
         netplan apply
     fi
@@ -128,12 +195,10 @@ add_he(){
     read -p "本机 IPv4 [$DETECTED_IPV4]: " INPUT_LOCAL_IPV4
     LOCAL_IPV4=${INPUT_LOCAL_IPV4:-$DETECTED_IPV4}
 
-    # 处理 Routed Prefix 前缀格式
     if [ -n "$ROUTED_PREFIX" ]; then
         ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed -E 's|/.*||; s/:+$//')
     fi
 
-    # 保存配置记录
     cat > "$CONFIG_RECORD" <<EOF
 HE_SERVER_V4="$HE_SERVER_V4"
 HE_SERVER_V6="$HE_SERVER_V6"
@@ -142,15 +207,14 @@ LOCAL_IPV4="$LOCAL_IPV4"
 ROUTED_PREFIX="$ROUTED_PREFIX"
 EOF
 
-    # 清空之前的额外 IP 列表
     rm -f "$LIST_FILE"
-
     rebuild_and_apply
-    echo "HE 隧道添加完成！"
+    echo "HE 隧道添加完成并已配置为开机自启！"
 }
 
 delete_he(){
     echo "正在删除 HE 隧道..."
+    while ip -6 rule list 2>/dev/null | grep -q '200'; do ip -6 rule del table 200 2>/dev/null; done
     if [ "$MODE" = "ifupdown" ]; then
         ifdown "$IFACE" 2>/dev/null || true
         rm -f "$CONF_FILE"
@@ -175,18 +239,18 @@ add_ipv6(){
         read -p "未检测到预存的 Routed /64，请输入 (例: 2001:470:yy:yy): " INPUT_PREFIX
         [ -z "$INPUT_PREFIX" ] && echo "未提供前缀，取消添加" && return
         BASE_PREFIX=$(echo "$INPUT_PREFIX" | sed -E 's|/.*||; s/:+$//')
+        # 将新输入的前缀持久化保存
+        echo "ROUTED_PREFIX=\"$BASE_PREFIX\"" >> "$CONFIG_RECORD"
+        ROUTED_PREFIX="$BASE_PREFIX"
     fi
 
-    # 生成随机 64 位后缀 (16 位十六进制)
     HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
     RAND="${HEX:0:4}:${HEX:4:4}:${HEX:8:4}:${HEX:12:4}"
     NEW_IPV6="${BASE_PREFIX}:${RAND}"
 
-    echo "生成新 IPv6 地址: $NEW_IPV6"
     echo "$NEW_IPV6" >> "$LIST_FILE"
-
     rebuild_and_apply
-    echo "成功添加 IPv6 地址: $NEW_IPV6"
+    echo "成功添加并启用 IPv6 地址: $NEW_IPV6"
 }
 
 list_ipv6(){
@@ -214,10 +278,8 @@ delete_ipv6(){
         return
     fi
 
-    # 从列表中删除指定行
     sed -i "${NUM}d" "$LIST_FILE"
     echo "已移除记录: $DEL_IP"
-
     rebuild_and_apply
 }
 
@@ -225,18 +287,28 @@ status(){
     echo "========== HE IPv6 设备状态 =========="
     ip link show "$IFACE" 2>/dev/null || echo "隧道设备未启动"
     echo
-    echo "========== 已绑定的 IPv6 地址 =========="
-    ip -6 addr show dev "$IFACE" 2>/dev/null
+    echo "========== 已绑定的全局 IPv6 地址 (已屏蔽本机本地IP) =========="
+    # 增加 grep scope global，过滤掉 fe80
+    ip -6 addr show dev "$IFACE" 2>/dev/null | grep 'scope global' | sed 's/^[ \t]*//' || echo "无"
     echo
-    echo "========== IPv6 路由表 =========="
-    ip -6 route show | grep "$IFACE"
+    echo "========== IPv6 路由表与策略 =========="
+    ip -6 route show table 200 2>/dev/null | grep "$IFACE" || echo "无专用路由"
+    ip -6 rule list 2>/dev/null | grep '200' || echo "无路由策略"
     echo
     list_ipv6
 }
 
 test_ipv6(){
-    echo "正在测试 IPv6 连通性及出口 IP..."
-    curl -6 --connect-timeout 8 https://ip.sb || echo "IPv6 连接失败，请检查防火墙或 HE 隧道状态！"
+    echo "正在测试 HE IPv6 连通性及出口 IP..."
+    # 自动获取第一个全局 HE IP 用于强制测试
+    TEST_IP=$(ip -6 addr show dev "$IFACE" 2>/dev/null | grep 'scope global' | grep -oP 'inet6 \K[^/]+' | head -n 1)
+    
+    if [ -n "$TEST_IP" ]; then
+        echo "使用指定源 IP: $TEST_IP 发起请求..."
+        curl -6 --interface "$TEST_IP" --connect-timeout 8 https://ip.sb || echo "IPv6 连接失败，请检查防火墙或隧道状态！"
+    else
+        echo "未找到可用的 HE IPv6 地址，请先确认网卡已启动。"
+    fi
 }
 
 menu(){
