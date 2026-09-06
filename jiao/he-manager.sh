@@ -414,19 +414,74 @@ status(){
 }
 
 test_ipv6(){
-    echo "正在测试 HE IPv6 连通性及出口 IP..."
-    TEST_IP=$(ip -6 addr show dev "$IFACE" 2>/dev/null \
-| grep 'scope global' \
-| grep -v fe80 \
-| grep -oP 'inet6 \K[^/]+' \
-| head -n 1)
-    
-    if [ -n "$TEST_IP" ]; then
-        echo "使用指定源 IP: $TEST_IP 发起请求..."
-        curl -6 --interface "$TEST_IP" --connect-timeout 8 https://ip.sb || echo "IPv6 连接失败，请检查防火墙或隧道状态！"
-    else
-        echo "未找到可用的 HE IPv6 地址，请先确保选项 1 隧道已成功添加。"
+    echo ""
+    echo "========== HE IPv6 全部 IP 测试 =========="
+    echo ""
+
+    if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
+        echo "未找到额外 IPv6 地址列表：$LIST_FILE"
+        read -p "按回车键继续..."
+        return
     fi
+
+    local total=0
+    local success=0
+    local failed=0
+
+    while IFS= read -r TEST_IP; do
+        # 跳过空行
+        [ -z "$TEST_IP" ] && continue
+
+        total=$((total + 1))
+
+        echo "----------------------------------------"
+        echo "[$total] 测试 IPv6:"
+        echo "$TEST_IP"
+        echo "正在连接..."
+
+        # 记录请求开始时间
+        local START_TIME
+        local END_TIME
+        local COST
+        START_TIME=$(date +%s%3N)
+
+        # 使用该 IPv6 作为源地址访问 ip.sb
+        local RESULT
+        RESULT=$(curl -6 \
+            --interface "$TEST_IP" \
+            --connect-timeout 8 \
+            --max-time 12 \
+            -sS \
+            https://ip.sb 2>/dev/null)
+
+        local CURL_STATUS=$?
+
+        END_TIME=$(date +%s%3N)
+        COST=$((END_TIME - START_TIME))
+
+        if [ "$CURL_STATUS" -eq 0 ] && [ -n "$RESULT" ]; then
+            success=$((success + 1))
+
+            echo "✓ 连通成功"
+            echo "出口 IPv6: $RESULT"
+            echo "请求耗时: ${COST} ms"
+        else
+            failed=$((failed + 1))
+
+            echo "✗ 连通失败"
+            echo "请求耗时: ${COST} ms"
+        fi
+
+    done < "$LIST_FILE"
+
+    echo ""
+    echo "========================================"
+    echo "测试完成"
+    echo "总 IP 数: $total"
+    echo "成功:     $success"
+    echo "失败:     $failed"
+    echo "========================================"
+
     read -p "按回车键继续..."
 }
 
