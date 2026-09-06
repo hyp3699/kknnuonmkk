@@ -194,14 +194,28 @@ add_he(){
     echo
 
     TMP="/tmp/he-config.txt"
-    rm -f "$TMP"
+rm -f "$TMP"
 
-    while true
-    do
-        read line
-        [ "$line" = "END" ] && break
+EMPTY_COUNT=0
+
+while true
+do
+    read line
+
+    if [ -z "$line" ]; then
+        EMPTY_COUNT=$((EMPTY_COUNT+1))
+    else
+        EMPTY_COUNT=0
         echo "$line" >> "$TMP"
-    done
+    fi
+
+
+    # 连续两个空行结束输入
+    if [ "$EMPTY_COUNT" -ge 2 ]; then
+        break
+    fi
+
+done
 
 
     HE_SERVER_V4=$(grep -E 'endpoint ' "$TMP" | awk '{print $2}')
