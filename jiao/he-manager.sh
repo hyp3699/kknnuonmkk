@@ -1,95 +1,98 @@
 #!/bin/bash
 
-BASE="/etc/he-ipv6"
-CONF="$BASE/config"
+set -e
 
-mkdir -p $BASE
+CONF_DIR="/etc/he-ipv6"
+CONF_FILE="$CONF_DIR/config"
+
+mkdir -p $CONF_DIR
 
 
-detect_net(){
+get_ipv4(){
 
-if command -v nmcli >/dev/null 2>&1; then
-    NET="nmcli"
-
-elif ls /etc/netplan/*.yaml >/dev/null 2>&1; then
-    NET="netplan"
-
-elif [ -f /etc/network/interfaces ]; then
-    NET="ifupdown"
-
-elif [ -f /etc/alpine-release ]; then
-    NET="alpine"
-
-else
-    NET="manual"
-fi
-
-echo "检测网络管理: $NET"
+curl -4 -s https://ip.sb
 
 }
 
 
-save_conf(){
+detect(){
 
-cat > $CONF <<EOF
-SERVER4=$SERVER4
-LOCAL4=$LOCAL4
-CLIENT6=$CLIENT6
-GATE6=$GATE6
+if [ -f /etc/network/interfaces ];then
+    NET="ifupdown"
+elif ls /etc/netplan/*.yaml >/dev/null 2>&1;then
+    NET="netplan"
+elif [ -d /etc/systemd/network ];then
+    NET="networkd"
+else
+    NET="manual"
+fi
+
+echo "网络模式: $NET"
+
+}
+
+
+save(){
+
+cat > $CONF_FILE <<EOF
+HE_SERVER=$HE_SERVER
+LOCAL_IPV4=$LOCAL_IPV4
+CLIENT_IPV6=$CLIENT_IPV6
+GATEWAY_IPV6=$GATEWAY_IPV6
+IFACE=he-ipv6
 EOF
 
 }
 
 
-load_conf(){
-
-[ -f $CONF ] && source $CONF
-
-}
+add_tunnel(){
 
 
-create_tunnel(){
-
-load_conf
-
-if [ -z "$SERVER4" ];then
-
-read -p "HE服务器IPv4: " SERVER4
-read -p "本机IPv4: " LOCAL4
-read -p "客户端IPv6: " CLIENT6
-read -p "网关IPv6: " GATE6
-
-save_conf
-
-fi
+echo "HE服务器IPv4:"
+read HE_SERVER
 
 
-ip tunnel del he-ipv6 2>/dev/null
+LOCAL_IPV4=$(get_ipv4)
+
+echo "检测本机IPv4:"
+echo $LOCAL_IPV4
+
+
+echo "客户端IPv6:"
+read CLIENT_IPV6
+
+
+echo "网关IPv6:"
+read GATEWAY_IPV6
+
+
+
+ip tunnel del he-ipv6 2>/dev/null || true
 
 
 ip tunnel add he-ipv6 \
 mode sit \
-remote $SERVER4 \
-local $LOCAL4
+remote $HE_SERVER \
+local $LOCAL_IPV4
 
 
 ip link set he-ipv6 up
 
 
-ip -6 addr add $CLIENT6/64 dev he-ipv6
+ip -6 addr add $CLIENT_IPV6 dev he-ipv6
 
 
-ip -6 route add $GATE6 dev he-ipv6 2>/dev/null
-
-
-ip -6 route add default via $GATE6 dev he-ipv6 metric 100 2>/dev/null
+ip -6 route add ::/0 via $GATEWAY_IPV6 dev he-ipv6 metric 100 2>/dev/null || true
 
 
 
-echo "HE Tunnel 创建完成"
+save
 
 
 persist
+
+
+echo "HE Tunnel 创建完成"
 
 }
 
@@ -97,143 +100,119 @@ persist
 
 persist(){
 
-case $NET in
+
+detect
 
 
-ifupdown)
+if [ "$NET" = "ifupdown" ];then
 
-cat >/etc/network/interfaces.d/he-ipv6 <<EOF
+
+cat >> /etc/network/interfaces <<EOF
+
+
+# HE IPv6 Tunnel
 auto he-ipv6
 iface he-ipv6 inet6 v4tunnel
-    address $CLIENT6
+    address $CLIENT_IPV6
     netmask 64
-    endpoint $SERVER4
-    local $LOCAL4
+    endpoint $HE_SERVER
+    local $LOCAL_IPV4
     ttl 255
-    gateway $GATE6
+    gateway $GATEWAY_IPV6
+
 EOF
 
-;;
+
+echo "已写入 /etc/network/interfaces"
 
 
-netplan)
+elif [ "$NET" = "netplan" ];then
 
-cat >/etc/netplan/99-he-ipv6.yaml <<EOF
+
+FILE=$(ls /etc/netplan/*.yaml | head -1)
+
+
+cat >> $FILE <<EOF
+
+
+# HE IPv6 Tunnel
 network:
- version: 2
- tunnels:
-  he-ipv6:
-   mode: sit
-   remote: $SERVER4
-   local: $LOCAL4
-   addresses:
-    - $CLIENT6/64
-   routes:
-    - to: default
-      via: $GATE6
-EOF
+  tunnels:
+    he-ipv6:
+      mode: sit
+      local: $LOCAL_IPV4
+      remote: $HE_SERVER
 
-netplan apply 2>/dev/null
-
-;;
-
-
-nmcli)
-
-nmcli connection delete he-ipv6 2>/dev/null
-
-nmcli connection add \
-type ip-tunnel \
-mode sit \
-ifname he-ipv6 \
-remote $SERVER4 \
-local $LOCAL4
-
-
-nmcli connection modify he-ipv6 \
-ipv6.method manual \
-ipv6.address $CLIENT6/64 \
-ipv6.gateway $GATE6
-
-
-nmcli connection up he-ipv6
-
-;;
-
-
-esac
-
-}
-
-
-
-add_ipv6(){
-
-load_conf
-
-read -p "输入IPv6地址: " IP6
-
-
-ip -6 addr add $IP6/64 dev he-ipv6
-
-
-cat >> $BASE/routes <<EOF
-$IP6
 EOF
 
 
-echo "添加成功"
+echo "已写入 $FILE"
+
+
+
+else
+
+cat >/etc/systemd/network/99-he-ipv6.netdev <<EOF
+[NetDev]
+Name=he-ipv6
+Kind=sit
+
+[Tunnel]
+Local=$LOCAL_IPV4
+Remote=$HE_SERVER
+EOF
+
+
+
+cat >/etc/systemd/network/99-he-ipv6.network <<EOF
+[Match]
+Name=he-ipv6
+
+[Network]
+Address=$CLIENT_IPV6
+Gateway=$GATEWAY_IPV6
+EOF
+
+
+systemctl restart systemd-networkd
+
+fi
+
 
 }
 
 
 
-del_ipv6(){
-
-read -p "删除IPv6地址: " IP6
-
-ip -6 addr del $IP6/64 dev he-ipv6 2>/dev/null
+add_ip(){
 
 
-sed -i "/$IP6/d" $BASE/routes
+echo "输入IPv6地址:"
+read IP
 
 
-}
+ip -6 addr add $IP/64 dev he-ipv6
 
 
-
-restore_ipv6(){
-
-[ ! -f $BASE/routes ] && return
-
-
-while read ip
-do
-
-ip -6 addr add $ip/64 dev he-ipv6 2>/dev/null
-
-done < $BASE/routes
+echo "添加完成"
 
 
 }
 
 
 
-delete_tunnel(){
-
-ip link set he-ipv6 down 2>/dev/null
-
-ip tunnel del he-ipv6 2>/dev/null
+del_ip(){
 
 
-rm -rf $BASE
+ip -6 addr show dev he-ipv6
 
 
-rm -f /etc/netplan/99-he-ipv6.yaml
-rm -f /etc/network/interfaces.d/he-ipv6
+echo
+echo "输入删除的完整IPv6:"
+read IP
 
 
-echo "删除完成"
+ip -6 addr del $IP dev he-ipv6
+
 
 }
 
@@ -241,23 +220,14 @@ echo "删除完成"
 
 status(){
 
-echo "====== Tunnel ======"
 
 ip tunnel show
 
-
 echo
-
-
-echo "====== IPv6 ======"
 
 ip -6 addr show dev he-ipv6
 
-
 echo
-
-
-echo "====== Route ======"
 
 ip -6 route
 
@@ -266,69 +236,38 @@ ip -6 route
 
 
 
-test_ipv6(){
-
-read -p "测试IPv6地址(空默认): " IP
+test_out(){
 
 
-if [ -z "$IP" ];then
+echo "测试当前出口"
 
-curl -6 https://ip.sb
-
-else
-
-curl -6 --interface $IP https://ip.sb
-
-fi
-
-}
-
-
-
-boot_restore(){
-
-cat >/etc/systemd/system/he-ipv6.service <<EOF
-[Unit]
-Description=HE IPv6 Tunnel
-
-After=network.target
-
-
-[Service]
-Type=oneshot
-ExecStart=/root/he-manager.sh restore
-RemainAfterExit=yes
-
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-
-systemctl daemon-reload
-systemctl enable he-ipv6.service
+curl -6 https://ip.sb --interface $(grep CLIENT_IPV6 $CONF_FILE|cut -d= -f2)
 
 
 }
 
 
 
-case "$1" in
-
-restore)
-
-detect_net
-load_conf
-create_tunnel
-restore_ipv6
-;;
-
-esac
+delete(){
 
 
+ip tunnel del he-ipv6 2>/dev/null || true
 
-detect_net
 
+sed -i '/# HE IPv6 Tunnel/,+8d' /etc/network/interfaces 2>/dev/null || true
+
+
+rm -f $CONF_FILE
+
+
+echo "Tunnel 已删除"
+
+
+}
+
+
+
+menu(){
 
 while true
 do
@@ -344,44 +283,34 @@ echo "6. 删除Tunnel"
 echo "7. 设置开机恢复"
 echo "0.退出"
 
+
 read -p "选择:" c
 
 
 case $c in
 
-1)
-create_tunnel
-;;
+1)add_tunnel;;
 
-2)
-add_ipv6
-;;
+2)add_ip;;
 
-3)
-del_ipv6
-;;
+3)del_ip;;
 
-4)
-status
-;;
+4)status;;
 
-5)
-test_ipv6
-;;
+5)test_out;;
 
-6)
-delete_tunnel
-;;
+6)delete;;
 
-7)
-boot_restore
-;;
+7)persist;;
 
-0)
-exit
-;;
+0)exit;;
 
 esac
 
+
 done
 
+}
+
+
+menu
