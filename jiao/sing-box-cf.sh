@@ -2985,6 +2985,17 @@ cat > "${config_dir}" << EOF
     ],
     "strategy": "$dns_strategy"
   },
+   "services": [
+    {
+      "type": "api",
+      "listen": "127.0.0.1",
+      "listen_port": 9093,
+      "secret": "$password",
+      "dashboard": {
+        "enabled": true
+      }
+    }
+  ],
    "ntp": {
         "enabled": true,
         "server": "time.apple.com",
