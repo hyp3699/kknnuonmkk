@@ -181,7 +181,15 @@ ttl 255 || {
     ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" table 200 || true
     ip -6 rule add pref 100 from "$CLIENT_IPV6/128" table 200 || true
     if [ -n "$ROUTED_PREFIX" ]; then
+    if [[ "$ROUTED_PREFIX" == *:*:*:* ]]; then
+
     ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/64" table 200 || true
+
+else
+
+    ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/48" table 200 || true
+
+fi
     fi
 
     echo "配置应用完成！"
