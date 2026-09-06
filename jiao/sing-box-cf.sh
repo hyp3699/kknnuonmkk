@@ -2977,14 +2977,20 @@ cat > "${config_dir}" << EOF
     "timestamp": true
   },
   "dns": {
-    "servers": [
-      {
-        "tag": "local",
-        "type": "local"
-      }
-    ],
-    "strategy": "$dns_strategy"
-  },
+     "servers": [
+       {
+         "tag": "local",
+         "type": "local"
+       }
+      ],
+      "strategy": "prefer_ipv4",
+      "final": "local",
+      "cache_capacity": 8192,
+      "optimistic": {
+        "enabled": true,
+        "timeout": "3d"
+          }
+   },
    "services": [
     {
       "type": "api",
