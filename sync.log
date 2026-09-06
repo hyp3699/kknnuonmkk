@@ -1005,3 +1005,26 @@ https://github.com/MatsuriDayo/NekoBoxForAndroid/releases/download/1.4.2/NekoBox
 📥 正在下载：https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
 ✅ 无变化：filer/Xray-linux-64.zip
 ==== 同步运行结束 ====
+==== 同步运行开始 2026-09-06 10:55:50 ====
+📅 当前同步时间配置：0 0 * * *
+📥 正在下载：https://github.com/SagerNet/sing-box/releases/download/v1.14.0/sing-box-1.14.0-linux-amd64.tar.gz
+✅ 无变化：filer/sing-box-1.14.0-linux-amd64.tar.gz
+📥 正在下载：https://16441.kstore.space/jjoo.json
+✅ 无变化：filer/jjoo.json
+📥 正在下载：https://suoha.psai.eu.org/suoha.sh
+✅ 无变化：filer/suoha.sh
+📥 正在下载：https://raw.githubusercontent.com/fscarmen/sing-box/main/sing-box.sh
+✅ 无变化：filer/sing-box.sh
+📥 正在下载：https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh
+🔄 文件更新：filer/menu.sh
+📥 正在下载：https://raw.githubusercontent.com/eooce/Sing-box/main/sing-box.sh
+✅ 无变化：filer/sing-box1.sh.sh
+📥 正在下载：https://raw.githubusercontent.com/eooce/ssh_tool/main/ssh_tool.sh
+✅ 无变化：filer/ssh_tool.sh
+📥 正在下载：https://github.com/MatsuriDayo/NekoBoxForAndroid/releases/download/1.4.2/NekoBox-1.4.2-arm64-v8a.apk
+✅ 无变化：filer/NekoBox-1.4.2-arm64-v8a.apk
+📥 正在下载：https://github.com/ExclaveNetwork/Exclave/releases/download/0.17.53/Exclave-0.17.53-arm64-v8a.apk
+✅ 无变化：filer/Exclave-0.17.53-arm64-v8a.apk
+📥 正在下载：https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+✅ 无变化：filer/Xray-linux-64.zip
+==== 同步运行结束 ====
