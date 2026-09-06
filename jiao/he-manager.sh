@@ -188,26 +188,84 @@ ttl 255 || {
 }
 
 add_he(){
-    echo "========== 添加 HE IPv6 隧道 =========="
-    read -p "HE Server IPv4 Address (endpoint): " HE_SERVER_V4
-    read -p "HE Server IPv6 Address (gateway, 例: 2001:470:xx:xx::1): " HE_SERVER_V6
-    read -p "Client IPv6 Address (address, 例: 2001:470:xx:xx::2): " CLIENT_IPV6
-    read -p "Routed /64 Prefix (可选, 用于生成多IP，直接按回车跳过): " ROUTED_PREFIX
+
+    echo "========== 导入 HE IPv6 隧道配置 =========="
+    echo "请粘贴 HE 配置，输入 END 结束"
+    echo
+
+    TMP="/tmp/he-config.txt"
+    rm -f "$TMP"
+
+    while true
+    do
+        read line
+        [ "$line" = "END" ] && break
+        echo "$line" >> "$TMP"
+    done
+
+
+    HE_SERVER_V4=$(grep -E 'endpoint ' "$TMP" | awk '{print $2}')
+    HE_SERVER_V6=$(grep -E 'gateway ' "$TMP" | awk '{print $2}')
+    CLIENT_IPV6=$(grep -E 'address ' "$TMP" | awk '{print $2}')
+    PUBLIC_V4=$(grep -E 'local ' "$TMP" | awk '{print $2}')
+
+
+    if [ -z "$HE_SERVER_V4" ] || \
+       [ -z "$HE_SERVER_V6" ] || \
+       [ -z "$CLIENT_IPV6" ]; then
+
+        echo "配置解析失败，请检查 HE 配置格式"
+        return
+
+    fi
+
+
+    echo
+    echo "解析结果:"
+    echo "----------------------"
+    echo "本机 IPv4 : $PUBLIC_V4"
+    echo "HE IPv4   : $HE_SERVER_V4"
+    echo "本机 IPv6 : $CLIENT_IPV6"
+    echo "网关 IPv6 : $HE_SERVER_V6"
+    echo "----------------------"
+    echo
+
+
+    read -p "请输入 Routed IPv6 前缀 (/64 或 /48): " ROUTED_PREFIX
+
 
     if [ -n "$ROUTED_PREFIX" ]; then
-        ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed -E 's|/.*||; s/::$//')
+
+        ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed 's/::$//')
+
     fi
+
+
+    read -p "确认写入配置并启动? [y/N]: " OK
+
+
+    [ "$OK" != "y" ] && return
+
+
 
     cat > "$CONFIG_RECORD" <<EOF
 HE_SERVER_V4="$HE_SERVER_V4"
 HE_SERVER_V6="$HE_SERVER_V6"
 CLIENT_IPV6="$CLIENT_IPV6"
+PUBLIC_V4="$PUBLIC_V4"
 ROUTED_PREFIX="$ROUTED_PREFIX"
 EOF
 
+
     rm -f "$LIST_FILE"
+
+
     rebuild_and_apply
-    echo "HE 隧道添加完成并已配置为开机自启！"
+
+
+    echo
+    echo "HE 隧道添加完成"
+
 }
 
 delete_he(){
@@ -243,10 +301,39 @@ add_ipv6(){
         ROUTED_PREFIX="$BASE_PREFIX"
     fi
 
-    HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-    RAND="${HEX:0:4}:${HEX:4:4}:${HEX:8:4}:${HEX:12:4}"
-    NEW_IPV6="${BASE_PREFIX}:${RAND}"
+    PREFIX=$(echo "$BASE_PREFIX" | sed 's|/.*||')
 
+HEX=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
+
+R1="${HEX:0:4}"
+R2="${HEX:4:4}"
+R3="${HEX:8:4}"
+R4="${HEX:12:4}"
+
+
+IFS=':' read -ra PARTS <<< "$PREFIX"
+
+
+if [ "${#PARTS[@]}" -eq 3 ]; then
+
+    # /48
+
+    NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${R1}:${R2}:${R3}:${R4}"
+
+
+elif [ "${#PARTS[@]}" -eq 4 ]; then
+
+    # /64
+
+    NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${PARTS[3]}:${R1}:${R2}:${R3}:${R4}"
+
+
+else
+
+    echo "IPv6前缀格式错误"
+    return
+
+fi
     echo "$NEW_IPV6" >> "$LIST_FILE"
     rebuild_and_apply
     echo "成功添加并启用 IPv6 地址: $NEW_IPV6"
