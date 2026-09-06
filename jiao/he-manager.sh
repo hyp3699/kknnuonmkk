@@ -10,6 +10,7 @@ NETPLAN_FILE="/etc/netplan/99-he-ipv6.yaml"
 CONFIG_RECORD="/etc/he-ipv6.conf"
 LIST_FILE="/etc/he-ipv6-ips.list"
 IFACE="he-ipv6"
+PUBLIC_V4=""
 
 # 检查 Root 权限
 [ "$(id -u)" != "0" ] && echo "错误: 请使用 root 权限运行此脚本！" && exit 1
@@ -18,6 +19,17 @@ install_dep(){
     if command -v apt >/dev/null; then
         command -v curl >/dev/null || (apt update -y && apt install curl iproute2 gawk -y)
     fi
+}
+
+detect_public_ipv4(){
+    PUBLIC_V4=$(curl -4 -s --connect-timeout 5 https://ip.sb)
+
+    if [ -z "$PUBLIC_V4" ]; then
+        echo "无法获取公网 IPv4"
+        exit 1
+    fi
+
+    echo "检测到公网 IPv4: $PUBLIC_V4"
 }
 
 detect_mode(){
@@ -146,11 +158,17 @@ apply_config(){
     fi
 
     # 底层强制拉起：完全省略 local 参数，由内核自动匹配公网网卡，根治缓冲区报错
-    ip tunnel add "$IFACE" mode sit remote "$HE_SERVER_V4" ttl 255 || {
+    detect_public_ipv4
+
+ip tunnel add "$IFACE" mode sit \
+local "$PUBLIC_V4" \
+remote "$HE_SERVER_V4" \
+ttl 255 || {
         echo "错误: 创建隧道失败！请检查 HE Server IPv4 (endpoint) 是否填写正确。"
         return 1
     }
     ip link set "$IFACE" up
+    ip link set "$IFACE" mtu 1480
     ip -6 addr add "$CLIENT_IPV6/64" dev "$IFACE" 2>/dev/null || true
 
     if [ -f "$LIST_FILE" ]; then
@@ -161,9 +179,9 @@ apply_config(){
 
     ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" metric 2048 || true
     ip -6 route add default via "$HE_SERVER_V6" dev "$IFACE" table 200 || true
-    ip -6 rule add from "$CLIENT_IPV6/128" table 200 || true
+    ip -6 rule add pref 100 from "$CLIENT_IPV6/128" table 200 || true
     if [ -n "$ROUTED_PREFIX" ]; then
-        ip -6 rule add from "${ROUTED_PREFIX}::/64" table 200 || true
+    ip -6 rule add pref 101 from "${ROUTED_PREFIX}::/64" table 200 || true
     fi
 
     echo "配置应用完成！"
@@ -177,7 +195,7 @@ add_he(){
     read -p "Routed /64 Prefix (可选, 用于生成多IP，直接按回车跳过): " ROUTED_PREFIX
 
     if [ -n "$ROUTED_PREFIX" ]; then
-        ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed -E 's|/.*||; s/:+$//')
+        ROUTED_PREFIX=$(echo "$ROUTED_PREFIX" | sed -E 's|/.*||; s/::$//')
     fi
 
     cat > "$CONFIG_RECORD" <<EOF
@@ -239,7 +257,8 @@ list_ipv6(){
     if [ ! -f "$LIST_FILE" ] || [ ! -s "$LIST_FILE" ]; then
         echo "(暂无额外的附加 IPv6 地址)"
         return
-    }
+    fi
+
     awk '{print NR ". " $0}' "$LIST_FILE"
 }
 
@@ -288,7 +307,11 @@ status(){
 
 test_ipv6(){
     echo "正在测试 HE IPv6 连通性及出口 IP..."
-    TEST_IP=$(ip -6 addr show dev "$IFACE" 2>/dev/null | grep 'scope global' | grep -oP 'inet6 \K[^/]+' | head -n 1)
+    TEST_IP=$(ip -6 addr show dev "$IFACE" 2>/dev/null \
+| grep 'scope global' \
+| grep -v fe80 \
+| grep -oP 'inet6 \K[^/]+' \
+| head -n 1)
     
     if [ -n "$TEST_IP" ]; then
         echo "使用指定源 IP: $TEST_IP 发起请求..."
