@@ -330,7 +330,7 @@ R1="${HEX:0:4}"
 R2="${HEX:4:4}"
 R3="${HEX:8:4}"
 R4="${HEX:12:4}"
-
+R5="${HEX:16:4}"
 
 IFS=':' read -ra PARTS <<< "$PREFIX"
 
@@ -339,7 +339,7 @@ if [ "${#PARTS[@]}" -eq 3 ]; then
 
     # /48
 
-    NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${R1}:${R2}:${R3}:${R4}"
+    NEW_IPV6="${PARTS[0]}:${PARTS[1]}:${PARTS[2]}:${R1}:${R2}:${R3}:${R4}:${R5}"
 
 
 elif [ "${#PARTS[@]}" -eq 4 ]; then
