@@ -4984,6 +4984,7 @@ EOF
       "tag": "hysteria2",
       "listen": "::",
       "listen_port": $custom_port,
+	  "bbr_profile": "standard",
       "users": [
         {
           "password": "$uuid"
