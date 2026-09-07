@@ -946,7 +946,7 @@ while true; do
 		    bash <(curl -fsSL https://raw.githubusercontent.com/zhanghanyun/backtrace/main/install.sh)
 		    ;;
 		11) 
-		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/he-manager.sh))
+		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/he-manager.sh)
 		    ;;
         0)
             echo "退出脚本"
