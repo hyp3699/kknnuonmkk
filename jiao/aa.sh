@@ -824,6 +824,8 @@ while true; do
    green "7. FileBrowser网盘"
    green "8. 切换优先ipv4/ipv6"
    green "9. fanout"
+   green "10. 三网回程测试"
+   green "11. HE隧道"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -939,6 +941,12 @@ while true; do
 		    echo ""
 		    echo "----------------------------------------"
 		    read -p "安装已完成，快捷命令f已创建, 按回车键返回主菜单..."
+		    ;;
+		10) 
+		    bash <(curl -fsSL https://raw.githubusercontent.com/zhanghanyun/backtrace/main/install.sh)
+		    ;;
+		11) 
+		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/he-manager.sh))
 		    ;;
         0)
             echo "退出脚本"
