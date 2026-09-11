@@ -5976,6 +5976,7 @@ EOF
     fi
     generate_vars
     server_ip=$(get_realip)
+	
     echo ""
     vless_xhttp_cdn_port=$(get_available_port)
     allow_port $vless_xhttp_cdn_port/tcp > /dev/null 2>&1
@@ -6585,7 +6586,7 @@ EOF
     delete_node "_xray_vless_xhttp_reality" "/etc/xray/conf/xhttp-reality.json" "xray"
     ;;
 64)
-    delete_node "_vless_xhttp_cdn_notls" "/etc/xray/conf/xhttp-cnd.json" "xray"
+    delete_node "_vless_xhttp_cdn_notls" "/etc/xray/conf/xhttp-cdn.json" "xray"
     ;;
 66)
     delete_node "_xray_vless_xhttp_h3" "/etc/xray/conf/xhttp-udp-tls.json" "xray"
