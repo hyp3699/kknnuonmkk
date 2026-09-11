@@ -6057,7 +6057,7 @@ EOF
         .[] | select(
             (.description | startswith($pfx) | not)
         )
-	]')
+    ]')
     new_managed=$(jq -n \
     --arg d "$domain" \
     --arg pfx "$pfx" \
