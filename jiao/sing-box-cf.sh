@@ -5987,24 +5987,9 @@ EOF
     fi
     generate_vars
     server_ip=$(get_realip)
-	while true; do
-    read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${vless_xhttp_cdn_port}): " custom_port   
-    if [ -z "$custom_port" ]; then
-        custom_port=$vless_xhttp_cdn_port
-    fi   
-    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
-        if ss -tuln | grep -qE ":$custom_port\b"; then
-            red "该端口 ($custom_port) 已被占用，请重新输入！"
-            continue
-        fi
-        break
-    else
-        red "输入错误！请输入有效的端口号 (100-65535)。"
-    fi
-    done
-	
     echo ""
-    allow_port $custom_port/tcp > /dev/null 2>&1
+    vless_xhttp_cdn_port=$(get_available_port)
+    allow_port $vless_xhttp_cdn_port/tcp > /dev/null 2>&1
     node_remark="${isp}_vless_xhttp_cdn_notls"
     echo ""
     skyblue "请选择 Cloudflare 验证方式："
@@ -6049,19 +6034,18 @@ EOF
                 yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
             fi
             cf_set_ssl "$selected_zone_id" "flexible"
-            if ! is_cf_supported_port "$custom_port"; then
-    existing=$(cf_get_origin_rules "$selected_zone_id")
-    pfx="${MANAGED_PREFIX:-Auto_Script:}"
-    kept=$(echo "$existing" | jq --arg pfx "$pfx" '
-    [
-        .[] | select(
-            (.description | startswith($pfx) | not)
-        )
-    ]')
-    new_managed=$(jq -n \
+            existing=$(cf_get_origin_rules "$selected_zone_id")
+            pfx="${MANAGED_PREFIX:-Auto_Script:}"
+            kept=$(echo "$existing" | jq --arg pfx "$pfx" '
+            [
+                .[] | select(
+                    (.description | startswith($pfx) | not)
+                )
+            ]')
+            new_managed=$(jq -n \
     --arg d "$domain" \
     --arg pfx "$pfx" \
-    --argjson port "$custom_port" \
+    --argjson port "$vless_xhttp_cdn_port" \
     '[
         {
             description: ($pfx + "VLESS_XHTTP_" + $d),
@@ -6075,25 +6059,23 @@ EOF
             }
         }
     ]')
-    merged=$(jq -n \
-    --argjson a "$kept" \
-    --argjson b "$new_managed" \
-    '$a + $b')
-    if cf_put_origin_rules "$selected_zone_id" "$merged"; then
-        green "✓ 回源规则创建成功！"
-    else
-        yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
-     fi
-   fi
-  fi
-fi
+            merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
+            if cf_put_origin_rules "$selected_zone_id" "$merged"; then
+                green "✓ 回源规则创建成功！"
+            else
+                yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
+            fi
+        else
+            yellow "⚠ 未获取到 Cloudflare Zone ID。"
+        fi
+    fi
     mkdir -p /etc/xray/conf
     cat > /etc/xray/conf/xhttp-cdn.json << EOF
 {
   "inbounds": [
     {
 	  "listen": "::",
-      "port": $custom_port,
+      "port": $vless_xhttp_cdn_port,
       "protocol": "vless",
 	  "tag": "vless-xhttp-cdn",
       "settings": {
