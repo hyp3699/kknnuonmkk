@@ -6049,18 +6049,19 @@ EOF
                 yellow "⚠ DNS 解析更新失败，请检查 API 权限。"
             fi
             cf_set_ssl "$selected_zone_id" "flexible"
-            existing=$(cf_get_origin_rules "$selected_zone_id")
-            pfx="${MANAGED_PREFIX:-Auto_Script:}"
-            kept=$(echo "$existing" | jq --arg pfx "$pfx" '
-            [
-                .[] | select(
-                    (.description | startswith($pfx) | not)
-                )
-            ]')
-            new_managed=$(jq -n \
+            if ! is_cf_supported_port "$custom_port"; then
+    existing=$(cf_get_origin_rules "$selected_zone_id")
+    pfx="${MANAGED_PREFIX:-Auto_Script:}"
+    kept=$(echo "$existing" | jq --arg pfx "$pfx" '
+    [
+        .[] | select(
+            (.description | startswith($pfx) | not)
+        )
+	]')
+    new_managed=$(jq -n \
     --arg d "$domain" \
     --arg pfx "$pfx" \
-    --argjson port "$vless_xhttp_cdn_port" \
+    --argjson port "$custom_port" \
     '[
         {
             description: ($pfx + "VLESS_XHTTP_" + $d),
@@ -6074,16 +6075,16 @@ EOF
             }
         }
     ]')
-            merged=$(jq -n --argjson a "$kept" --argjson b "$new_managed" '$a + $b')
-            if cf_put_origin_rules "$selected_zone_id" "$merged"; then
-                green "✓ 回源规则创建成功！"
-            else
-                yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
-            fi
-        else
-            yellow "⚠ 未获取到 Cloudflare Zone ID。"
-        fi
+    merged=$(jq -n \
+    --argjson a "$kept" \
+    --argjson b "$new_managed" \
+    '$a + $b')
+    if cf_put_origin_rules "$selected_zone_id" "$merged"; then
+        green "✓ 回源规则创建成功！"
+    else
+        yellow "⚠ 回源规则自动下发失败，请检查 API 权限。"
     fi
+fi
     mkdir -p /etc/xray/conf
     cat > /etc/xray/conf/xhttp-cdn.json << EOF
 {
