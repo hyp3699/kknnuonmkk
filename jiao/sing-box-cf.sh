@@ -6127,6 +6127,21 @@ EOF
         return 1
     fi
     fi
+	while true; do
+    read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${vless_xhttp_cdn_tls_port}): " custom_port   
+    if [ -z "$custom_port" ]; then
+        custom_port=$vless_xhttp_cdn_tls_port
+    fi   
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
+        if ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口 ($custom_port) 已被占用，请重新输入！"
+            continue
+        fi
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+    done
     check_and_issue_ssl || return 1
     generate_vars
     server_ip=$(get_realip)
@@ -6137,7 +6152,7 @@ EOF
     {
       "tag": "vless-xhttp-cdn-tls",
       "listen": "::",
-      "port": $vless_xhttp_cdn_tls_port,
+      "port": $custom_port,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -6171,7 +6186,7 @@ EOF
 
     allow_port "$vless_xhttp_cdn_tls_port/tcp" >/dev/null 2>&1
     node_remark_direct="${isp}_xray_vless_xhttp_tls"
-    xhttp_direct="vless://${uuid}@${server_ip}:${vless_xhttp_cdn_tls_port}?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
+    xhttp_direct="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
 	if [ -f "${work_dir}/url.txt" ]; then
     sed -i "/#${node_remark_direct}$/{N;d;}" "${work_dir}/url.txt"
     fi
