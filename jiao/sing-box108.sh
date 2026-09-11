@@ -4979,7 +4979,7 @@ manage_nodes_menu() {
         reading "请选择操作: " choice
 		case "${choice}" in
     1|2|3|4|5|6|7|8|9|12|17|19|20)
-    if [[ "$choice" == "12" ]]; then
+    if [[ "$choice" == "13" ]]; then
         check_xray
         xray_status=$?
         if [ $xray_status -eq 2 ]; then
@@ -5583,7 +5583,7 @@ sed -i "/#${node_remark}$/d" /etc/sing-box/url.txt 2>/dev/null
 echo "$url" >> /etc/sing-box/url.txt
 echo "" >> /etc/sing-box/url.txt
 base64 -w0 /etc/sing-box/url.txt > /etc/sing-box/sub.txt 2>/dev/null
-if [[ "$choice" == "12" ]]; then
+if [[ "$choice" == "13" ]]; then
     restart_xray
 else
     restart_singbox
