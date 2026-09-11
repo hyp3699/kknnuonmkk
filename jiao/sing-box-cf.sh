@@ -100,7 +100,18 @@ check_and_install_nftables() {
         sleep 1
     fi
 }
-
+is_cf_supported_port() {
+    local port="$1"
+    case "$port" in
+        80|8080|8880|2052|2082|2086|2095|\
+        443|2053|2083|2087|2096|8443)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
 
 # 定义常量
 server_name="sing-box"
@@ -5976,10 +5987,24 @@ EOF
     fi
     generate_vars
     server_ip=$(get_realip)
+	while true; do
+    read -rp "请输入 ${node_name} 端口 (100-65535, 默认 ${vless_xhttp_cdn_port}): " custom_port   
+    if [ -z "$custom_port" ]; then
+        custom_port=$vless_xhttp_cdn_port
+    fi   
+    if [[ "$custom_port" =~ ^[0-9]+$ ]] && [ "$custom_port" -ge 100 ] && [ "$custom_port" -le 65535 ]; then
+        if ss -tuln | grep -qE ":$custom_port\b"; then
+            red "该端口 ($custom_port) 已被占用，请重新输入！"
+            continue
+        fi
+        break
+    else
+        red "输入错误！请输入有效的端口号 (100-65535)。"
+    fi
+    done
 	
     echo ""
-    vless_xhttp_cdn_port=$(get_available_port)
-    allow_port $vless_xhttp_cdn_port/tcp > /dev/null 2>&1
+    allow_port $custom_port/tcp > /dev/null 2>&1
     node_remark="${isp}_vless_xhttp_cdn_notls"
     echo ""
     skyblue "请选择 Cloudflare 验证方式："
@@ -6065,7 +6090,7 @@ EOF
   "inbounds": [
     {
 	  "listen": "::",
-      "port": $vless_xhttp_cdn_port,
+      "port": $custom_port,
       "protocol": "vless",
 	  "tag": "vless-xhttp-cdn",
       "settings": {
@@ -6184,7 +6209,7 @@ EOF
 }
 EOF
 
-    allow_port "$vless_xhttp_cdn_tls_port/tcp" >/dev/null 2>&1
+    allow_port "$custom_port/tcp" >/dev/null 2>&1
     node_remark_direct="${isp}_xray_vless_xhttp_tls"
     xhttp_direct="vless://${uuid}@${server_ip}:${custom_port}?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_direct}"    
 	if [ -f "${work_dir}/url.txt" ]; then
@@ -6235,14 +6260,16 @@ EOF
                 else
                     yellow "警告：Cloudflare SSL 模式设置失败"
                 fi
-                if set_domain_origin_port \
-                    "$zone_id" \
-                    "$domain" \
-                    "$vless_xhttp_cdn_tls_port"; then
-                    green "Cloudflare CDN 回源规则配置成功"
-                    green "回源端口：$vless_xhttp_cdn_tls_port"
-                else
-                    yellow "警告：Cloudflare CDN 回源规则配置失败"
+                if ! is_cf_supported_port "$custom_port"; then
+                  if set_domain_origin_port \
+                     "$zone_id" \
+                     "$domain" \
+                     "$custom_port"; then
+                     green "Cloudflare CDN 回源规则配置成功"
+                     green "回源端口：$custom_port"
+                   else
+                   yellow "警告：Cloudflare CDN 回源规则配置失败"
+                  fi
                 fi
                 node_remark_cdn="${isp}_xray_vless_xhttp_cdn_tls"
                 XHTTP_CDN_URL="vless://${uuid}@${CFIP}:443?encryption=none&host=${domain}&security=tls&sni=${domain:-$server_ip}&type=xhttp&mode=auto&path=/sspaasksavxssaszass#${node_remark_cdn}"    
