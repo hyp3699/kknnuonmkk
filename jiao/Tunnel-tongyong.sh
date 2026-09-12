@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# Tunnel64
+# Tunnel64 多出口策略路由网关系统 (生产加固版)
 # ==========================================
 
 CONFIG_DIR="/etc/tunnel64"
@@ -16,7 +16,7 @@ mkdir -p "$CONFIG_DIR"
 # ================= 工具与环境 =================
 
 install_dep() {
-    local cmds=("curl" "ip" "awk" "sed" "tr" "wg" "ping" "flock")
+    local cmds=("curl" "ip" "awk" "sed" "tr" "wg" "ping" "flock" "modprobe")
     local missing=0
     for cmd in "${cmds[@]}"; do
         if ! command -v "$cmd" >/dev/null 2>&1; then missing=1; break; fi
@@ -25,15 +25,18 @@ install_dep() {
     if [ "$missing" -eq 1 ]; then
         echo "[INFO] 检测到缺少必要依赖，正在自动安装..."
         if command -v apt-get >/dev/null 2>&1; then
-            apt-get update -y && apt-get install -y curl iproute2 gawk wireguard-tools iputils-ping util-linux
+            apt-get update -y && apt-get install -y curl iproute2 gawk wireguard-tools iputils-ping util-linux kmod
         elif command -v yum >/dev/null 2>&1; then
-            yum install -y curl iproute gawk wireguard-tools iputils util-linux
+            yum install -y curl iproute gawk wireguard-tools iputils util-linux kmod
         elif command -v dnf >/dev/null 2>&1; then
-            dnf install -y curl iproute gawk wireguard-tools iputils util-linux
+            dnf install -y curl iproute gawk wireguard-tools iputils util-linux kmod
         elif command -v apk >/dev/null 2>&1; then
-            apk add curl iproute2 gawk wireguard-tools iputils util-linux
+            apk add curl iproute2 gawk wireguard-tools iputils util-linux kmod
         fi
     fi
+    
+    # 确保 wireguard 模块已加载
+    modprobe wireguard >/dev/null 2>&1 || true
 }
 
 # 自动开启并持久化内核转发
@@ -81,7 +84,6 @@ load_tunnel_conf() {
     RULE_PREF_V4=$(awk -F'"' '/^RULE_PREF_V4=/{print $2}' "$conf")
     MTU=$(awk -F'"' '/^MTU=/{print $2}' "$conf")
     
-    # 向后兼容
     [ -z "$RULE_PREF_PREFIX" ] && RULE_PREF_PREFIX="$RULE_PREF"
 }
 
@@ -141,6 +143,7 @@ cleanup_tunnel_runtime() {
 
 setup_tunnel_runtime() {
     enable_forwarding
+    modprobe wireguard >/dev/null 2>&1 || true
     
     ip link del "$IFACE" 2>/dev/null || true
     ip tunnel del "$IFACE" 2>/dev/null || true
@@ -148,7 +151,8 @@ setup_tunnel_runtime() {
     if [ "$TYPE" = "wg" ]; then
         ip link add dev "$IFACE" type wireguard || return 1
         wg setconf "$IFACE" "$CONFIG_DIR/$IFACE.wg" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
-        ip link set mtu "${MTU:-1420}" up dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
+        ip link set mtu "${MTU:-1420}" dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
+        ip link set up dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
 
         if [ -n "$WG_IPV6" ]; then
             ip -6 addr replace "$WG_IPV6" dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
@@ -174,7 +178,9 @@ setup_tunnel_runtime() {
             ip -4 route replace "$WG_IPV4" dev "$IFACE" table "$TABLE" 2>/dev/null || true
             
             ip -4 route replace default dev "$IFACE" table "$TABLE"
-            while ip -4 rule del pref "$RULE_PREF_V4" 2>/dev/null; do :; done
+            if [ -n "$RULE_PREF_V4" ]; then
+                while ip -4 rule del pref "$RULE_PREF_V4" 2>/dev/null; do :; done
+            fi
             local tun_ip4="${WG_IPV4%%/*}"
             ip -4 rule add pref "$RULE_PREF_V4" from "$tun_ip4" lookup "$TABLE" || return 1
         fi
@@ -207,8 +213,14 @@ setup_tunnel_runtime() {
 update_systemd_restore() {
     cat > "$T64_RESTORE_BIN" << 'EOF'
 #!/bin/bash
+
 CONFIG_DIR="/etc/tunnel64"
 [ -d "$CONFIG_DIR" ] || exit 0
+
+# 确保加载 wireguard 模块
+modprobe wireguard >/dev/null 2>&1 || true
+
+# 1. 优先恢复内核转发
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
 sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
 sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null 2>&1
@@ -218,6 +230,7 @@ load_conf() {
     IFACE=$(awk -F'"' '/^IFACE=/{print $2}' "$1")
     LOCAL_V4=$(awk -F'"' '/^LOCAL_V4=/{print $2}' "$1")
     REMOTE_V4=$(awk -F'"' '/^REMOTE_V4=/{print $2}' "$1")
+    SERVER_IPV6=$(awk -F'"' '/^SERVER_IPV6=/{print $2}' "$1")
     TUNNEL_IPV6=$(awk -F'"' '/^TUNNEL_IPV6=/{print $2}' "$1")
     WG_IPV4=$(awk -F'"' '/^WG_IPV4=/{print $2}' "$1")
     WG_IPV6=$(awk -F'"' '/^WG_IPV6=/{print $2}' "$1")
@@ -232,42 +245,65 @@ load_conf() {
 
 for conf in "$CONFIG_DIR"/*.conf; do
     [ -f "$conf" ] || continue
-    TYPE="sit"
+
     load_conf "$conf"
+    # 老版本配置兼容
+    [ -z "$TYPE" ] && TYPE="sit"
+
     [ -n "$IFACE" ] || continue
+
+    # 在重建前先完整清理旧策略规则防止残存冲突
+    while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
+    [ -n "$RULE_PREF_PREFIX" ] && while ip -6 rule del pref "$RULE_PREF_PREFIX" 2>/dev/null; do :; done
+    [ -n "$RULE_PREF_V4" ] && while ip -4 rule del pref "$RULE_PREF_V4" 2>/dev/null; do :; done
 
     if [ "$TYPE" = "wg" ]; then
         [ -r "$CONFIG_DIR/$IFACE.wg" ] || continue
+
+        # 安全清理旧接口
+        ip link set "$IFACE" down 2>/dev/null || true
         ip link del "$IFACE" 2>/dev/null || true
+
+        # 创建 WG 接口
         ip link add dev "$IFACE" type wireguard 2>/dev/null || continue
-        wg setconf "$IFACE" "$CONFIG_DIR/$IFACE.wg" 2>/dev/null || continue
-        ip link set mtu "${MTU:-1420}" up dev "$IFACE"
+
+        # 加载配置与错误防范
+        wg setconf "$IFACE" "$CONFIG_DIR/$IFACE.wg" 2>/dev/null || {
+            ip link del "$IFACE" 2>/dev/null
+            continue
+        }
+
+        # 设置 MTU 与 UP (分开执行更稳定)
+        ip link set mtu "${MTU:-1420}" dev "$IFACE"
+        ip link set up dev "$IFACE"
+
         if [ -n "$WG_IPV6" ]; then
             ip -6 addr replace "$WG_IPV6" dev "$IFACE"
             ip -6 route replace "$WG_IPV6" dev "$IFACE" 2>/dev/null
             ip -6 route replace "$WG_IPV6" dev "$IFACE" table "$TABLE" 2>/dev/null
             ip -6 route replace default dev "$IFACE" table "$TABLE"
             
-            while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
             ip -6 rule add pref "$RULE_PREF" from "${WG_IPV6%%/*}" lookup "$TABLE" 2>/dev/null || true
             
             if [ -n "$ROUTED_PREFIX" ]; then
                 ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" 2>/dev/null
                 ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" table "$TABLE" 2>/dev/null
-                while ip -6 rule del pref "$RULE_PREF_PREFIX" 2>/dev/null; do :; done
                 ip -6 rule add pref "$RULE_PREF_PREFIX" from "$ROUTED_PREFIX" lookup "$TABLE" 2>/dev/null || true
             fi
         fi
+
         if [ -n "$WG_IPV4" ]; then
             ip -4 addr replace "$WG_IPV4" dev "$IFACE"
             ip -4 route replace "$WG_IPV4" dev "$IFACE" 2>/dev/null
             ip -4 route replace "$WG_IPV4" dev "$IFACE" table "$TABLE" 2>/dev/null
             ip -4 route replace default dev "$IFACE" table "$TABLE"
             
-            while ip -4 rule del pref "$RULE_PREF_V4" 2>/dev/null; do :; done
-            ip -4 rule add pref "$RULE_PREF_V4" from "${WG_IPV4%%/*}" lookup "$TABLE" 2>/dev/null || true
+            if [ -n "$RULE_PREF_V4" ]; then
+                ip -4 rule add pref "$RULE_PREF_V4" from "${WG_IPV4%%/*}" lookup "$TABLE" 2>/dev/null || true
+            fi
         fi
     else
+        ip link set "$IFACE" down 2>/dev/null || true
         ip tunnel del "$IFACE" 2>/dev/null || true
         ip tunnel add "$IFACE" mode sit remote "$REMOTE_V4" local "$LOCAL_V4" ttl 255 2>/dev/null || continue
         ip link set "$IFACE" up mtu "${MTU:-1400}"
@@ -276,13 +312,11 @@ for conf in "$CONFIG_DIR"/*.conf; do
         ip -6 route replace "$TUNNEL_IPV6" dev "$IFACE" table "$TABLE" 2>/dev/null
         ip -6 route replace default dev "$IFACE" table "$TABLE"
         
-        while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
         ip -6 rule add pref "$RULE_PREF" from "${TUNNEL_IPV6%%/*}" lookup "$TABLE" 2>/dev/null || true
         
         if [ -n "$ROUTED_PREFIX" ]; then
             ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" 2>/dev/null
             ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" table "$TABLE" 2>/dev/null
-            while ip -6 rule del pref "$RULE_PREF_PREFIX" 2>/dev/null; do :; done
             ip -6 rule add pref "$RULE_PREF_PREFIX" from "$ROUTED_PREFIX" lookup "$TABLE" 2>/dev/null || true
         fi
     fi
@@ -305,10 +339,14 @@ EOF
 Description=Tunnel64 Multi-Tunnel Restore
 After=network-online.target
 Wants=network-online.target
+
 [Service]
 Type=oneshot
 ExecStart=$T64_RESTORE_BIN
 RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -448,6 +486,7 @@ add_wg_tunnel() {
     flock -u 9
 
     local TYPE="wg" MTU="${WG_MTU:-1420}"
+    # 禁止 wg-quick 默认行为，此处直接明确指定安全 AllowedIPs 隔离多 WG 冲突
     [ -z "$WG_ALLOWEDIPS" ] && WG_ALLOWEDIPS="::/0,0.0.0.0/0"
     WG_ALLOWEDIPS=$(echo "$WG_ALLOWEDIPS" | tr -d ' ')
 
@@ -487,7 +526,7 @@ EOF
     chmod 600 "$CONFIG_DIR/$IFACE.conf"
 
     update_systemd_restore
-    echo "✓ WG隧道 $IFACE 添加成功并生效！"
+    echo "✓ WG 隧道 $IFACE 添加成功并生效！"
 }
 
 delete_tunnel() {
