@@ -209,6 +209,9 @@ update_systemd_restore() {
 #!/bin/bash
 CONFIG_DIR="/etc/tunnel64"
 [ -d "$CONFIG_DIR" ] || exit 0
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null 2>&1
 
 load_conf() {
     TYPE=$(awk -F'"' '/^TYPE=/{print $2}' "$1")
