@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================
-# Tunnel64 
+# Tunnel64
 # ==========================================
 
 CONFIG_DIR="/etc/tunnel64"
@@ -224,7 +224,6 @@ load_conf() {
     RULE_PREF_PREFIX=$(awk -F'"' '/^RULE_PREF_PREFIX=/{print $2}' "$1")
     RULE_PREF_V4=$(awk -F'"' '/^RULE_PREF_V4=/{print $2}' "$1")
     MTU=$(awk -F'"' '/^MTU=/{print $2}' "$1")
-    
     [ -z "$RULE_PREF_PREFIX" ] && RULE_PREF_PREFIX="$RULE_PREF"
 }
 
@@ -235,7 +234,7 @@ for conf in "$CONFIG_DIR"/*.conf; do
     [ -n "$IFACE" ] || continue
 
     if [ "$TYPE" = "wg" ]; then
-        [ -r "$CONFIG_DIR/$IFACE.wg" ] || { echo "Missing $IFACE.wg, skip."; continue; }
+        [ -r "$CONFIG_DIR/$IFACE.wg" ] || continue
         ip link del "$IFACE" 2>/dev/null || true
         ip link add dev "$IFACE" type wireguard 2>/dev/null || continue
         wg setconf "$IFACE" "$CONFIG_DIR/$IFACE.wg" 2>/dev/null || continue
@@ -329,21 +328,24 @@ remove_systemd_restore_if_empty() {
 # ================= 业务功能 =================
 
 add_sit_tunnel() {
+    echo "========== 添加 SIT 隧道 =========="
     read -p "请输入隧道名称 (直接回车随机): " IFACE
     [ -z "$IFACE" ] && IFACE="sit$(tr -dc 'a-z0-9' < /dev/urandom | head -c 4)"
     
     if ! is_valid_iface "$IFACE"; then echo "[错误] 接口名不合法"; return 1; fi
     if [ -f "$CONFIG_DIR/$IFACE.conf" ]; then echo "[错误] 接口已存在"; return 1; fi
 
+    echo
     read -p "请输入服务端 IPv4 地址: " REMOTE_V4
     local default_local_v4=$(ip -4 route get 8.8.8.8 2>/dev/null | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -n1)
     [ -z "$default_local_v4" ] && default_local_v4=$(curl -4 -s ifconfig.me 2>/dev/null)
     read -p "请输入客户端 IPv4 地址 (本机) [$default_local_v4]: " LOCAL_V4
     [ -z "$LOCAL_V4" ] && LOCAL_V4="$default_local_v4"
 
+    echo
     read -p "请输入服务端 IPv6 地址: " SERVER_IPV6
     read -p "请输入客户端 IPv6 地址: " TUNNEL_IPV6
-    read -p "请输入 IPv6 路由前缀 (可选): " ROUTED_PREFIX
+    read -p "请输入 IPv6 路由前缀 (可选，如 2001:470:abcd::/48 或 /64): " ROUTED_PREFIX
 
     IFACE=$(sanitize "$IFACE"); LOCAL_V4=$(sanitize "$LOCAL_V4"); REMOTE_V4=$(sanitize "$REMOTE_V4")
     SERVER_IPV6=$(sanitize "$SERVER_IPV6"); TUNNEL_IPV6=$(sanitize "$TUNNEL_IPV6"); ROUTED_PREFIX=$(sanitize "$ROUTED_PREFIX")
@@ -379,9 +381,18 @@ EOF
 
     update_systemd_restore
     echo "✓ 隧道 $IFACE 添加成功并生效！"
+
+    local server_gw="${SERVER_IPV6%%/*}"
+    if [ -n "$server_gw" ]; then
+        echo "=========================================="
+        echo "正在测试与上游网关 ($server_gw) 的连通性 (Ping 5次)..."
+        ping -6 -c 5 "$server_gw"
+        echo "=========================================="
+    fi
 }
 
 add_wg_tunnel() {
+    echo "========== 添加 WireGuard 隧道 =========="
     read -p "请输入隧道名称 (直接回车随机): " IFACE
     [ -z "$IFACE" ] && IFACE="wg$(tr -dc 'a-z0-9' < /dev/urandom | head -c 4)"
     
@@ -393,7 +404,7 @@ add_wg_tunnel() {
     local tmp_conf=$(mktemp)
     trap 'rm -f "$tmp_conf"' EXIT INT TERM
 
-    local wg_raw="" empty_count=0
+    local empty_count=0
     while IFS= read -r line; do
         if [ -z "$line" ]; then
             empty_count=$((empty_count + 1))
@@ -423,6 +434,7 @@ add_wg_tunnel() {
         return 1
     fi
 
+    echo
     read -p "请输入该隧道附带的 IPv6 路由前缀 (可选): " ROUTED_PREFIX
     ROUTED_PREFIX=$(sanitize "$ROUTED_PREFIX")
 
@@ -508,67 +520,248 @@ delete_tunnel() {
 }
 
 add_ipv6() {
-    load_tunnel_conf "$1"
-    [ -z "$ROUTED_PREFIX" ] && echo "无路由前缀，无法生成附加 IP" && sleep 1 && return
-    local NEW_IPV6=$(generate_ipv6 "$ROUTED_PREFIX")
-    ip -6 addr add "$NEW_IPV6/128" dev lo || { echo "绑定失败"; sleep 1; return; }
-    echo "$NEW_IPV6" >> "$2"
-    echo "✓ 生成附加 IP: $NEW_IPV6"
+    local config_file="$1"
+    local list_file="$2"
+    load_tunnel_conf "$config_file"
+
+    if [ -z "$ROUTED_PREFIX" ]; then
+        echo "错误: 该隧道未配置路由前缀，无法生成附加 IPv6。"
+        read -p "按回车键继续..." && return
+    fi
+
+    if ! ip link show "$IFACE" >/dev/null 2>&1; then
+        echo "错误: 接口不存在"
+        read -p "按回车键继续..." && return
+    fi
+
+    local RETRY=0 MAX_RETRY=10 NEW_IPV6=""
+    while [ "$RETRY" -lt "$MAX_RETRY" ]; do
+        NEW_IPV6=$(generate_ipv6 "$ROUTED_PREFIX")
+        if grep -qsxF "$NEW_IPV6" "$list_file" 2>/dev/null || \
+           ip -6 addr show dev lo | grep -qsF "$NEW_IPV6" || \
+           ip -6 addr show dev "$IFACE" | grep -qsF "$NEW_IPV6"; then
+            RETRY=$((RETRY + 1))
+        else
+            break
+        fi
+    done
+
+    if [ "$RETRY" -ge "$MAX_RETRY" ]; then
+        echo "错误: 未能生成唯一 IPv6" && read -p "按回车键继续..." && return
+    fi
+
+    if ! ip -6 addr add "$NEW_IPV6/128" dev lo 2>/dev/null; then
+        echo "错误: IPv6 绑定到 lo 失败" && read -p "按回车键继续..." && return
+    fi
+
+    mkdir -p "$(dirname "$list_file")"
+    echo "$NEW_IPV6" >> "$list_file"
+    echo "✓ 附加 IPv6 添加成功: $NEW_IPV6"
+
+    if ip -6 route get 2606:4700:4700::1111 from "$NEW_IPV6" 2>/dev/null | grep -qs "$IFACE"; then
+        echo "✓ 路由校验通过: 成功匹配策略路由表 $TABLE"
+    else
+        echo "⚠️ 警告: 策略路由匹配异常，该 IP 流量可能未走隧道"
+    fi
     read -p "按回车键继续..."
 }
 
-tunnel_submenu() {
-    while true; do
-        [ -f "$1" ] || return
-        load_tunnel_conf "$1"
-        clear
-        echo "=== 隧道: $IFACE [${TYPE^^}] ==="
-        echo "1. 添加随机附加 IPv6"
-        echo "2. 删除隧道"
-        echo "0. 返回"
-        read -p "选择: " sel
-        case "$sel" in
-            1) add_ipv6 "$1" "$CONFIG_DIR/$IFACE-ips.list" ;;
-            2) delete_tunnel "$1" "$CONFIG_DIR/$IFACE-ips.list"; return ;;
-            0) return ;;
-        esac
-    done
+delete_ipv6() {
+    local config_file="$1"
+    local list_file="$2"
+    load_tunnel_conf "$config_file"
+
+    if [ ! -f "$list_file" ] || [ ! -s "$list_file" ]; then
+        echo "没有可删除的附加 IPv6" && read -p "按回车键继续..." && return
+    fi
+
+    echo "========== 附加 IPv6 列表 ($IFACE) =========="
+    awk '{print NR". "$0}' "$list_file"
+    echo "============================================="
+    read -p "输入要删除的编号: " NUM
+    if ! [[ "$NUM" =~ ^[1-9][0-9]*$ ]]; then
+        echo "错误: 输入无效" && read -p "按回车键继续..." && return
+    fi
+
+    local DEL_IP=$(sed -n "${NUM}p" "$list_file")
+    if [ -z "$DEL_IP" ]; then
+        echo "错误: 编号不存在" && read -p "按回车键继续..." && return
+    fi
+
+    ip -6 addr del "$DEL_IP/128" dev lo 2>/dev/null || true
+    sed -i "${NUM}d" "$list_file"
+    echo "✓ IPv6 已删除: $DEL_IP"
+    read -p "按回车键继续..."
+}
+
+status_tunnel() {
+    local config_file="$1"
+    local list_file="$2"
+    load_tunnel_conf "$config_file"
+
+    clear
+    echo "========== 隧道状态: $IFACE =========="
+    echo "类型          : ${TYPE^^}"
+    ip link show "$IFACE" >/dev/null 2>&1 || echo "⚠️ 隧道设备未启动"
+    if [ "$TYPE" = "wg" ]; then
+        [ -n "$WG_IPV4" ] && echo "Client IPv4   : $WG_IPV4"
+        [ -n "$WG_IPV6" ] && echo "Client IPv6   : $WG_IPV6"
+        echo "Endpoint      : ${WG_ENDPOINT:-未配置}"
+    else
+        echo "Client IPv6   : $(ip -6 addr show dev "$IFACE" 2>/dev/null | grep 'scope global' | awk '{print $2}' || echo '无')"
+        echo "Server IPv6   : ${SERVER_IPV6:-未配置}"
+    fi
+    echo "Routed Prefix : ${ROUTED_PREFIX:-未配置}"
+    echo "策略路由表 $TABLE : $(ip -6 route show table "$TABLE" 2>/dev/null | tr '\n' ' ; ' || echo '无')"
+    
+    echo
+    echo "========== lo 附加 IPv6 =========="
+    if [ -f "$list_file" ] && [ -s "$list_file" ]; then
+        while IFS= read -r ip; do
+            [ -z "$ip" ] && continue
+            ip -6 addr show dev lo | grep -qsF "$ip" && echo "✓ $ip" || echo "✗ $ip (未绑定)"
+        done < "$list_file"
+    else
+        echo "无附加记录"
+    fi
+    echo
+    read -p "按回车键返回..."
+}
+
+test_ipv6() {
+    local list_file="$1"
+    if [ ! -f "$list_file" ] || [ ! -s "$list_file" ]; then
+        echo "未找到附加 IPv6 列表" && read -p "按回车键继续..." && return
+    fi
+
+    echo "========== IPv6 出口测试 =========="
+    local total=0 success=0 failed=0
+    while IFS= read -r TEST_IP; do
+        [ -z "$TEST_IP" ] && continue
+        total=$((total + 1))
+        local RESULT=$(curl -6 --interface "$TEST_IP" --connect-timeout 5 --max-time 8 -sS https://ip.sb 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$RESULT" ]; then
+            success=$((success + 1))
+            echo "✓ [$TEST_IP] 成功 -> 出口: $RESULT"
+        else
+            failed=$((failed + 1))
+            echo "✗ [$TEST_IP] 失败"
+        fi
+    done < "$list_file"
+
+    echo "测试完成: 总计 $total | 成功 $success | 失败 $failed"
+    read -p "按回车键继续..."
+}
+
+test_route() {
+    local config_file="$1"
+    load_tunnel_conf "$config_file"
+    
+    read -p "请输入测试用的源 IP 地址 (IPv4 或 IPv6): " TEST_IP
+    [ -z "$TEST_IP" ] && return
+    
+    if [[ "$TEST_IP" =~ : ]]; then
+        echo "========== route get (检查 IPv6 策略) =========="
+        ip -6 route get 2606:4700:4700::1111 from "$TEST_IP"
+        ping -6 -I "$TEST_IP" -c 3 -W 3 2606:4700:4700::1111
+    else
+        echo "========== route get (检查 IPv4 策略) =========="
+        ip -4 route get 1.1.1.1 from "$TEST_IP"
+        ping -4 -I "$TEST_IP" -c 3 -W 3 1.1.1.1
+    fi
+    
+    read -p "按回车键继续..."
 }
 
 get_tunnel_file_by_index() {
-    local idx=$1 i=1
+    local target_idx=$1
+    local i=1
     for f in "$CONFIG_DIR"/*.conf; do
         [ -f "$f" ] || continue
-        [ "$i" -eq "$idx" ] && echo "$f" && return 0
+        if [ "$i" -eq "$target_idx" ]; then
+            echo "$f" && return 0
+        fi
         i=$((i + 1))
     done
     return 1
 }
 
+tunnel_submenu() {
+    local config_file="$1"
+    while true; do
+        [ -f "$config_file" ] || return
+        load_tunnel_conf "$config_file"
+        local list_file="$CONFIG_DIR/$IFACE-ips.list"
+
+        clear
+        echo "========== 隧道管理: $IFACE [${TYPE^^}] (表: $TABLE) =========="
+        echo "1. 随机添加附加 IPv6 地址"
+        echo "2. 删除指定附加 IPv6 地址"
+        echo "3. 查看当前隧道与 IP 状态"
+        echo "4. 批量测试所有附加 IPv6 的出口"
+        echo "5. 测试单 IP 路由与外网连通性"
+        echo "6. 删除该隧道"
+        echo "0. 返回上级菜单"
+        echo "==========================================================="
+        read -p "选择 [0-6]: " SUB_CHOOSE
+        case "$SUB_CHOOSE" in
+            1) add_ipv6 "$config_file" "$list_file" ;;
+            2) delete_ipv6 "$config_file" "$list_file" ;;
+            3) status_tunnel "$config_file" "$list_file" ;;
+            4) test_ipv6 "$list_file" ;;
+            5) test_route "$config_file" ;;
+            6) delete_tunnel "$config_file" "$list_file"; return ;;
+            0) return ;;
+            *) echo "输入错误！"; sleep 1 ;;
+        esac
+    done
+}
+
 menu() {
     install_dep
     while true; do
-        clear; echo "==== 隧道策略路由管理网关 ===="
-        echo "a. 添加 SIT 隧道 | b. 添加 WG 隧道 | 0. 退出"
-        echo "------------------------"
-        local i=1 has=0
+        clear
+        echo "========== 通用隧道管理网关 =========="
+        echo "0. 退出脚本"
+        echo "a. 添加 SIT 隧道"
+        echo "b. 添加 WG 隧道"
+        echo "----------------------------------------"
+        echo "已添加的隧道列表："
+        
+        local i=1
+        local has_tunnel=0
         for f in "$CONFIG_DIR"/*.conf; do
             [ -f "$f" ] || continue
-            has=1; TYPE="sit"; load_tunnel_conf "$f"
-            echo " [$i] [${TYPE^^}] $IFACE"
-            i=$((i+1))
+            has_tunnel=1
+            load_tunnel_conf "$f"
+            if [ "$TYPE" = "wg" ]; then
+                echo -e "   [\033[32m$i\033[0m] [WG]  接口: \033[32m$IFACE\033[0m | 节点: $WG_ENDPOINT | 路由前缀: ${ROUTED_PREFIX:-无}"
+            else
+                echo -e "   [\033[32m$i\033[0m] [SIT] 接口: \033[32m$IFACE\033[0m | 远端IPv4: $REMOTE_V4 | 路由前缀: ${ROUTED_PREFIX:-无}"
+            fi
+            i=$((i + 1))
         done
-        [ "$has" -eq 0 ] && echo " 暂无隧道"
-        read -p "输入操作或编号: " ch
-        case "$ch" in
+        [ "$has_tunnel" -eq 0 ] && echo "   (暂无隧道，请选择 a 或 b 添加)"
+
+        echo "----------------------------------------"
+        read -p "请输入选项 (a/b 添加, 0 退出, 或输入编号进入管理): " CHOOSE
+
+        case "$CHOOSE" in
             0) exit 0 ;;
-            a|A) add_sit_tunnel ;;
-            b|B) add_wg_tunnel ;;
-            *) 
-               if [[ "$ch" =~ ^[0-9]+$ ]]; then
-                   local f=$(get_tunnel_file_by_index "$ch")
-                   [ -n "$f" ] && tunnel_submenu "$f"
-               fi ;;
+            a|A) add_sit_tunnel; read -p "按回车键继续..." ;;
+            b|B) add_wg_tunnel; read -p "按回车键继续..." ;;
+            *)
+                if [[ "$CHOOSE" =~ ^[1-9][0-9]*$ ]]; then
+                    local selected_file=$(get_tunnel_file_by_index "$CHOOSE")
+                    if [ -n "$selected_file" ] && [ -f "$selected_file" ]; then
+                        tunnel_submenu "$selected_file"
+                    else
+                        echo "错误: 无效的隧道编号！"; sleep 1
+                    fi
+                else
+                    echo "输入错误！"; sleep 1
+                fi
+                ;;
         esac
     done
 }
