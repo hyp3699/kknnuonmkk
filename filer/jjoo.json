@@ -1,5 +1,5 @@
 {
-   "spider": "http://itv666.cc/aowu/config.webp",
+  "spider": "http://itv666.cc/aowu/config.webp",
   "sites": [
     {
       "key": "电影天堂",
@@ -960,6 +960,19 @@
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 0
+    },
+
+    {
+      "key": "1",
+      "name": "🔞火速",
+      "type": 1,
+      "api": "https://api.huosuapi.cc/api.php/provide/vod/?ac=list"
+    },
+    {
+      "key": "2",
+      "name": "🔞嘿嘿",
+      "type": 1,
+      "api": "https://api.heiapi.cc/api.php/provide/vod/?ac=list"
     },
     {
       "key": "松视开通",
