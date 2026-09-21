@@ -190,6 +190,10 @@ running = True
 def log(msg):
     try:
         TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
+        MAX_LOG_SIZE = 10 * 1024 * 1024
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > MAX_LOG_SIZE:
+            with open(LOG_FILE, "w", encoding="utf-8") as f:
+                f.write(f"--- LOG RESET AT {datetime.now().astimezone().isoformat()} ---\n")
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(datetime.now().astimezone().isoformat() + " " + str(msg) + "\n")
     except Exception:
