@@ -287,7 +287,7 @@ main_menu() {
         clear
         echo
         echo -e "${CYAN}======================================${NC}"
-        echo -e "${CYAN}       sing-box 错误查看 / 翻译${NC}"
+        echo -e "${CYAN}       sing-box 错误检查${NC}"
         echo -e "${CYAN}======================================${NC}"
         echo
         echo "  1. 本次启动错误日志"
