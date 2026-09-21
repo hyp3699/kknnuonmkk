@@ -285,7 +285,6 @@ live_logs() {
 # ==========================================
 # 检查所有 sing-box JSON 配置
 # ==========================================
-
 check_configs() {
 
     clear
@@ -294,9 +293,18 @@ check_configs() {
     echo -e "${CYAN}========== sing-box 配置检查 ==========${NC}"
     echo
     echo "检查目录：/etc/sing-box/conf/"
+    echo "程序路径：/etc/sing-box/sing-box"
     echo
 
     CONFIG_DIR="/etc/sing-box/conf"
+    SINGBOX_BIN="/etc/sing-box/sing-box"
+
+    if [ ! -x "$SINGBOX_BIN" ]; then
+        echo -e "${RED}未找到 sing-box：$SINGBOX_BIN${NC}"
+        echo
+        read -r -p "按回车返回菜单..." _
+        return
+    fi
 
     if [ ! -d "$CONFIG_DIR" ]; then
         echo -e "${RED}配置目录不存在：$CONFIG_DIR${NC}"
@@ -320,6 +328,9 @@ check_configs() {
     success=0
     failed=0
 
+    # 保存错误文件
+    error_files=()
+
     for config in "${files[@]}"; do
 
         total=$((total + 1))
@@ -329,7 +340,7 @@ check_configs() {
         echo -e "配置文件：${YELLOW}$config${NC}"
         echo -e "${CYAN}--------------------------------------${NC}"
 
-        output=$(sing-box check -c "$config" 2>&1)
+        output=$("$SINGBOX_BIN" check -c "$config" 2>&1)
         status=$?
 
         if [ "$status" -eq 0 ]; then
@@ -342,11 +353,7 @@ check_configs() {
             echo -e "${RED}✗ 配置错误${NC}"
             echo
 
-            # 翻译错误
-            translated=$(
-                printf '%s\n' "$output" |
-                trans -b :zh 2>/dev/null
-            )
+            translated=$(printf '%s\n' "$output" | trans -b :zh 2>/dev/null)
 
             if [ -n "$translated" ]; then
                 echo "$translated"
@@ -355,6 +362,10 @@ check_configs() {
             fi
 
             failed=$((failed + 1))
+
+            # 保存错误文件
+            error_files+=("$config")
+
         fi
 
     done
@@ -366,6 +377,49 @@ check_configs() {
     echo -e "正常：${GREEN}$success${NC}"
     echo -e "错误：${RED}$failed${NC}"
     echo -e "${CYAN}======================================${NC}"
+
+    # 有错误文件才显示编辑菜单
+    if [ "${#error_files[@]}" -gt 0 ]; then
+
+        echo
+        echo -e "${YELLOW}错误配置文件：${NC}"
+
+        for i in "${!error_files[@]}"; do
+            printf "%d. %s\n" "$((i + 1))" "${error_files[$i]}"
+        done
+
+        echo
+        read -r -p "输入编号编辑配置，回车返回：" edit_choice
+
+        if [[ "$edit_choice" =~ ^[0-9]+$ ]]; then
+
+            index=$((edit_choice - 1))
+
+            if [ "$index" -ge 0 ] && [ "$index" -lt "${#error_files[@]}" ]; then
+
+                config="${error_files[$index]}"
+
+                echo
+                echo -e "${CYAN}正在编辑：${YELLOW}$config${NC}"
+                echo
+
+                if command -v nano >/dev/null 2>&1; then
+                    nano "$config"
+                elif command -v vi >/dev/null 2>&1; then
+                    vi "$config"
+                else
+                    echo -e "${RED}未找到 nano 或 vi 编辑器${NC}"
+                    read -r -p "按回车继续..." _
+                fi
+
+            else
+                echo -e "${RED}无效的编号${NC}"
+                sleep 1
+            fi
+
+        fi
+
+    fi
 
     echo
     read -r -p "按回车返回菜单..." _
