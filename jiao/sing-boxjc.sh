@@ -71,6 +71,8 @@ install_dependencies() {
     done
 }
 
+
+
 translate_logs() {
     local logfile="$1"
 
@@ -138,26 +140,47 @@ for line in errors:
 PY
 }
 
-show_logs() {
-    local title="$1"
-    local cmd="$2"
-
+show_latest_start_errors() {
     clear
+
     echo
-    echo -e "${CYAN}========== $title ==========${NC}"
+    echo -e "${CYAN}========== 最近一次 sing-box 启动错误 ==========${NC}"
+    echo
+
+    START_TIME=$(systemctl show sing-box -p ExecMainStartTimestamp --value 2>/dev/null)
+
+    if [ -z "$START_TIME" ] || [ "$START_TIME" = "n/a" ]; then
+        echo -e "${YELLOW}无法获取最近一次 sing-box 启动时间${NC}"
+        echo
+        read -r -p "按回车返回菜单..." _
+        return
+    fi
+
+    START_TIME=$(date -d "$START_TIME" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
+
+    if [ -z "$START_TIME" ]; then
+        echo -e "${YELLOW}无法解析 sing-box 启动时间${NC}"
+        echo
+        read -r -p "按回车返回菜单..." _
+        return
+    fi
+
+    echo "启动时间：$START_TIME"
     echo
 
     TMP_LOG=$(mktemp)
-    bash -c "$cmd" >"$TMP_LOG" 2>&1
-    STATUS=$?
+
+    journalctl -u sing-box \
+        --since "$START_TIME" \
+        --no-pager \
+        > "$TMP_LOG" 2>&1
 
     translate_logs "$TMP_LOG"
+
     rm -f "$TMP_LOG"
 
     echo
-    echo -e "${CYAN}==============================${NC}"
-    echo
-    echo -e "${YELLOW}命令退出状态：$STATUS${NC}"
+    echo -e "${CYAN}==============================================${NC}"
     echo
     read -r -p "按回车返回菜单..." _
 }
@@ -296,9 +319,8 @@ main_menu() {
 
         case "$choice" in
             1)
-                show_logs "本次启动错误日志" \
-                    "journalctl -u sing-box -b --no-pager"
-                ;;
+                 show_latest_start_errors
+                 ;;
             2)
                 show_logs "最近 50 条错误日志" \
                     "journalctl -u sing-box -n 50 --no-pager"
