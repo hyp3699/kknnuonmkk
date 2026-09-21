@@ -268,12 +268,6 @@ check_configs() {
     fi
 }
 
-这个函数只负责检查 "/etc/sing-box/conf/" 下所有 ".json" 配置，检查命令仍然是：
-
-/etc/sing-box/sing-box check -c "$file"
-
-检查方式没有改，只提取了你指定的这部分。
-
 main_menu() {
     while true; do
         clear
