@@ -5776,7 +5776,7 @@ def make_subscription(username):
 
     state = load_json(TRAFFIC_STATE)
     user_data = state.get("users", {}).get(username, {})
-    used = int(user_data.get("total", 0) or 0)
+    used = int(user_data.get("period_total", 0) or 0)
     
     limit_file = os.path.join(LIMIT_DIR, f"{username}.json")
     limit_data = load_json(limit_file)
@@ -6133,7 +6133,7 @@ if os.path.isfile(links_file):
     try:
         with open(traffic_state, "r", encoding="utf-8") as f:
             state = json.load(f)
-            used = int(state.get("users", {}).get(username, {}).get("total", 0) or 0)
+            used = int(state.get("users", {}).get(username, {}).get("period_total", 0) or 0)
     except Exception:
         pass
     try:
