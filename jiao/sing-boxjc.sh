@@ -208,7 +208,10 @@ check_configs() {
             echo "$result"
             echo
         fi
-    done < <(find "/etc/sing-box/conf" -maxdepth 1 -type f -name "*.json" -print | sort)
+    done < <(
+        find "/etc/sing-box/conf" -maxdepth 1 \
+            -type f -name "*.json" -print | sort
+    )
 
     echo
 
@@ -240,47 +243,36 @@ check_configs() {
        [ "$choice" -ge 1 ] &&
        [ "$choice" -le "${#errors[@]}" ]; then
 
-        local selected="${errors[$((choice - 1))]}"
+        clear
+        green "================ 配置文件 ================"
+        echo
 
-        while true; do
-            clear
-            green "================ 配置文件 ================"
-            echo
-            echo "文件：$selected"
-            echo
+        echo "文件：${errors[$((choice - 1))]}"
+        echo
 
-            if [ -f "$selected" ]; then
-                cat "$selected"
-            else
-                green "文件不存在"
-            fi
+        content=$(cat "${errors[$((choice - 1))]}")
+        printf '%s\n' "$content"
 
-            echo
-            green "e. 编辑  保存：Ctrl + O 回车（Enter）确认,   退出：Ctrl + X"
-            green "0. 退出"
-            echo
+        echo
+        green "e. 编辑  保存：Ctrl + O 回车（Enter）确认,   退出：Ctrl + X"
+        green "0. 退出"
+        echo
 
-            read -rp "请选择: " choice
+        read -rp "请选择: " choice
 
-            case "$choice" in
-                e|E)
-                    nano "$selected"
-                    ;;
-                0)
-                    break
-                    ;;
-                *)
-                    green "无效选择"
-                    sleep 1
-                    ;;
-            esac
-        done
-
-    else
-        green "无效选择"
-        sleep 1
+        case "$choice" in
+            e|E)
+                nano "${errors[$((choice - 1))]}"
+                ;;
+        esac
     fi
 }
+
+这个函数只负责检查 "/etc/sing-box/conf/" 下所有 ".json" 配置，检查命令仍然是：
+
+/etc/sing-box/sing-box check -c "$file"
+
+检查方式没有改，只提取了你指定的这部分。
 
 main_menu() {
     while true; do
