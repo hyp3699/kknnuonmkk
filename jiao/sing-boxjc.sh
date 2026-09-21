@@ -187,119 +187,99 @@ show_latest_start_errors() {
 
 check_configs() {
     clear
-
-    CONFIG_DIR="/etc/sing-box/conf"
-    SINGBOX_BIN="/etc/sing-box/sing-box"
-
-    echo
-    echo -e "${CYAN}========== sing-box 配置检查 ==========${NC}"
-    echo
-    echo "检查目录：$CONFIG_DIR"
-    echo "程序路径：$SINGBOX_BIN"
+    green "================ JSON 配置检查 ================"
     echo
 
-    if [ ! -x "$SINGBOX_BIN" ]; then
-        echo -e "${RED}未找到 sing-box：$SINGBOX_BIN${NC}"
-        echo
-        read -r -p "按回车返回菜单..." _
-        return
-    fi
+    local errors=()
+    local file=""
+    local result=""
+    local choice=""
+    local content=""
+    local i=1
 
-    if [ ! -d "$CONFIG_DIR" ]; then
-        echo -e "${RED}配置目录不存在：$CONFIG_DIR${NC}"
-        echo
-        read -r -p "按回车返回菜单..." _
-        return
-    fi
+    while IFS= read -r file; do
+        result=$(/etc/sing-box/sing-box check -c "$file" 2>&1)
 
-    shopt -s nullglob
-    files=("$CONFIG_DIR"/*.json)
-    shopt -u nullglob
-
-    if [ "${#files[@]}" -eq 0 ]; then
-        echo -e "${YELLOW}没有找到 JSON 配置文件${NC}"
-        echo
-        read -r -p "按回车返回菜单..." _
-        return
-    fi
-
-    total=0
-    success=0
-    failed=0
-    error_files=()
-
-    for config in "${files[@]}"; do
-        total=$((total + 1))
-
-        echo -e "${CYAN}--------------------------------------${NC}"
-        echo -e "配置文件：${YELLOW}$config${NC}"
-
-        output=$("$SINGBOX_BIN" check -c "$config" 2>&1)
-        status=$?
-
-        if [ "$status" -eq 0 ]; then
-            echo -e "${GREEN}✓ 配置正常${NC}"
-            success=$((success + 1))
+        if [ $? -eq 0 ]; then
+            green "[正确] $(basename "$file")"
         else
-            echo -e "${RED}✗ 配置错误${NC}"
+            green "[错误] $(basename "$file")"
+            errors+=("$file")
+            echo "$result"
             echo
-
-            translated=$(printf '%s\n' "$output" | trans -b :zh 2>/dev/null)
-
-            if [ -n "$translated" ]; then
-                echo "$translated"
-            else
-                echo "$output"
-            fi
-
-            failed=$((failed + 1))
-            error_files+=("$config")
         fi
+    done < <(find "/etc/sing-box/conf" -maxdepth 1 -type f -name "*.json" -print | sort)
 
+    echo
+
+    if [ "${#errors[@]}" -eq 0 ]; then
+        green "全部 JSON 配置文件检查通过"
         echo
+        read -rp "按回车返回..." _
+        return
+    fi
+
+    green "发现 ${#errors[@]} 个配置文件存在错误"
+    echo
+
+    for i in "${!errors[@]}"; do
+        green "$((i + 1)). ${errors[$i]}"
     done
 
-    echo -e "${CYAN}======================================${NC}"
-    echo "检查完成"
-    echo "配置文件：$total"
-    echo -e "正常：${GREEN}$success${NC}"
-    echo -e "错误：${RED}$failed${NC}"
-    echo -e "${CYAN}======================================${NC}"
+    echo
+    green "0. 返回"
+    echo
 
-    if [ "${#error_files[@]}" -gt 0 ]; then
-        echo
-        echo -e "${YELLOW}错误配置文件：${NC}"
+    read -rp "请选择要修改的错误配置文件: " choice
 
-        for i in "${!error_files[@]}"; do
-            printf "%d. %s\n" "$((i + 1))" "${error_files[$i]}"
-        done
-
-        echo
-        read -r -p "输入编号编辑配置，回车返回：" edit_choice
-
-        if [[ "$edit_choice" =~ ^[0-9]+$ ]]; then
-            index=$((edit_choice - 1))
-
-            if [ "$index" -ge 0 ] && [ "$index" -lt "${#error_files[@]}" ]; then
-                config="${error_files[$index]}"
-
-                if command -v nano >/dev/null 2>&1; then
-                    nano "$config"
-                elif command -v vi >/dev/null 2>&1; then
-                    vi "$config"
-                else
-                    echo -e "${RED}未找到 nano 或 vi 编辑器${NC}"
-                    read -r -p "按回车继续..." _
-                fi
-            else
-                echo -e "${RED}无效的编号${NC}"
-                sleep 1
-            fi
-        fi
+    if [ "$choice" = "0" ]; then
+        return
     fi
 
-    echo
-    read -r -p "按回车返回菜单..." _
+    if [[ "$choice" =~ ^[0-9]+$ ]] &&
+       [ "$choice" -ge 1 ] &&
+       [ "$choice" -le "${#errors[@]}" ]; then
+
+        local selected="${errors[$((choice - 1))]}"
+
+        while true; do
+            clear
+            green "================ 配置文件 ================"
+            echo
+            echo "文件：$selected"
+            echo
+
+            if [ -f "$selected" ]; then
+                cat "$selected"
+            else
+                green "文件不存在"
+            fi
+
+            echo
+            green "e. 编辑  保存：Ctrl + O 回车（Enter）确认,   退出：Ctrl + X"
+            green "0. 退出"
+            echo
+
+            read -rp "请选择: " choice
+
+            case "$choice" in
+                e|E)
+                    nano "$selected"
+                    ;;
+                0)
+                    break
+                    ;;
+                *)
+                    green "无效选择"
+                    sleep 1
+                    ;;
+            esac
+        done
+
+    else
+        green "无效选择"
+        sleep 1
+    fi
 }
 
 main_menu() {
