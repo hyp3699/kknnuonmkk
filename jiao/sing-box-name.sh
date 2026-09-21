@@ -976,7 +976,7 @@ backup_file() {
 }
 
 cleanup_backups() {
-    find "$BACKUP_DIR" -type f -name '*.bak' -mtime +30 -delete 2>/dev/null
+    find "$BACKUP_DIR" -type f \( -name '*.bak' -o -name '*.json' \) -mtime +15 -delete 2>/dev/null
 }
 
 reload_singbox() {
