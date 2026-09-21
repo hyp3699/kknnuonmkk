@@ -1677,7 +1677,11 @@ main_menu() {
         echo -e "  ${green}3)${re} 关闭流量限制"
         echo -e "  ${yellow}0)${re} 返回"
         echo
-        read -rp "$(green "请选择: ")" choice
+
+        if ! read -rp "$(green "请选择: ")" choice; then
+            return
+        fi
+
         case "$choice" in
             a|A)
                 systemctl stop "$TRAFFIC_SERVICE" >/dev/null 2>&1 || true
