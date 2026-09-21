@@ -10342,7 +10342,7 @@ manage_singbox() {
     green "5. Tunnel 隧道连接 IP：仅IPv4"
     green "6. Tunnel 隧道连接 IP：仅IPv6"
 	green "7. CDN IP同步管理"
-	green "8. 节点流量管理"
+	green "8. 检查sing-box"
     skyblue "-------------------"
     purple "0. 返回主菜单"
     skyblue "------------"
@@ -10377,7 +10377,7 @@ manage_singbox() {
     ;;
 8) 
     clear
-    bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-name.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-boxjc.sh)
     ;;
         0) menu ;;
         *) red "无效的选项！" && sleep 1 && manage_singbox;;
