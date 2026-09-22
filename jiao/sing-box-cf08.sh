@@ -11703,8 +11703,8 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点"                     "$re"
    echo
-   printf "%b%-28s%b%s%b\n" "$green" "99. 查看错误信息" "$red" "0. 退出脚步" "$re"
-   reading "请输入选择(0-98): " choice
+   printf "%b%-32s%b%s%b\n" "$green" "99. 查看错误信息" "$red" "0. 退出脚步" "$re"
+   reading "请输入数字选择: " choice
    echo ""
 }
 
@@ -11770,8 +11770,12 @@ chmod 700 "$TRAFFIC_SCRIPT"
 		15)  warp_manage ;;
 		16)  manage_xray ;;
 		17)  token_manage ;;
+		99) 
+           clear
+		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-boxjc.sh)
+		   ;;
 		0) exit 0 ;;
-        *) red "无效的选项，请输入 0 到 16" ;;
+        *) red "无效的选项" ;;
    esac
    read -n 1 -s -r -p $'\033[1;91m按任意键返回...\033[0m'
 done
