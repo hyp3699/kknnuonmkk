@@ -262,30 +262,25 @@ check_configs() {
         return
     fi
 
-    green "发现 ${#errors[@]} 个配置文件存在错误"
+    red "发现 ${#errors[@]} 个配置文件存在错误"
     echo
 
     for i in "${!errors[@]}"; do
-        green "$((i + 1)). ${errors[$i]}"
+        red "$((i + 1)). ${errors[$i]}"
     done
 
-    echo
     green "数字：Micro 编辑"
     green "数字+n：Nano 编辑"
     green "例如：1 或 1n"
-    echo
 green "=========== 编辑器操作说明 ==========="
 echo
 green "Micro："
 echo "  保存：Ctrl + S"
 echo "  退出：Ctrl + Q"
-echo
 green "Nano："
 echo "  保存：Ctrl + O，然后按 Enter"
 echo "  退出：Ctrl + X"
-echo
 green "==================================="
-echo
     green "0. 返回"
     echo
 
