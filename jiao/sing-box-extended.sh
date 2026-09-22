@@ -3298,7 +3298,7 @@ EOF
 
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-cf08.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-extended.sh"
     local local_file="$work_dir/sb.sh"
     if [ ! -s "$local_file" ]; then
         mkdir -p "$work_dir"
@@ -8411,21 +8411,14 @@ PY
 
 #更新脚本
 update_script() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-cf08.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-extended.sh"
     local local_file="$work_dir/sb.sh"
-    local traffic_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
-    local traffic_file="/etc/sing-box/sing-box-name.sh"
+
     if curl -Lss "$remote_url" -o "${local_file}.tmp"; then
         if [ -s "${local_file}.tmp" ]; then
             mv -f "${local_file}.tmp" "$local_file"
             chmod +x "$local_file"
             ln -sf "$local_file" /usr/bin/sb
-            curl -Lss "$traffic_url" -o "${traffic_file}.tmp"
-            if [ -s "${traffic_file}.tmp" ]; then
-                mv -f "${traffic_file}.tmp" "$traffic_file"
-            else
-                rm -f "${traffic_file}.tmp"
-            fi
             green "\n脚本已更新！"
             sleep 1
             exec bash "$local_file"
