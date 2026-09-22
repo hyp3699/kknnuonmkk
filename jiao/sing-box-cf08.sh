@@ -3116,18 +3116,20 @@ install_singbox() {
     esac
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
     # 下载sing-box,cloudflared
-    latest_version=$(curl -s "https://api.github.com/repos/hyp3699/kknnuonmkk/releases" | jq -r '[.[] | select(.prerelease==false) | select(.tag_name | test("^sing-box-v[0-9.]+-v2rayapi$"))][0].tag_name')
+    latest_tag=$(curl -s "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" | jq -r '[.[] | select(.prerelease==false) | select(.draft==false) | select(.tag_name | endswith("-custom"))][0].tag_name')
     work_dir=${work_dir:-/etc/sing-box}
 mkdir -p "$work_dir"
 ARCH_RAW=$(uname -m)
 case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
 if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
-latest_version=$(curl -s "https://api.github.com/repos/hyp3699/kknnuonmkk/releases" | jq -r '[.[]|select(.prerelease==false)|select(.tag_name|test("^sing-box-v[0-9.]+-v2rayapi$"))][0].tag_name')
-[ -z "$latest_version" ] && latest_version=sing-box-v1.14.1-v2rayapi
-URL="https://github.com/hyp3699/kknnuonmkk/releases/download/${latest_version}/sing-box"
-curl -fSL -o "${work_dir}/sing-box" "$URL" && chmod +x "${work_dir}/sing-box"
+latest_tag=$(curl -s "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" | jq -r '[.[] | select(.prerelease==false) | select(.draft==false) | select(.tag_name | endswith("-custom"))][0].tag_name')
+[ -z "$latest_tag" ] && latest_tag=v1.14.1-lx.8-custom
+TAR="sing-box-linux-${ARCH}.tar.gz"
+URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
+curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && chmod +x "${work_dir}/sing-box" && rm -f "${work_dir}/${TAR}"
+       
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
-    
+
     # 放行端口
     allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
