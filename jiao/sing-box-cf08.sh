@@ -7906,6 +7906,7 @@ PY
     echo
     sleep 1
     fi
+	return 2
 }
 
 #更新脚本
