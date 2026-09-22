@@ -6683,6 +6683,7 @@ EOF
         anytls)
     generate_vars
     server_ip=$(get_realip)
+	fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
     echo -e "\n请选择 TLS 证书类型:"
     echo -e " 1) \e[32m使用自签名证书\e[0m"
     echo -e " 2) \e[32m使用真实域名证书\e[0m"
@@ -6783,7 +6784,6 @@ EOF
     echo "$url"
     green "--------------------------------------------------"
     ;;
-        argo) green "这里接入 Cloudflare Tunnel 创建逻辑" ;;
         xhttp-reality) green "这里接入 XHTTP Reality 创建逻辑" ;;
         xhttp-cdn) green "这里接入 XHTTP CDN 创建逻辑" ;;
         xhttp-cdn-tls) green "这里接入 XHTTP CDN TLS 创建逻辑" ;;
