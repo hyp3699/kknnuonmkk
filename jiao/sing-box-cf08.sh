@@ -3116,7 +3116,13 @@ install_singbox() {
     esac
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
     # 下载sing-box,cloudflared
-    latest_tag=$(curl -fsSL "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" | jq -r '[.[] | select(.prerelease==false) | select(.draft==false) | select(.tag_name | endswith("-xhttp-v2rayapi"))][0].tag_name')
+    latest_tag=$(curl -fsSL \
+    "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" |
+    jq -r '[.[] |
+        select(.prerelease==false) |
+        select(.draft==false) |
+        select(.tag_name | endswith("-xhttp"))
+    ][0].tag_name')
 
 [ -n "$latest_tag" ] || {
     red "获取 sing-box 最新版本失败"
@@ -3125,7 +3131,6 @@ install_singbox() {
 
 TAR="sing-box-linux-${ARCH}.tar.gz"
 URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
-
 curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && chmod +x "${work_dir}/sing-box-linux-${ARCH}" && mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box" && rm -f "${work_dir}/${TAR}"
 
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
