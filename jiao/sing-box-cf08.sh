@@ -3124,8 +3124,9 @@ case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv
 if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
 latest_tag=$(curl -s "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" | jq -r '[.[] | select(.prerelease==false) | select(.draft==false) | select(.tag_name | endswith("-custom"))][0].tag_name')
 [ -z "$latest_tag" ] && latest_tag=v1.14.1-lx.8-custom
-TAR="sing-box-linux-${ARCH}.tar.gz"
+TAR="sing-box-linux-${ARCH}"
 URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
+
 curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && chmod +x "${work_dir}/sing-box" && rm -f "${work_dir}/${TAR}"
        
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
