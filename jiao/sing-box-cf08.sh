@@ -5648,7 +5648,12 @@ local MAIN_CONFIG="/etc/sing-box/conf/config.json"
 local NGINX_CONF_DIR="/etc/nginx/conf.d"
 local NGINX_USER_CONF_DIR="/etc/nginx/conf.d/singbox_users"
 local NGINX_MAIN_CONF="/etc/nginx/conf.d/singbox_sub.conf"
+local input_username="${1:-}"
+local input_uuid="${2:-}"
+local input_path="${3:-}"
 
+local username
+local uuid
 local SUB_SERVICE="/usr/local/bin/sing-box-subscription.py"
 local SUB_SERVICE_UNIT="/etc/systemd/system/sing-box-subscription.service"
 local TRAFFIC_STATE="/etc/sing-box/user_manager/traffic/state.json"
@@ -5854,10 +5859,6 @@ max_num="$n"
 fi
 done
 shopt -u nullglob
-local input_username="${1:-}"
-local input_uuid="${2:-}"
-local username
-local uuid
 if [[ -n "$input_username" ]]; then
     username="$input_username"
 else
@@ -5868,7 +5869,6 @@ if [[ -n "$input_uuid" ]]; then
 else
     uuid=$(cat /proc/sys/kernel/random/uuid)
 fi
-uuid=$(cat /proc/sys/kernel/random/uuid)
 while true; do
 clear
 green "================ 添加用户 ================"
@@ -5954,6 +5954,7 @@ MAIN_CONFIG="$MAIN_CONFIG" \
 URL_DIR="$URL_DIR" \
 NGINX_USER_CONF_DIR="$NGINX_USER_CONF_DIR" \
 FORCE_OVERWRITE="$force_overwrite" \
+INPUT_PATH="$input_path" \
 python3 - <<'PY'
 import os
 import json
@@ -5970,6 +5971,7 @@ main_config = os.environ["MAIN_CONFIG"]
 url_dir = os.environ["URL_DIR"]
 nginx_user_conf_dir = os.environ["NGINX_USER_CONF_DIR"]
 force_overwrite = os.environ.get("FORCE_OVERWRITE", "0") == "1"
+input_path = os.environ.get("INPUT_PATH", "").strip()
 user_dir = os.path.join(url_dir, username)
 if force_overwrite and os.path.isdir(user_dir):
     import shutil
