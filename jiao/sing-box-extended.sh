@@ -3101,17 +3101,51 @@ install_singbox() {
         's390x') ARCH='s390x' ;;
         *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
     esac
+
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
+
     # 下载sing-box,cloudflared
-    latest_version=$(curl -s "https://api.github.com/repos/shtorm-7/sing-box-extended/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name')
-	work_dir=${work_dir:-/etc/sing-box}
-mkdir -p "$work_dir"
-case "$ARCH_RAW" in x86_64) ARCH=amd64;; aarch64) ARCH=arm64;; armv7l) ARCH=armv7;; i386|i686) ARCH=386;; *) ARCH="$ARCH_RAW";; esac
-if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then LIBC=musl; else LIBC=glibc; fi
-latest_version=$(curl -fsSL "https://api.github.com/repos/shtorm-7/sing-box-extended/releases/latest" | jq -r '.tag_name')
-URL="https://github.com/shtorm-7/sing-box-extended/releases/download/${latest_version}/sing-box"
-curl -fSL -o "${work_dir}/sing-box" "$URL" && chmod +x "${work_dir}/sing-box"
+    latest_version=$(curl -fsSL "https://api.github.com/repos/shtorm-7/sing-box-extended/releases/latest" | jq -r '.tag_name')
+
+    work_dir=${work_dir:-/etc/sing-box}
+    mkdir -p "$work_dir"
+
+    ARCH_RAW=$(uname -m)
+    case "$ARCH_RAW" in
+        x86_64) ARCH=amd64 ;;
+        aarch64) ARCH=arm64 ;;
+        armv7l) ARCH=armv7l ;;
+        i386|i686) ARCH=386 ;;
+        *) ARCH="$ARCH_RAW" ;;
+    esac
+
+    if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then
+        LIBC=musl
+    else
+        LIBC=glibc
+    fi
+
+    latest_version=$(curl -fsSL "https://api.github.com/repos/shtorm-7/sing-box-extended/releases/latest" | jq -r '.tag_name')
+
+    RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/shtorm-7/sing-box-extended/releases/tags/${latest_version}")
+
+    URL=$(echo "$RELEASE_JSON" | jq -r --arg ARCH "$ARCH" '
+        .assets[].browser_download_url
+        | select(
+            ($ARCH == "amd64" and endswith("-amd64.deb")) or
+            ($ARCH == "arm64" and endswith("-arm64.deb")) or
+            ($ARCH == "armv7l" and endswith("-armv7l.deb"))
+        )
+    ' | head -n1)
+
+    curl -fSL -o "${work_dir}/sing-box.deb" "$URL" &&
+    dpkg-deb -x "${work_dir}/sing-box.deb" "${work_dir}/sb-extract" &&
+    mv "${work_dir}/sb-extract/usr/bin/sing-box" "${work_dir}/sing-box" &&
+    chmod +x "${work_dir}/sing-box" &&
+    rm -rf "${work_dir}/sing-box.deb" "${work_dir}/sb-extract"
+
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
+
     
     # 放行端口
     allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
@@ -11316,7 +11350,6 @@ edit_singbox_files() {
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
-   update_xray_status
    
    clear
    echo ""
@@ -11324,7 +11357,6 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
    purple "=== 老王sing-box四合一安装脚本 1.3===\n"
-   printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
@@ -11367,14 +11399,6 @@ while true; do
 			    optimize_dns
                 manage_packages install nginx jq tar openssl lsof coreutils
                 install_singbox
-				TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
-TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
-curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
-if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
-    mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
-fi
-chmod 700 "$TRAFFIC_SCRIPT"
-"$TRAFFIC_SCRIPT" --init >/dev/null 2>&1 || true
                 if command_exists systemctl; then
                     main_systemd_services
                 elif command_exists rc-update; then
