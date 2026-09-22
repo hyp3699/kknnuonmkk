@@ -5524,7 +5524,6 @@ manage_nodes_menu() {
         systemctl start singbox-traffic.service >/dev/null 2>&1 || true
     fi
     CONF_DIR="/etc/sing-box/conf"
-    XRAY_CONF_DIR="/etc/xray/conf"
     URL_DIR="/etc/sing-box/url"
     SUB_FILE="/etc/sing-box/sub.txt"
     mkdir -p "$CONF_DIR" "$XRAY_CONF_DIR" "$URL_DIR"
@@ -6346,7 +6345,7 @@ add_inbound_menu() {
             7) add_inbound "anytls-reality" "sing-box" ;;
             8) add_inbound "socks5" "sing-box" ;;
            
-            10) add_inbound "xhttp-reality" "xray" ;;
+            10) add_inbound "xhttp-reality" "sing-box" ;;
             11) add_inbound "xhttp-cdn" "xray" ;;
             12) add_inbound "xhttp-cdn-tls" "xray" ;;
             13) add_inbound "xhttp-udp-tls" "xray" ;;
