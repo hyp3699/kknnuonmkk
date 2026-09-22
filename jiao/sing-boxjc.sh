@@ -201,6 +201,14 @@ show_latest_start_errors() {
 
 check_configs() {
     clear
+
+    ensure_micro || {
+        echo
+        read -r -p "按回车返回..." _
+        return
+    }
+
+    echo
     green "================ JSON 配置检查 ================"
     echo
 
@@ -209,6 +217,9 @@ check_configs() {
     local result=""
     local choice=""
     local content=""
+    local position=""
+    local line=""
+    local column=""
     local i=1
 
     while IFS= read -r file; do
@@ -219,12 +230,27 @@ check_configs() {
         else
             green "[错误] $(basename "$file")"
             errors+=("$file")
+
             translate_text "$result"
+
+            position=$(get_error_position "$result")
+
+            if [ -n "$position" ]; then
+                line="${position%%:*}"
+                column="${position##*:}"
+                echo
+                green "错误位置：第 ${line} 行，第 ${column} 列"
+            fi
+
             echo
         fi
     done < <(
-        find "/etc/sing-box/conf" -maxdepth 1 \
-            -type f -name "*.json" -print | sort
+        find "/etc/sing-box/conf" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.json" \
+            -print |
+            sort
     )
 
     echo
@@ -244,41 +270,81 @@ check_configs() {
     done
 
     echo
+    green "输入数字：Micro 编辑"
+    green "输入数字+n：Nano 编辑"
+    green "例如：1 或 1n"
     green "0. 返回"
     echo
 
-    read -rp "请选择要修改的错误配置文件: " choice
+    read -rp "请选择: " choice
 
     if [ "$choice" = "0" ]; then
         return
     fi
 
-    if [[ "$choice" =~ ^[0-9]+$ ]] &&
-       [ "$choice" -ge 1 ] &&
-       [ "$choice" -le "${#errors[@]}" ]; then
+    local editor=""
+    local index=""
 
-        clear
-        green "================ 配置文件 ================"
-        echo
+    if [[ "$choice" =~ ^([0-9]+)n$ ]]; then
+        index="${BASH_REMATCH[1]}"
+        editor="nano"
+    elif [[ "$choice" =~ ^([0-9]+)$ ]]; then
+        index="${BASH_REMATCH[1]}"
+        editor="micro"
+    else
+        green "无效选择"
+        sleep 1
+        return
+    fi
 
-        echo "文件：${errors[$((choice - 1))]}"
-        echo
+    if [ "$index" -lt 1 ] || [ "$index" -gt "${#errors[@]}" ]; then
+        green "无效选择"
+        sleep 1
+        return
+    fi
 
-        content=$(cat "${errors[$((choice - 1))]}")
-        printf '%s\n' "$content"
+    local selected="${errors[$((index - 1))]}"
 
-        echo
-        green "e. 编辑  保存：Ctrl + O 回车（Enter）确认,   退出：Ctrl + X"
-        green "0. 退出"
-        echo
+    clear
+    green "================ 配置文件 ================"
+    echo
+    echo "文件：$selected"
+    echo
 
-        read -rp "请选择: " choice
+    content=$(cat "$selected")
+    printf '%s\n' "$content"
 
-        case "$choice" in
-            e|E)
-                nano "${errors[$((choice - 1))]}"
-                ;;
-        esac
+    echo
+    green "编辑器：$([ "$editor" = "micro" ] && echo "Micro" || echo "Nano")"
+    echo
+
+    position=""
+
+    result=$(/etc/sing-box/sing-box check -c "$selected" 2>&1)
+
+    position=$(get_error_position "$result")
+
+    if [ -n "$position" ]; then
+        line="${position%%:*}"
+        column="${position##*:}"
+
+        echo -e "${YELLOW}正在定位到第 ${line} 行，第 ${column} 列...${NC}"
+        sleep 1
+
+        if [ "$editor" = "micro" ]; then
+            micro -ruler true "+${line}:${column}" "$selected"
+        else
+            nano -c "+${line},${column}" "$selected"
+        fi
+    else
+        echo -e "${YELLOW}未找到明确错误行列，正常打开文件${NC}"
+        sleep 1
+
+        if [ "$editor" = "micro" ]; then
+            micro -ruler true "$selected"
+        else
+            nano -c "$selected"
+        fi
     fi
 }
 show_logs() {
@@ -303,6 +369,68 @@ show_logs() {
     echo -e "${CYAN}==============================================${NC}"
     echo
     read -r -p "按回车返回菜单..." _
+}
+get_error_position() {
+    local text="$1"
+    local line=""
+    local column=""
+
+    if [[ "$text" =~ [Ll]ine[[:space:]]+([0-9]+)[,]?[[:space:]]+[Cc]olumn[[:space:]]+([0-9]+) ]]; then
+        line="${BASH_REMATCH[1]}"
+        column="${BASH_REMATCH[2]}"
+    elif [[ "$text" =~ [Ll]ine[[:space:]]+([0-9]+) ]]; then
+        line="${BASH_REMATCH[1]}"
+        column="1"
+    elif [[ "$text" =~ :([0-9]+):([0-9]+) ]]; then
+        line="${BASH_REMATCH[1]}"
+        column="${BASH_REMATCH[2]}"
+    fi
+
+    if [ -n "$line" ]; then
+        echo "${line}:${column}"
+    fi
+}
+ensure_micro() {
+    if command -v micro >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo
+    echo -e "${YELLOW}未检测到 Micro，正在自动安装...${NC}"
+
+    case "$OS" in
+        debian|ubuntu|linuxmint|kali)
+            apt-get install -y micro >/dev/null 2>&1 || {
+                apt-get update -y >/dev/null 2>&1
+                apt-get install -y micro >/dev/null 2>&1
+            }
+            ;;
+        centos|rhel|rocky|almalinux|fedora)
+            if command -v dnf >/dev/null 2>&1; then
+                dnf install -y micro >/dev/null 2>&1
+            elif command -v yum >/dev/null 2>&1; then
+                yum install -y micro >/dev/null 2>&1
+            fi
+            ;;
+        alpine)
+            apk add --no-cache micro >/dev/null 2>&1
+            ;;
+        arch|manjaro)
+            pacman -Sy --noconfirm micro >/dev/null 2>&1
+            ;;
+        *)
+            echo -e "${RED}无法自动安装 Micro：$OS${NC}"
+            return 1
+            ;;
+    esac
+
+    if ! command -v micro >/dev/null 2>&1; then
+        echo -e "${RED}Micro 安装失败${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}Micro 安装完成${NC}"
+    return 0
 }
 translate_text() {
     local text="$1"
