@@ -3538,9 +3538,41 @@ manage_service() {
     esac
 }
 
-#流量管理
+# =========================================================
+# 用户流量限制管理
+# =========================================================
+
 user_traffic_menu() {
     local username="$1"
+
+    if [ -z "$username" ]; then
+        red "错误：未获取到用户名"
+        sleep 1
+        return 1
+    fi
+
+    # 只有真正进入“3. 流量限制”才初始化
+    mkdir -p "$LIMIT_DIR" "$BACKUP_DIR" "$CONF_DIR"
+
+    if [ ! -f "$OUTBOUNDS_FILE" ]; then
+        red "outbounds.json 不存在：$OUTBOUNDS_FILE"
+        sleep 2
+        return 1
+    fi
+
+    if [ ! -f "$ROUTE_FILE" ]; then
+        red "route.json 不存在：$ROUTE_FILE"
+        sleep 2
+        return 1
+    fi
+
+    ensure_extended_limiters
+
+    if ! ensure_limiter_route; then
+        red "限速路由初始化失败"
+        sleep 2
+        return 1
+    fi
 
     while true; do
         clear
@@ -3550,7 +3582,9 @@ user_traffic_menu() {
         echo "用户：$username"
         echo
 
+        echo "========== 当前限制 =========="
         show_limit "$username"
+        show_bandwidth_limit "$username"
 
         echo
         echo "========== 管理 =========="
@@ -3582,11 +3616,18 @@ user_traffic_menu() {
                 set_download_limit "$username"
                 ;;
             6)
+                clear
+                echo "========== 用户限速 =========="
+                echo
+                echo "用户：$username"
+                echo
                 show_limit "$username"
                 show_bandwidth_limit "$username"
+                echo
+                read -rp "按回车继续..."
                 ;;
             0)
-                return
+                return 0
                 ;;
             *)
                 red "无效选择"
@@ -3595,24 +3636,83 @@ user_traffic_menu() {
         esac
     done
 }
+
+
+# =========================================================
+# 显示流量限制
+# =========================================================
+
+show_limit() {
+    local username="$1"
+    local lf="$LIMIT_DIR/${username}.json"
+
+    if [ -z "$username" ]; then
+        echo "流量限制：未设置"
+        echo "流量周期：未设置"
+        return 0
+    fi
+
+    if [ ! -f "$lf" ]; then
+        echo "流量限制：未设置"
+        echo "流量周期：未设置"
+        return 0
+    fi
+
+    "$PYTHON" - "$lf" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+filename = Path(sys.argv[1])
+
+try:
+    data = json.loads(filename.read_text(encoding="utf-8"))
+except Exception:
+    print("流量限制：未设置")
+    print("流量周期：未设置")
+    raise SystemExit(0)
+
+enabled = bool(data.get("enabled", False))
+limit = str(data.get("limit_value", "") or "")
+period = str(data.get("period", "none") or "none")
+
+if not enabled or not limit:
+    print("流量限制：未设置")
+    print("流量周期：未设置")
+    raise SystemExit(0)
+
+period_cn = {
+    "none": "一次性",
+    "day": "每天",
+    "month": "每月"
+}.get(period, "未设置")
+
+print(f"流量限制：{limit}")
+print(f"流量周期：{period_cn}")
+PY
+}
+
+
+# =========================================================
+# 显示上传 / 下载限速
+# =========================================================
+
 show_bandwidth_limit() {
     local username="$1"
 
-    clear
-
-    echo "========== 用户限速 =========="
-    echo
-    echo "用户：$username"
-    echo
+    if [ -z "$username" ]; then
+        echo "上传限速：不限速"
+        echo "下载限速：不限速"
+        return 0
+    fi
 
     if [ ! -f "$OUTBOUNDS_FILE" ]; then
         echo "上传限速：不限速"
         echo "下载限速：不限速"
-        read -rp "按回车继续..."
-        return
+        return 0
     fi
 
-    "$PYTHON" "$OUTBOUNDS_FILE" "$username" <<'PY'
+    "$PYTHON" - "$OUTBOUNDS_FILE" "$username" <<'PY'
 import sys
 import json
 from pathlib import Path
@@ -3623,8 +3723,9 @@ username = sys.argv[2]
 try:
     data = json.loads(filename.read_text(encoding="utf-8"))
 except Exception:
-    print("配置读取失败")
-    raise SystemExit
+    print("上传限速：不限速")
+    print("下载限速：不限速")
+    raise SystemExit(0)
 
 found = {
     "upload": None,
@@ -3639,432 +3740,38 @@ for outbound in data.get("outbounds", []):
         continue
 
     for item in outbound.get("users", []):
+        if not isinstance(item, dict):
+            continue
+
         if item.get("name") != username:
             continue
 
         mode = item.get("mode")
         speed = item.get("speed")
 
-        if mode in found:
-            found[mode] = speed
+        if mode in found and speed:
+            found[mode] = str(speed)
 
 print("上传限速：" + (found["upload"] or "不限速"))
 print("下载限速：" + (found["download"] or "不限速"))
 PY
-
-    echo
-    read -rp "按回车继续..."
 }
-extended_remove_bandwidth_limiter() {
-    local username="$1"
-    local mode="$2"
 
-    [ -f "$OUTBOUNDS_FILE" ] || return 0
 
-    backup_file "$OUTBOUNDS_FILE"
+# =========================================================
+# 设置流量限制
+# =========================================================
 
-    "$PYTHON" "$OUTBOUNDS_FILE" "$username" "$mode" <<'PY'
-import sys
-import json
-from pathlib import Path
-
-filename = Path(sys.argv[1])
-username = sys.argv[2]
-mode = sys.argv[3]
-
-try:
-    data = json.loads(filename.read_text(encoding="utf-8"))
-except Exception:
-    raise SystemExit(0)
-
-for outbound in data.get("outbounds", []):
-    if not isinstance(outbound, dict):
-        continue
-
-    if outbound.get("type") != "bandwidth-limiter":
-        continue
-
-    outbound["users"] = [
-        item for item in outbound.get("users", [])
-        if not (
-            item.get("name") == username
-            and item.get("mode") == mode
-        )
-    ]
-
-filename.write_text(
-    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-PY
-
-    chmod 600 "$OUTBOUNDS_FILE"
-}
-extended_update_bandwidth_limiter() {
-    local username="$1"
-    local mode="$2"
-    local speed="$3"
-
-    ensure_extended_limiters
-
-    backup_file "$OUTBOUNDS_FILE"
-
-    "$PYTHON" "$OUTBOUNDS_FILE" "$username" "$mode" "$speed" <<'PY'
-import sys
-import json
-from pathlib import Path
-
-filename = Path(sys.argv[1])
-username = sys.argv[2]
-mode = sys.argv[3]
-speed = sys.argv[4]
-
-try:
-    data = json.loads(filename.read_text(encoding="utf-8"))
-except Exception:
-    data = {}
-
-outbounds = data.setdefault("outbounds", [])
-
-bandwidth = None
-
-for item in outbounds:
-    if isinstance(item, dict) and item.get("type") == "bandwidth-limiter":
-        bandwidth = item
-        break
-
-if bandwidth is None:
-    bandwidth = {
-        "type": "bandwidth-limiter",
-        "tag": "bandwidth-limiter",
-        "strategy": "users",
-        "flow_keys": ["user"],
-        "users": [],
-        "route": {
-            "rules": [],
-            "final": "traffic-limiter"
-        }
-    }
-    outbounds.append(bandwidth)
-
-users = bandwidth.setdefault("users", [])
-
-users = [
-    item for item in users
-    if not (
-        item.get("name") == username
-        and item.get("mode") == mode
-    )
-]
-
-users.append({
-    "name": username,
-    "strategy": "connection",
-    "mode": mode,
-    "connection_type": "hwid",
-    "speed": speed
-})
-
-bandwidth["users"] = users
-bandwidth["strategy"] = "users"
-bandwidth["flow_keys"] = ["user"]
-
-bandwidth.setdefault("route", {
-    "rules": [],
-    "final": "traffic-limiter"
-})
-
-filename.write_text(
-    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-PY
-
-    chmod 600 "$OUTBOUNDS_FILE"
-}
-set_download_limit() {
+set_limit() {
     local username="$1"
 
-    clear
-
-    echo "========== 下载限速 =========="
-    echo
-    echo "用户：$username"
-    echo
-    echo "例如：1MB"
-    echo "例如：20MB"
-    echo "输入 0 取消下载限速"
-    echo
-
-    read -rp "下载速度：" speed
-
-    if [ "$speed" = "0" ]; then
-        extended_remove_bandwidth_limiter "$username" "download"
-
-        if check_config; then
-            reload_singbox
-        fi
-
-        echo "下载限速已关闭"
-        sleep 1
-        return
-    fi
-
-    if [[ ! "$speed" =~ ^[0-9]+([KMGT]B|[kmgt]b)$ ]]; then
-        echo "格式错误，例如 20MB"
-        sleep 2
-        return
-    fi
-
-    speed=$(echo "$speed" | tr '[:lower:]' '[:upper:]')
-
-    extended_update_bandwidth_limiter \
-        "$username" \
-        "download" \
-        "$speed"
-
-    if check_config; then
-        reload_singbox
-        echo
-        echo "下载限速：$speed"
-    else
-        red "配置检查失败"
-    fi
-
-    sleep 1
-}
-set_upload_limit() {
-    local username="$1"
-
-    clear
-
-    echo "========== 上传限速 =========="
-    echo
-    echo "用户：$username"
-    echo
-    echo "例如：1MB"
-    echo "例如：10MB"
-    echo "输入 0 取消上传限速"
-    echo
-
-    read -rp "上传速度：" speed
-
-    if [ "$speed" = "0" ]; then
-        extended_remove_bandwidth_limiter "$username" "upload"
-
-        if check_config; then
-            reload_singbox
-        fi
-
-        echo "上传限速已关闭"
-        sleep 1
-        return
-    fi
-
-    if [[ ! "$speed" =~ ^[0-9]+([KMGT]B|[kmgt]b)$ ]]; then
-        echo "格式错误，例如 10MB"
-        sleep 2
-        return
-    fi
-
-    speed=$(echo "$speed" | tr '[:lower:]' '[:upper:]')
-
-    extended_update_bandwidth_limiter \
-        "$username" \
-        "upload" \
-        "$speed"
-
-    if check_config; then
-        reload_singbox
-        echo
-        echo "上传限速：$speed"
-    else
-        red "配置检查失败"
-    fi
-
-    sleep 1
-}
-set_limit_period() {
-    local user="$1"
-
-    if [ -z "$user" ]; then
+    if [ -z "$username" ]; then
         red "错误：未获取到用户名"
-        pause
+        sleep 1
         return 1
     fi
 
-    local lf="$LIMIT_DIR/${user}.json"
-
-    title "设置时间周期"
-
-    if [ ! -f "$lf" ]; then
-        red "请先设置流量限制"
-        pause
-        return
-    fi
-
-    echo "1) 每天重置"
-    echo "2) 每月重置"
-    echo "3) 不重置"
-    echo "0) 返回"
-    echo
-
-    local choice
-    read -rp "$(green "请选择: ")" choice
-
-    local period=""
-
-    case "$choice" in
-        1)
-            period="day"
-            ;;
-        2)
-            period="month"
-            ;;
-        3)
-            period="none"
-            ;;
-        0)
-            return
-            ;;
-        *)
-            red "无效选择"
-            pause
-            return
-            ;;
-    esac
-
-    "$PYTHON" "$lf" "$period" <<'PY'
-import sys
-import json
-from pathlib import Path
-from datetime import datetime, timezone
-
-filename = Path(sys.argv[1])
-period = sys.argv[2]
-
-try:
-    data = json.loads(filename.read_text(encoding="utf-8"))
-except Exception:
-    data = {}
-
-data["period"] = period
-data["enabled"] = True
-data["disabled_by_limit"] = False
-
-filename.write_text(
-    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-PY
-
-    case "$period" in
-        day)
-            green "时间周期已设置：每天"
-            ;;
-        month)
-            green "时间周期已设置：每月"
-            ;;
-        none)
-            green "时间周期已设置：一次性"
-            ;;
-    esac
-
-    echo
-
-    if check_config; then
-        reload_singbox
-        green "配置已生效"
-    else
-        red "sing-box 配置检查失败"
-    fi
-
-    pause
-}
-show_limit() {
-    local username="$1"
-    local lf="$LIMIT_DIR/${username}.json"
-
-    if [ ! -f "$lf" ]; then
-        echo "流量限制：未设置"
-        echo "流量周期：未设置"
-        return
-    fi
-
-    "$PYTHON" "$lf" <<'PY'
-import sys
-import json
-from pathlib import Path
-
-filename = Path(sys.argv[1])
-
-try:
-    data = json.loads(filename.read_text(encoding="utf-8"))
-except Exception:
-    print("流量限制：未设置")
-    print("流量周期：未设置")
-    raise SystemExit
-
-enabled = data.get("enabled", False)
-limit = data.get("limit_value", "")
-period = data.get("period", "none")
-
-if not enabled or not limit:
-    print("流量限制：未设置")
-    print("流量周期：未设置")
-    raise SystemExit
-
-period_cn = {
-    "none": "一次性",
-    "day": "每天",
-    "month": "每月"
-}.get(period, "未设置")
-
-print(f"流量限制：{limit}")
-print(f"流量周期：{period_cn}")
-PY
-}
-disable_limit() {
-    local username="$1"
-
-    mkdir -p "$LIMIT_DIR"
-
-    if [ -f "$LIMIT_DIR/${username}.json" ]; then
-        "$PYTHON" "$LIMIT_DIR/${username}.json" <<'PY'
-import sys
-import json
-from pathlib import Path
-
-filename = Path(sys.argv[1])
-
-try:
-    data = json.loads(filename.read_text(encoding="utf-8"))
-except Exception:
-    data = {}
-
-data["enabled"] = False
-data["disabled_by_limit"] = False
-data["limit_bytes"] = 0
-
-filename.write_text(
-    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-PY
-    fi
-
-    extended_remove_traffic_limiter "$username"
-
-    if check_config; then
-        reload_singbox
-    fi
-
-    echo
-    echo "用户 $username 的流量限制已关闭"
-    sleep 1
-}
-set_limit() {
-    local username="$1"
+    mkdir -p "$LIMIT_DIR" "$BACKUP_DIR"
 
     while true; do
         clear
@@ -4083,16 +3790,16 @@ set_limit() {
 
         if [ "$limit_input" = "0" ]; then
             disable_limit "$username"
-            return
+            return 0
         fi
 
         if [[ ! "$limit_input" =~ ^[0-9]+([KMGT]B|[kmgt]b)?$ ]]; then
-            echo "格式错误，例如：100GB"
+            red "格式错误，例如：100GB"
             sleep 2
             continue
         fi
 
-        limit_input=$(echo "$limit_input" | tr '[:lower:]' '[:upper:]')
+        limit_input="$(printf '%s' "$limit_input" | tr '[:lower:]' '[:upper:]')"
 
         local period="none"
 
@@ -4117,22 +3824,21 @@ set_limit() {
                 period="month"
                 ;;
             0)
-                return
+                return 0
                 ;;
             *)
-                echo "选择错误"
+                red "选择错误"
                 sleep 1
                 continue
                 ;;
         esac
 
-        mkdir -p "$LIMIT_DIR"
-
-"$PYTHON" - \
-    "$LIMIT_DIR/${username}.json" \
-    "$username" \
-    "$limit_input" \
-    "$period" <<'PY'
+        # 保存本地管理信息
+        "$PYTHON" - \
+            "$LIMIT_DIR/${username}.json" \
+            "$username" \
+            "$limit_input" \
+            "$period" <<'PY'
 import sys
 import json
 import os
@@ -4149,20 +3855,24 @@ units = {
     "KB": 1024,
     "MB": 1024 ** 2,
     "GB": 1024 ** 3,
-    "TB": 1024 ** 4
+    "TB": 1024 ** 4,
 }
 
 if limit_value.isdigit():
-    limit_bytes = int(limit_value) * 1024 ** 3
+    # 不带单位时按 GB 处理
+    limit_bytes = int(limit_value) * units["GB"]
 else:
     number = ""
     unit = ""
 
-    for c in limit_value:
-        if c.isdigit():
-            number += c
+    for char in limit_value:
+        if char.isdigit():
+            number += char
         else:
-            unit += c
+            unit += char
+
+    if not number or unit not in units:
+        raise SystemExit("invalid limit")
 
     limit_bytes = int(number) * units[unit]
 
@@ -4173,8 +3883,10 @@ data = {
     "period": period,
     "enabled": True,
     "disabled_by_limit": False,
-    "updated_at": datetime.now(timezone.utc).isoformat()
+    "updated_at": datetime.now(timezone.utc).isoformat(),
 }
+
+filename.parent.mkdir(parents=True, exist_ok=True)
 
 filename.write_text(
     json.dumps(data, ensure_ascii=False, indent=2) + "\n",
@@ -4184,10 +3896,14 @@ filename.write_text(
 os.chmod(filename, 0o600)
 PY
 
-        extended_update_traffic_limiter "$username" "$limit_input"
+        if ! extended_update_traffic_limiter "$username" "$limit_input"; then
+            red "流量限制写入 sing-box 配置失败"
+            sleep 2
+            return 1
+        fi
 
         echo
-        echo "流量限制已保存：$limit_input"
+        green "流量限制已保存：$limit_input"
 
         case "$period" in
             none)
@@ -4204,226 +3920,403 @@ PY
         echo
 
         if check_config; then
-            reload_singbox
-            green "配置已生效"
+            if reload_singbox; then
+                green "配置已生效"
+            else
+                red "sing-box 重载失败"
+            fi
         else
             red "sing-box 配置检查失败"
             echo
-            echo "请检查：$OUTBOUNDS_FILE"
+            echo "配置文件：$OUTBOUNDS_FILE"
         fi
 
+        echo
         read -rp "按回车继续..."
-        return
+        return 0
     done
 }
-extended_remove_traffic_limiter() {
+
+
+# =========================================================
+# 设置时间周期
+# =========================================================
+
+set_limit_period() {
     local username="$1"
 
-    [ -f "$OUTBOUNDS_FILE" ] || return 0
+    if [ -z "$username" ]; then
+        red "错误：未获取到用户名"
+        sleep 1
+        return 1
+    fi
 
+    local lf="$LIMIT_DIR/${username}.json"
+
+    clear
+
+    echo "========== 设置时间周期 =========="
+    echo
+    echo "用户：$username"
+    echo
+
+    if [ ! -f "$lf" ]; then
+        red "请先设置流量限制"
+        sleep 1
+        return 1
+    fi
+
+    echo "1) 每天"
+    echo "2) 每月"
+    echo "3) 不重置"
+    echo "0) 返回"
+    echo
+
+    local choice
+    read -rp "请选择：" choice
+
+    local period=""
+
+    case "$choice" in
+        1)
+            period="day"
+            ;;
+        2)
+            period="month"
+            ;;
+        3)
+            period="none"
+            ;;
+        0)
+            return 0
+            ;;
+        *)
+            red "无效选择"
+            sleep 1
+            return 1
+            ;;
+    esac
+
+    "$PYTHON" - "$lf" "$period" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+filename = Path(sys.argv[1])
+period = sys.argv[2]
+
+try:
+    data = json.loads(filename.read_text(encoding="utf-8"))
+except Exception:
+    print("配置文件读取失败")
+    raise SystemExit(1)
+
+data["period"] = period
+data["enabled"] = True
+data["disabled_by_limit"] = False
+
+filename.write_text(
+    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8"
+)
+PY
+
+    if [ $? -ne 0 ]; then
+        red "时间周期保存失败"
+        sleep 1
+        return 1
+    fi
+
+    case "$period" in
+        day)
+            green "时间周期已设置：每天"
+            ;;
+        month)
+            green "时间周期已设置：每月"
+            ;;
+        none)
+            green "时间周期已设置：一次性"
+            ;;
+    esac
+
+    echo
+    echo "当前流量限制："
+    show_limit "$username"
+
+    sleep 1
+}
+
+
+# =========================================================
+# 关闭流量限制
+# =========================================================
+
+disable_limit() {
+    local username="$1"
+
+    if [ -z "$username" ]; then
+        red "错误：未获取到用户名"
+        sleep 1
+        return 1
+    fi
+
+    mkdir -p "$LIMIT_DIR" "$BACKUP_DIR"
+
+    local lf="$LIMIT_DIR/${username}.json"
+
+    if [ -f "$lf" ]; then
+        "$PYTHON" - "$lf" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+filename = Path(sys.argv[1])
+
+try:
+    data = json.loads(filename.read_text(encoding="utf-8"))
+except Exception:
+    data = {}
+
+data["enabled"] = False
+data["disabled_by_limit"] = False
+data["limit_bytes"] = 0
+data["limit_value"] = ""
+data["period"] = "none"
+
+filename.write_text(
+    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8"
+)
+PY
+
+        if [ $? -ne 0 ]; then
+            red "本地限制文件修改失败"
+            sleep 1
+            return 1
+        fi
+    fi
+
+    if ! extended_remove_traffic_limiter "$username"; then
+        red "从 sing-box 删除流量限制失败"
+        sleep 1
+        return 1
+    fi
+
+    if check_config; then
+        if reload_singbox; then
+            green "配置已生效"
+        else
+            red "sing-box 重载失败"
+        fi
+    else
+        red "sing-box 配置检查失败"
+        sleep 2
+        return 1
+    fi
+
+    echo
+    green "用户 $username 的流量限制已关闭"
+    sleep 1
+}
+
+
+# =========================================================
+# 上传限速
+# =========================================================
+
+set_upload_limit() {
+    local username="$1"
+
+    if [ -z "$username" ]; then
+        red "错误：未获取到用户名"
+        sleep 1
+        return 1
+    fi
+
+    clear
+
+    echo "========== 上传限速 =========="
+    echo
+    echo "用户：$username"
+    echo
+    echo "例如：1MB"
+    echo "例如：10MB"
+    echo "输入 0 取消上传限速"
+    echo
+
+    read -rp "上传速度：" speed
+
+    if [ "$speed" = "0" ]; then
+        if ! extended_remove_bandwidth_limiter "$username" "upload"; then
+            red "取消上传限速失败"
+            sleep 1
+            return 1
+        fi
+
+        if check_config; then
+            reload_singbox
+            green "上传限速已关闭"
+        else
+            red "配置检查失败"
+        fi
+
+        sleep 1
+        return 0
+    fi
+
+    if [[ ! "$speed" =~ ^[0-9]+([KMGT]B|[kmgt]b)$ ]]; then
+        red "格式错误，例如 10MB"
+        sleep 2
+        return 1
+    fi
+
+    speed="$(printf '%s' "$speed" | tr '[:lower:]' '[:upper:]')"
+
+    if ! extended_update_bandwidth_limiter \
+        "$username" \
+        "upload" \
+        "$speed"; then
+        red "上传限速写入失败"
+        sleep 1
+        return 1
+    fi
+
+    if check_config; then
+        if reload_singbox; then
+            echo
+            green "上传限速：$speed"
+        else
+            red "sing-box 重载失败"
+        fi
+    else
+        red "配置检查失败"
+    fi
+
+    sleep 1
+}
+
+
+# =========================================================
+# 下载限速
+# =========================================================
+
+set_download_limit() {
+    local username="$1"
+
+    if [ -z "$username" ]; then
+        red "错误：未获取到用户名"
+        sleep 1
+        return 1
+    fi
+
+    clear
+
+    echo "========== 下载限速 =========="
+    echo
+    echo "用户：$username"
+    echo
+    echo "例如：1MB"
+    echo "例如：20MB"
+    echo "输入 0 取消下载限速"
+    echo
+
+    read -rp "下载速度：" speed
+
+    if [ "$speed" = "0" ]; then
+        if ! extended_remove_bandwidth_limiter "$username" "download"; then
+            red "取消下载限速失败"
+            sleep 1
+            return 1
+        fi
+
+        if check_config; then
+            reload_singbox
+            green "下载限速已关闭"
+        else
+            red "配置检查失败"
+        fi
+
+        sleep 1
+        return 0
+    fi
+
+    if [[ ! "$speed" =~ ^[0-9]+([KMGT]B|[kmgt]b)$ ]]; then
+        red "格式错误，例如 20MB"
+        sleep 2
+        return 1
+    fi
+
+    speed="$(printf '%s' "$speed" | tr '[:lower:]' '[:upper:]')"
+
+    if ! extended_update_bandwidth_limiter \
+        "$username" \
+        "download" \
+        "$speed"; then
+        red "下载限速写入失败"
+        sleep 1
+        return 1
+    fi
+
+    if check_config; then
+        if reload_singbox; then
+            echo
+            green "下载限速：$speed"
+        else
+            red "sing-box 重载失败"
+        fi
+    else
+        red "配置检查失败"
+    fi
+
+    sleep 1
+}
+
+
+# =========================================================
+# 写入 Bandwidth Limiter
+# =========================================================
+
+extended_update_bandwidth_limiter() {
+    local username="$1"
+    local mode="$2"
+    local speed="$3"
+
+    [ -n "$username" ] || return 1
+    [ -n "$mode" ] || return 1
+    [ -n "$speed" ] || return 1
+
+    mkdir -p "$BACKUP_DIR" "$(dirname "$OUTBOUNDS_FILE")"
+
+    ensure_extended_limiters || return 1
     backup_file "$OUTBOUNDS_FILE"
 
-    "$PYTHON" "$OUTBOUNDS_FILE" "$username" <<'PY'
+    "$PYTHON" - \
+        "$OUTBOUNDS_FILE" \
+        "$username" \
+        "$mode" \
+        "$speed" <<'PY'
 import sys
 import json
 from pathlib import Path
 
 filename = Path(sys.argv[1])
 username = sys.argv[2]
+mode = sys.argv[3]
+speed = sys.argv[4]
 
 try:
     data = json.loads(filename.read_text(encoding="utf-8"))
 except Exception:
-    raise SystemExit(0)
-
-for outbound in data.get("outbounds", []):
-    if not isinstance(outbound, dict):
-        continue
-
-    if outbound.get("type") != "traffic-limiter":
-        continue
-
-    outbound["users"] = [
-        item for item in outbound.get("users", [])
-        if item.get("name") != username
-    ]
-
-filename.write_text(
-    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-PY
-
-    chmod 600 "$OUTBOUNDS_FILE"
-}
-extended_update_traffic_limiter() {
-    local username="$1"
-    local limit="$2"
-
-    ensure_extended_limiters
-
-    backup_file "$OUTBOUNDS_FILE"
-
-    "$PYTHON" "$OUTBOUNDS_FILE" "$username" "$limit" <<'PY'
-import sys
-import json
-from pathlib import Path
-
-filename = Path(sys.argv[1])
-username = sys.argv[2]
-limit = sys.argv[3]
-
-try:
-    data = json.loads(filename.read_text(encoding="utf-8"))
-except Exception:
-    data = {}
-
-outbounds = data.setdefault("outbounds", [])
-
-traffic = None
-
-for item in outbounds:
-    if isinstance(item, dict) and item.get("type") == "traffic-limiter":
-        traffic = item
-        break
-
-if traffic is None:
-    traffic = {
-        "type": "traffic-limiter",
-        "tag": "traffic-limiter",
-        "strategy": "users",
-        "users": [],
-        "route": {
-            "rules": [],
-            "final": "direct"
-        }
-    }
-    outbounds.append(traffic)
-
-users = traffic.setdefault("users", [])
-
-users = [
-    item for item in users
-    if item.get("name") != username
-]
-
-users.append({
-    "name": username,
-    "strategy": "global",
-    "mode": "bidirectional",
-    "total": limit
-})
-
-traffic["users"] = users
-traffic["strategy"] = "users"
-
-traffic.setdefault("route", {
-    "rules": [],
-    "final": "direct"
-})
-
-filename.write_text(
-    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-PY
-
-    chmod 600 "$OUTBOUNDS_FILE"
-}
-ensure_limiter_route() {
-    "$PYTHON" "$ROUTE_FILE" <<'PY'
-import sys
-import json
-from pathlib import Path
-
-filename = Path(sys.argv[1])
-
-try:
-    data = json.loads(filename.read_text(encoding="utf-8"))
-except Exception:
-    data = {}
-
-if not isinstance(data, dict):
-    data = {}
-
-route = data.setdefault("route", {})
-
-if not isinstance(route, dict):
-    route = {}
-    data["route"] = route
-
-route["final"] = "bandwidth-limiter"
-
-filename.write_text(
-    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-    encoding="utf-8"
-)
-PY
-
-    chmod 600 "$ROUTE_FILE"
-}
-ensure_extended_limiters() {
-    "$PYTHON" "$OUTBOUNDS_FILE" <<'PY'
-import sys
-import json
-from pathlib import Path
-
-filename = Path(sys.argv[1])
-
-try:
-    data = json.loads(filename.read_text(encoding="utf-8"))
-except Exception:
-    data = {}
+    print("outbounds.json 读取失败", file=sys.stderr)
+    raise SystemExit(1)
 
 if not isinstance(data, dict):
     data = {}
 
 outbounds = data.setdefault("outbounds", [])
-
 if not isinstance(outbounds, list):
     outbounds = []
     data["outbounds"] = outbounds
-
-
-# =========================
-# Traffic Limiter
-# =========================
-
-traffic = None
-
-for item in outbounds:
-    if isinstance(item, dict) and item.get("type") == "traffic-limiter":
-        traffic = item
-        break
-
-if traffic is None:
-    traffic = {
-        "type": "traffic-limiter",
-        "tag": "traffic-limiter",
-        "strategy": "users",
-        "users": [],
-        "route": {
-            "rules": [],
-            "final": "direct"
-        }
-    }
-    outbounds.append(traffic)
-
-else:
-    traffic.setdefault("tag", "traffic-limiter")
-    traffic["strategy"] = "users"
-    traffic.setdefault("users", [])
-
-    if "route" not in traffic:
-        traffic["route"] = {
-            "rules": [],
-            "final": "direct"
-        }
-
-
-# =========================
-# Bandwidth Limiter
-# =========================
 
 bandwidth = None
 
@@ -4446,47 +4339,539 @@ if bandwidth is None:
     }
     outbounds.append(bandwidth)
 
+bandwidth["tag"] = "bandwidth-limiter"
+bandwidth["strategy"] = "users"
+bandwidth["flow_keys"] = ["user"]
+
+users = bandwidth.get("users", [])
+if not isinstance(users, list):
+    users = []
+
+new_users = []
+
+for item in users:
+    if not isinstance(item, dict):
+        continue
+
+    if item.get("name") == username and item.get("mode") == mode:
+        continue
+
+    new_users.append(item)
+
+new_users.append({
+    "name": username,
+    "strategy": "connection",
+    "mode": mode,
+    "connection_type": "hwid",
+    "speed": speed
+})
+
+bandwidth["users"] = new_users
+
+route = bandwidth.get("route")
+if not isinstance(route, dict):
+    route = {}
+    bandwidth["route"] = route
+
+route["rules"] = []
+route["final"] = "traffic-limiter"
+
+filename.write_text(
+    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8"
+)
+PY
+
+    local rc=$?
+
+    chmod 600 "$OUTBOUNDS_FILE" 2>/dev/null || true
+
+    return "$rc"
+}
+
+
+# =========================================================
+# 删除 Bandwidth Limiter
+# =========================================================
+
+extended_remove_bandwidth_limiter() {
+    local username="$1"
+    local mode="$2"
+
+    [ -n "$username" ] || return 1
+    [ -n "$mode" ] || return 1
+
+    [ -f "$OUTBOUNDS_FILE" ] || return 0
+
+    mkdir -p "$BACKUP_DIR"
+    backup_file "$OUTBOUNDS_FILE"
+
+    "$PYTHON" - \
+        "$OUTBOUNDS_FILE" \
+        "$username" \
+        "$mode" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+filename = Path(sys.argv[1])
+username = sys.argv[2]
+mode = sys.argv[3]
+
+try:
+    data = json.loads(filename.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+
+if not isinstance(data, dict):
+    raise SystemExit(1)
+
+outbounds = data.get("outbounds", [])
+if not isinstance(outbounds, list):
+    raise SystemExit(1)
+
+for outbound in outbounds:
+    if not isinstance(outbound, dict):
+        continue
+
+    if outbound.get("type") != "bandwidth-limiter":
+        continue
+
+    users = outbound.get("users", [])
+    if not isinstance(users, list):
+        users = []
+
+    outbound["users"] = [
+        item for item in users
+        if not (
+            isinstance(item, dict)
+            and item.get("name") == username
+            and item.get("mode") == mode
+        )
+    ]
+
+filename.write_text(
+    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8"
+)
+PY
+
+    local rc=$?
+
+    chmod 600 "$OUTBOUNDS_FILE" 2>/dev/null || true
+
+    return "$rc"
+}
+
+
+# =========================================================
+# 写入 Traffic Limiter
+# =========================================================
+
+extended_update_traffic_limiter() {
+    local username="$1"
+    local limit="$2"
+
+    [ -n "$username" ] || return 1
+    [ -n "$limit" ] || return 1
+
+    mkdir -p "$BACKUP_DIR" "$(dirname "$OUTBOUNDS_FILE")"
+
+    ensure_extended_limiters || return 1
+    backup_file "$OUTBOUNDS_FILE"
+
+    "$PYTHON" - \
+        "$OUTBOUNDS_FILE" \
+        "$username" \
+        "$limit" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+filename = Path(sys.argv[1])
+username = sys.argv[2]
+limit = sys.argv[3]
+
+try:
+    data = json.loads(filename.read_text(encoding="utf-8"))
+except Exception:
+    print("outbounds.json 读取失败", file=sys.stderr)
+    raise SystemExit(1)
+
+if not isinstance(data, dict):
+    data = {}
+
+outbounds = data.setdefault("outbounds", [])
+if not isinstance(outbounds, list):
+    outbounds = []
+    data["outbounds"] = outbounds
+
+traffic = None
+
+for item in outbounds:
+    if isinstance(item, dict) and item.get("type") == "traffic-limiter":
+        traffic = item
+        break
+
+if traffic is None:
+    traffic = {
+        "type": "traffic-limiter",
+        "tag": "traffic-limiter",
+        "strategy": "users",
+        "users": [],
+        "route": {
+            "rules": [],
+            "final": "direct"
+        }
+    }
+    outbounds.append(traffic)
+
+traffic["tag"] = "traffic-limiter"
+traffic["strategy"] = "users"
+
+users = traffic.get("users", [])
+if not isinstance(users, list):
+    users = []
+
+new_users = []
+
+for item in users:
+    if not isinstance(item, dict):
+        continue
+
+    if item.get("name") == username:
+        continue
+
+    new_users.append(item)
+
+new_users.append({
+    "name": username,
+    "strategy": "global",
+    "mode": "bidirectional",
+    "total": limit
+})
+
+traffic["users"] = new_users
+
+route = traffic.get("route")
+if not isinstance(route, dict):
+    route = {}
+    traffic["route"] = route
+
+route["rules"] = []
+route["final"] = "direct"
+
+filename.write_text(
+    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8"
+)
+PY
+
+    local rc=$?
+
+    chmod 600 "$OUTBOUNDS_FILE" 2>/dev/null || true
+
+    return "$rc"
+}
+
+
+# =========================================================
+# 删除 Traffic Limiter
+# =========================================================
+
+extended_remove_traffic_limiter() {
+    local username="$1"
+
+    [ -n "$username" ] || return 1
+    [ -f "$OUTBOUNDS_FILE" ] || return 0
+
+    mkdir -p "$BACKUP_DIR"
+    backup_file "$OUTBOUNDS_FILE"
+
+    "$PYTHON" - \
+        "$OUTBOUNDS_FILE" \
+        "$username" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+filename = Path(sys.argv[1])
+username = sys.argv[2]
+
+try:
+    data = json.loads(filename.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+
+if not isinstance(data, dict):
+    raise SystemExit(1)
+
+outbounds = data.get("outbounds", [])
+if not isinstance(outbounds, list):
+    raise SystemExit(1)
+
+for outbound in outbounds:
+    if not isinstance(outbound, dict):
+        continue
+
+    if outbound.get("type") != "traffic-limiter":
+        continue
+
+    users = outbound.get("users", [])
+    if not isinstance(users, list):
+        users = []
+
+    outbound["users"] = [
+        item for item in users
+        if not (
+            isinstance(item, dict)
+            and item.get("name") == username
+        )
+    ]
+
+filename.write_text(
+    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8"
+)
+PY
+
+    local rc=$?
+
+    chmod 600 "$OUTBOUNDS_FILE" 2>/dev/null || true
+
+    return "$rc"
+}
+
+
+# =========================================================
+# 初始化两个 Limiter
+# =========================================================
+
+ensure_extended_limiters() {
+    [ -n "$OUTBOUNDS_FILE" ] || return 1
+
+    mkdir -p "$(dirname "$OUTBOUNDS_FILE")"
+
+    if [ ! -f "$OUTBOUNDS_FILE" ]; then
+        printf '%s\n' '{"outbounds":[]}' > "$OUTBOUNDS_FILE"
+    fi
+
+    "$PYTHON" - "$OUTBOUNDS_FILE" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+filename = Path(sys.argv[1])
+
+try:
+    data = json.loads(filename.read_text(encoding="utf-8"))
+except Exception:
+    data = {}
+
+if not isinstance(data, dict):
+    data = {}
+
+outbounds = data.setdefault("outbounds", [])
+
+if not isinstance(outbounds, list):
+    outbounds = []
+    data["outbounds"] = outbounds
+
+
+# =========================================================
+# Traffic Limiter
+# =========================================================
+
+traffic = None
+
+for item in outbounds:
+    if isinstance(item, dict) and item.get("type") == "traffic-limiter":
+        traffic = item
+        break
+
+if traffic is None:
+    traffic = {
+        "type": "traffic-limiter",
+        "tag": "traffic-limiter",
+        "strategy": "users",
+        "users": [],
+        "route": {
+            "rules": [],
+            "final": "direct"
+        }
+    }
+    outbounds.append(traffic)
 else:
-    bandwidth.setdefault("tag", "bandwidth-limiter")
+    traffic["tag"] = "traffic-limiter"
+    traffic["strategy"] = "users"
+
+    users = traffic.get("users")
+    if not isinstance(users, list):
+        traffic["users"] = []
+
+    route = traffic.get("route")
+    if not isinstance(route, dict):
+        traffic["route"] = {
+            "rules": [],
+            "final": "direct"
+        }
+    else:
+        route["rules"] = []
+        route["final"] = "direct"
+
+
+# =========================================================
+# Bandwidth Limiter
+# =========================================================
+
+bandwidth = None
+
+for item in outbounds:
+    if isinstance(item, dict) and item.get("type") == "bandwidth-limiter":
+        bandwidth = item
+        break
+
+if bandwidth is None:
+    bandwidth = {
+        "type": "bandwidth-limiter",
+        "tag": "bandwidth-limiter",
+        "strategy": "users",
+        "flow_keys": ["user"],
+        "users": [],
+        "route": {
+            "rules": [],
+            "final": "traffic-limiter"
+        }
+    }
+    outbounds.append(bandwidth)
+else:
+    bandwidth["tag"] = "bandwidth-limiter"
     bandwidth["strategy"] = "users"
     bandwidth["flow_keys"] = ["user"]
-    bandwidth.setdefault("users", [])
 
-    if "route" not in bandwidth:
+    users = bandwidth.get("users")
+    if not isinstance(users, list):
+        bandwidth["users"] = []
+
+    route = bandwidth.get("route")
+    if not isinstance(route, dict):
         bandwidth["route"] = {
             "rules": [],
             "final": "traffic-limiter"
         }
+    else:
+        route["rules"] = []
+        route["final"] = "traffic-limiter"
 
 
 filename.write_text(
     json.dumps(data, ensure_ascii=False, indent=2) + "\n",
     encoding="utf-8"
 )
-
 PY
 
-    chmod 600 "$OUTBOUNDS_FILE"
+    local rc=$?
+
+    chmod 600 "$OUTBOUNDS_FILE" 2>/dev/null || true
+
+    return "$rc"
 }
+
+
+# =========================================================
+# 确保主路由进入 Bandwidth Limiter
+# =========================================================
+
+ensure_limiter_route() {
+    [ -n "$ROUTE_FILE" ] || return 1
+
+    mkdir -p "$(dirname "$ROUTE_FILE")"
+
+    if [ ! -f "$ROUTE_FILE" ]; then
+        printf '%s\n' '{"route":{"final":"bandwidth-limiter"}}' > "$ROUTE_FILE"
+        chmod 600 "$ROUTE_FILE"
+        return 0
+    fi
+
+    "$PYTHON" - "$ROUTE_FILE" <<'PY'
+import sys
+import json
+from pathlib import Path
+
+filename = Path(sys.argv[1])
+
+try:
+    data = json.loads(filename.read_text(encoding="utf-8"))
+except Exception:
+    data = {}
+
+if not isinstance(data, dict):
+    data = {}
+
+route = data.get("route")
+
+if not isinstance(route, dict):
+    route = {}
+    data["route"] = route
+
+route["final"] = "bandwidth-limiter"
+
+filename.write_text(
+    json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    encoding="utf-8"
+)
+PY
+
+    local rc=$?
+
+    chmod 600 "$ROUTE_FILE" 2>/dev/null || true
+
+    return "$rc"
+}
+
+
+# =========================================================
+# sing-box 配置检查
+# =========================================================
+
 check_config() {
-    "$SINGBOX" check -C "$CONF_DIR" >/dev/null 2>&1
-    return $?
+    if [ ! -x "$SINGBOX" ]; then
+        red "sing-box 程序不存在：$SINGBOX"
+        return 1
+    fi
+
+    if [ ! -d "$CONF_DIR" ]; then
+        red "配置目录不存在：$CONF_DIR"
+        return 1
+    fi
+
+    "$SINGBOX" check -C "$CONF_DIR"
 }
+
+
+# =========================================================
+# 重载 sing-box
+# =========================================================
 
 reload_singbox() {
-    systemctl reload "$SERVICE" >/dev/null 2>&1
-
-    if [ $? -eq 0 ]; then
+    if systemctl reload "$SERVICE" >/dev/null 2>&1; then
         return 0
     fi
 
     systemctl restart "$SERVICE" >/dev/null 2>&1
-    return $?
 }
+
+
+# =========================================================
+# 配置备份
+# =========================================================
+
 backup_file() {
     local file="$1"
 
     [ -f "$file" ] || return 0
+
+    mkdir -p "$BACKUP_DIR"
 
     local name
     name="$(basename "$file")"
@@ -4494,7 +4879,6 @@ backup_file() {
     cp -a "$file" \
         "$BACKUP_DIR/${name}.$(date +%Y%m%d_%H%M%S).bak"
 }
-
 
 
 
@@ -12238,7 +12622,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.6===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.7===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
