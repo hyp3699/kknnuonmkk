@@ -6223,7 +6223,10 @@ def generate_sub_path():
         if not duplicated:
             return location
 
-sub_path = generate_sub_path()
+if input_path:
+    sub_path = input_path
+else:
+    sub_path = generate_sub_path()
 path_file = os.path.join(user_dir, f"{username}-path")
 with open(path_file, "w", encoding="utf-8") as f:
     f.write(sub_path)
@@ -7532,21 +7535,30 @@ echo
 		3)
     local user_dir="/etc/sing-box/url/$username"
     local uuid_file="$user_dir/${username}-uuid"
+    local path_file="$user_dir/${username}-path"
     if [ ! -f "$uuid_file" ]; then
         red "用户 UUID 文件不存在"
         sleep 1
         continue
     fi
-    local old_username=""
-    local old_uuid=""
-    old_username=$(sed -n '1p' "$uuid_file" | tr -d '[:space:]')
-    old_uuid=$(sed -n '2p' "$uuid_file" | tr -d '[:space:]')
-    if [ -z "$old_username" ] || [ -z "$old_uuid" ]; then
-        red "无法读取用户信息"
+
+    if [ ! -f "$path_file" ]; then
+        red "用户订阅路径文件不存在"
         sleep 1
         continue
     fi
-    add_user_menu "$old_username" "$old_uuid"
+    local old_username
+    local old_uuid
+    local old_path
+    old_username=$(sed -n '1p' "$uuid_file" | tr -d '[:space:]')
+    old_uuid=$(sed -n '2p' "$uuid_file" | tr -d '[:space:]')
+    old_path=$(cat "$path_file" | tr -d '[:space:]')
+    if [ -z "$old_username" ] || [ -z "$old_uuid" ] || [ -z "$old_path" ]; then
+        red "无法完整读取用户信息"
+        sleep 1
+        continue
+    fi
+    add_user_menu "$old_username" "$old_uuid" "$old_path"
     ;;
         0)
         return
