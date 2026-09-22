@@ -5854,8 +5854,20 @@ max_num="$n"
 fi
 done
 shopt -u nullglob
-local username="test-user-$((max_num + 1))"
+local input_username="${1:-}"
+local input_uuid="${2:-}"
+local username
 local uuid
+if [[ -n "$input_username" ]]; then
+    username="$input_username"
+else
+    username="test-user-$((max_num + 1))"
+fi
+if [[ -n "$input_uuid" ]]; then
+    uuid="$input_uuid"
+else
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+fi
 uuid=$(cat /proc/sys/kernel/random/uuid)
 while true; do
 clear
@@ -5931,7 +5943,18 @@ selected_data+=$'\n'
 fi
 selected_data+="$f"
 done
-SELECTED_DATA="$selected_data" USERNAME="$username" USER_UUID="$uuid" MAIN_CONFIG="$MAIN_CONFIG" URL_DIR="$URL_DIR" NGINX_USER_CONF_DIR="$NGINX_USER_CONF_DIR" python3 - <<'PY'
+local force_overwrite=0
+if [[ -n "$input_username" ]]; then
+    force_overwrite=1
+fi
+SELECTED_DATA="$selected_data" \
+USERNAME="$username" \
+USER_UUID="$uuid" \
+MAIN_CONFIG="$MAIN_CONFIG" \
+URL_DIR="$URL_DIR" \
+NGINX_USER_CONF_DIR="$NGINX_USER_CONF_DIR" \
+FORCE_OVERWRITE="$force_overwrite" \
+python3 - <<'PY'
 import os
 import json
 import base64
@@ -5946,7 +5969,11 @@ user_uuid = os.environ["USER_UUID"]
 main_config = os.environ["MAIN_CONFIG"]
 url_dir = os.environ["URL_DIR"]
 nginx_user_conf_dir = os.environ["NGINX_USER_CONF_DIR"]
+force_overwrite = os.environ.get("FORCE_OVERWRITE", "0") == "1"
 user_dir = os.path.join(url_dir, username)
+if force_overwrite and os.path.isdir(user_dir):
+    import shutil
+    shutil.rmtree(user_dir)
 os.makedirs(user_dir, exist_ok=True)
 os.chmod(user_dir, 0o755)
 
@@ -5956,7 +5983,7 @@ sub_file = os.path.join(user_dir, f"{username}-sub")
 
 with open(uuid_file, "w", encoding="utf-8") as f:
     f.write(f"{username}\n{user_uuid}\n")
-os.chmod(uuid_file, 0o600)
+os.chmod(uuid_file, 0o644)
 
 selected_data = os.environ["SELECTED_DATA"]
 selected = [x for x in selected_data.splitlines() if x.strip()]
@@ -7425,6 +7452,7 @@ echo
         red "s. 删除用户"
         green "1. 流量限制"
         green "2. 查看订阅连接"
+		green "3. 重新添加协议"
         echo
         green "------------------------------------------"
         green "0. 返回"
@@ -7499,6 +7527,25 @@ echo
         echo
         read -rp "按回车返回..."
         ;;
+		3)
+    local user_dir="/etc/sing-box/url/$username"
+    local uuid_file="$user_dir/${username}-uuid"
+    if [ ! -f "$uuid_file" ]; then
+        red "用户 UUID 文件不存在"
+        sleep 1
+        continue
+    fi
+    local old_username=""
+    local old_uuid=""
+    old_username=$(sed -n '1p' "$uuid_file" | tr -d '[:space:]')
+    old_uuid=$(sed -n '2p' "$uuid_file" | tr -d '[:space:]')
+    if [ -z "$old_username" ] || [ -z "$old_uuid" ]; then
+        red "无法读取用户信息"
+        sleep 1
+        continue
+    fi
+    add_user_menu "$old_username" "$old_uuid"
+    ;;
         0)
         return
         ;;
