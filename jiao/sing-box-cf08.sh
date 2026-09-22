@@ -6427,6 +6427,7 @@ EOF
 	   hysteria2)
 	generate_vars
     server_ip=$(get_realip)
+	fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
 	echo -e "\n请选择 TLS 证书类型:"
     echo -e " 1) \e[32m使用自签名证书\e[0m"
     echo -e " 2) \e[32m使用真实域名证书\e[0m"
