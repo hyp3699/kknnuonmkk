@@ -5704,8 +5704,8 @@ if [[ "$need_ssl_init" -eq 1 ]]; then
 
     cat > "$NGINX_MAIN_CONF" <<NGINX_EOF
 server {
-    listen ${sub_port} ssl;
-    listen [::]:${sub_port} ssl;
+	listen ${sub_port} ssl http2;
+    listen [::]:${sub_port} ssl http2;
     server_name ${domain};
 
     ssl_certificate ${cert_file};
@@ -5760,12 +5760,15 @@ def format_bytes(value):
         return f"{value/1024:.2f} KB"
     return f"{int(value)} B"
 
-def load_json(path):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+import time
+def load_json(path, retries=3, delay=0.05):
+    for _ in range(retries):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            time.sleep(delay)
+    return {}
 
 def make_subscription(username):
     if not re.fullmatch(r"[A-Za-z0-9._-]+", username):
