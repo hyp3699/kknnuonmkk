@@ -275,6 +275,7 @@ check_configs() {
     for i in "${!errors[@]}"; do
         red "$((i + 1)). ${errors[$i]}"
     done
+    echo
     green "选择文件进入编辑,  例如：1 或 1n"
     green "========== 编辑器操作说明 =========="
     green "Micro："
