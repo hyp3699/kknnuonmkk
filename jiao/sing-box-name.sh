@@ -236,12 +236,14 @@ def atomic_write_json(path, data, mode=0o600):
                 os.unlink(tmp)
             except FileNotFoundError:
                 pass
-def load_json(path, default):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
+def load_json(path, default, retries=3, delay=0.05):
+    for _ in range(retries):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            time.sleep(delay)
+    return default
 def save_state(state):
     atomic_write_json(STATE_FILE, state, 0o600)
 def period_window(period, now=None):
