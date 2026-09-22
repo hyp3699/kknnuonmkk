@@ -258,9 +258,9 @@ check_configs() {
     for i in "${!errors[@]}"; do
         red "$((i + 1)). ${errors[$i]}"
     done
-    green "输入数字：Micro 编辑"
-    green "输入数字+n：Nano 编辑"
-    green "例如：1 或 1n"
+    echo
+    green "选择文件进入编辑,  例如：1 或 1n"
+    echo
 green "========== 编辑器操作说明 =========="
 green "Micro："
 echo "  保存：Ctrl + S"
