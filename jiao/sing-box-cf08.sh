@@ -6786,7 +6786,67 @@ EOF
     echo "$url"
     green "--------------------------------------------------"
     ;;
-        xhttp-reality) green "这里接入 XHTTP Reality 创建逻辑" ;;
+        xhttp-reality)
+    generate_vars
+    server_ip=$(get_realip)
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "xhttp-reality-${inbound_number}",
+      "listen": "::",
+      "listen_port": $xray_xhttp_reality,
+      "users": [
+        {
+          "name": "xhttp-reality-user${inbound_number}",
+          "uuid": "$uuid",
+          "flow": "xtls-rprx-vision"
+        },
+		{
+          "name": "tttttt",
+          "uuid": "$uuid99",
+          "flow": "xtls-rprx-vision"
+        }
+      ],
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "www.iij.ad.jp:443",
+          "xver": 0,
+          "serverNames": [
+            "www.iij.ad.jp"
+          ],
+          "privateKey": "$private_key",
+          "shortIds": [
+            "$short_id"
+          ]
+        },
+        "xhttpSettings": {
+          "path": "/xhttp",
+          "mode": "auto"
+        }
+      }
+    }
+  ]
+}
+EOF
+    allow_port "$xray_xhttp_reality/tcp" >/dev/null 2>&1
+	node_remark="${isp}vless_xhttp_reality"
+	add_v2ray_api_user "xhttp-reality-user${inbound_number}"
+    url="vless://${uuid}@${server_ip}:${xray_xhttp_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+	restart_service="singbox"
+	update_sub_file
+    systemctl reload sing-box
+	green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
+    ;;
         xhttp-cdn) green "这里接入 XHTTP CDN 创建逻辑" ;;
         xhttp-cdn-tls) green "这里接入 XHTTP CDN TLS 创建逻辑" ;;
         xhttp-udp-tls) green "这里接入 XHTTP UDP TLS 创建逻辑" ;;
