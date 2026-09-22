@@ -3193,18 +3193,7 @@ cat > "${config_dir}" << EOF
         "server": "time.apple.com",
         "server_port": 123,
         "interval": "60m"
-   },
-    "experimental": {
-    "v2ray_api": {
-      "listen": "127.0.0.1:9094",
-      "stats": {
-        "enabled": true,
-        "users": [
-          
-        ]
-      }
-    }
-  }
+   }
 }
 EOF
 cat > "${conf_dir}/outbounds.json" << EOF
@@ -3219,31 +3208,6 @@ cat > "${conf_dir}/outbounds.json" << EOF
       "tag": "warp-40000",
       "server": "127.0.0.1",
       "server_port": 40000
-    }
-  ]
-}
-EOF
-    cat > "${conf_dir}/endpoints.json" << EOF
-{
-  "endpoints": [
-    {
-      "type": "wireguard",
-      "tag": "wireguard-out",
-      "mtu": 1280,
-      "address": [
-        "172.16.0.2/32",
-        "2606:4700:110:8dfe:d141:69bb:6b80:925/128"
-      ],
-      "private_key": "YFYOAdbw1bKTHlNNi+aEjBM3BO7unuFC5rOkMRAz9XY=",
-      "peers": [
-        {
-          "address": "engage.cloudflareclient.com",
-          "port": 2408,
-          "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-          "allowed_ips": ["0.0.0.0/0", "::/0"],
-          "reserved": [78, 135, 76]
-        }
-      ]
     }
   ]
 }
