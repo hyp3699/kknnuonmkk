@@ -272,7 +272,7 @@ check_configs() {
     green "数字：Micro 编辑"
     green "数字+n：Nano 编辑"
     green "例如：1 或 1n"
-green "=========== 编辑器操作说明 ==========="
+green "========== 编辑器操作说明 =========="
 echo
 green "Micro："
 echo "  保存：Ctrl + S"
