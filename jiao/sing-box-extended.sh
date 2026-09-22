@@ -4128,10 +4128,11 @@ set_limit() {
 
         mkdir -p "$LIMIT_DIR"
 
-        "$PYTHON" "$LIMIT_DIR/${username}.json" \
-            "$username" \
-            "$limit_input" \
-            "$period" <<'PY'
+"$PYTHON" - \
+    "$LIMIT_DIR/${username}.json" \
+    "$username" \
+    "$limit_input" \
+    "$period" <<'PY'
 import sys
 import json
 import os
@@ -7710,17 +7711,7 @@ manage_single_inbound() {
         green "类型：${inbound_type}"
         green "路径：${config_file}"
         echo
-
-        # ================= 流量限制 =================
-        echo -e "${skyblue}流量限制${re}"
-        show_limit "$traffic_user"
-
-        echo
-        echo -e "${skyblue}带宽限制${re}"
-        show_bandwidth_limit "$traffic_user"
-
-        green "-------------------------------------------"
-
+    
         red "s. 删除入站"
         green "1. 修改UUID"
         green "2. 修改端口"
@@ -12247,7 +12238,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.5===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.6===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
