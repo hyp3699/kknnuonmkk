@@ -7541,7 +7541,6 @@ echo
         sleep 1
         continue
     fi
-
     if [ ! -f "$path_file" ]; then
         red "用户订阅路径文件不存在"
         sleep 1
@@ -7558,6 +7557,7 @@ echo
         sleep 1
         continue
     fi
+    delete_user "$old_username" 1
     add_user_menu "$old_username" "$old_uuid" "$old_path"
     ;;
         0)
@@ -7742,13 +7742,16 @@ delete_inbound() {
     sleep 1
     return 0
 }
+
 delete_user() {
     local username="$1"
+    local force_delete="${2:-0}"
     if [ -z "$username" ]; then
         red "错误：用户名不能为空"
         sleep 1
         return 1
     fi
+    if [[ "$force_delete" != "1" ]]; then
     echo
     red "确定删除用户：${username}？"
     yellow "会从所有入站中删除该用户。"
@@ -7756,6 +7759,7 @@ delete_user() {
     echo
     read -rp "输入 y 确认删除: " confirm
     [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return 1
+    fi
     if ! [[ "$username" =~ ^[a-zA-Z0-9._-]+$ ]]; then
         red "错误：用户名格式无效"
         sleep 1
