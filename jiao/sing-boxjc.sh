@@ -270,9 +270,22 @@ check_configs() {
     done
 
     echo
-    green "输入数字：Micro 编辑"
-    green "输入数字+n：Nano 编辑"
+    green "数字：Micro 编辑"
+    green "数字+n：Nano 编辑"
     green "例如：1 或 1n"
+    echo
+green "=========== 编辑器操作说明 ==========="
+echo
+green "Micro："
+echo "  保存：Ctrl + S"
+echo "  退出：Ctrl + Q"
+echo
+green "Nano："
+echo "  保存：Ctrl + O，然后按 Enter"
+echo "  退出：Ctrl + X"
+echo
+green "==================================="
+echo
     green "0. 返回"
     echo
 
@@ -375,13 +388,9 @@ get_error_position() {
     local line=""
     local column=""
 
-    if [[ "$text" =~ [Ll]ine[[:space:]]+([0-9]+)[,]?[[:space:]]+[Cc]olumn[[:space:]]+([0-9]+) ]]; then
-        line="${BASH_REMATCH[1]}"
-        column="${BASH_REMATCH[2]}"
-    elif [[ "$text" =~ [Ll]ine[[:space:]]+([0-9]+) ]]; then
-        line="${BASH_REMATCH[1]}"
-        column="1"
-    elif [[ "$text" =~ :([0-9]+):([0-9]+) ]]; then
+    # sing-box:
+    # row 8, column 7
+    if [[ "$text" =~ row[[:space:]]+([0-9]+),[[:space:]]+column[[:space:]]+([0-9]+) ]]; then
         line="${BASH_REMATCH[1]}"
         column="${BASH_REMATCH[2]}"
     fi
