@@ -7560,7 +7560,7 @@ echo
         sleep 1
         continue
     fi
-    delete_user "$old_username" 1
+	delete_user "$old_username" 1 1
     add_user_menu "$old_username" "$old_uuid" "$old_path"
     ;;
         0)
@@ -7748,7 +7748,8 @@ delete_inbound() {
 
 delete_user() {
     local username="$1"
-    local force_delete="${2:-0}"
+	local force_delete="${2:-0}"
+    local preserve_data="${3:-0}"
     if [ -z "$username" ]; then
         red "错误：用户名不能为空"
         sleep 1
@@ -7773,7 +7774,8 @@ delete_user() {
         sleep 1
         return 1
     fi
-    python3 - "$CONF_DIR" "$TRAFFIC_STATE" "$LIMIT_DIR" "$URL_DIR" "$username" <<'PY'
+ 
+   python3 - "$CONF_DIR" "$TRAFFIC_STATE" "$LIMIT_DIR" "$URL_DIR" "$username" "$preserve_data" <<'PY'
 import json
 import sys
 import shutil
@@ -7783,6 +7785,7 @@ traffic_state = Path(sys.argv[2])
 limit_dir = Path(sys.argv[3])
 url_dir = Path(sys.argv[4])
 username = sys.argv[5]
+preserve_data = sys.argv[6] == "1"
 def atomic_write(path, data):
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(
@@ -7843,7 +7846,7 @@ if config_file.exists():
             atomic_write(config_file, cfg)
     except Exception:
         pass
-if traffic_state.exists():
+if not preserve_data and traffic_state.exists():
     try:
         state = json.loads(traffic_state.read_text(encoding="utf-8"))
         if isinstance(state, dict):
@@ -7852,20 +7855,23 @@ if traffic_state.exists():
             if isinstance(users, dict) and username in users:
                 del users[username]
                 changed = True
+
             counters = state.get("stats_counters")
             if isinstance(counters, dict) and username in counters:
                 del counters[username]
                 changed = True
+
             if changed:
                 atomic_write(traffic_state, state)
     except Exception:
         pass
-limit_file = limit_dir / f"{username}.json"
-try:
-    if limit_file.exists():
-        limit_file.unlink()
-except Exception:
-    pass
+if not preserve_data:
+    limit_file = limit_dir / f"{username}.json"
+    try:
+        if limit_file.exists():
+            limit_file.unlink()
+    except Exception:
+        pass
 user_dir = url_dir / username
 try:
     if user_dir.exists() and user_dir.is_dir():
@@ -7893,14 +7899,13 @@ PY
         fi
     fi
     update_sub_file
-    if [[ "$auto_confirm" != "1" ]]; then
+    if [[ "$force_delete" != "1" ]]; then
     green "==============================================="
     green " 用户已删除：${username}"
     green "==============================================="
     echo
     sleep 1
     fi
-    return 2
 }
 
 #更新脚本
