@@ -3101,11 +3101,10 @@ install_singbox() {
         's390x') ARCH='s390x' ;;
         *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
     esac
-
     [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
 
     # 下载sing-box,cloudflared
-    latest_version=$(curl -fsSL "https://api.github.com/repos/shtorm-7/sing-box-extended/releases/latest" | jq -r '.tag_name')
+    latest_version=$(curl -s "https://api.github.com/repos/shtorm-7/sing-box-extended/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
 
     work_dir=${work_dir:-/etc/sing-box}
     mkdir -p "$work_dir"
@@ -3125,24 +3124,16 @@ install_singbox() {
         LIBC=glibc
     fi
 
-    latest_version=$(curl -fsSL "https://api.github.com/repos/shtorm-7/sing-box-extended/releases/latest" | jq -r '.tag_name')
+    latest_version=$(curl -s "https://api.github.com/repos/shtorm-7/sing-box-extended/releases" | jq -r '[.[]|select(.prerelease==false)][0].tag_name|sub("^v";"")')
 
-    RELEASE_JSON=$(curl -fsSL "https://api.github.com/repos/shtorm-7/sing-box-extended/releases/tags/${latest_version}")
+    TAR="sing-box-${latest_version}-linux-${ARCH}.tar.gz"
+    URL="https://github.com/shtorm-7/sing-box-extended/releases/download/v${latest_version}/${TAR}"
 
-    URL=$(echo "$RELEASE_JSON" | jq -r --arg ARCH "$ARCH" '
-        .assets[].browser_download_url
-        | select(
-            ($ARCH == "amd64" and endswith("-amd64.deb")) or
-            ($ARCH == "arm64" and endswith("-arm64.deb")) or
-            ($ARCH == "armv7l" and endswith("-armv7l.deb"))
-        )
-    ' | head -n1)
-
-    curl -fSL -o "${work_dir}/sing-box.deb" "$URL" &&
-    dpkg-deb -x "${work_dir}/sing-box.deb" "${work_dir}/sb-extract" &&
-    mv "${work_dir}/sb-extract/usr/bin/sing-box" "${work_dir}/sing-box" &&
-    chmod +x "${work_dir}/sing-box" &&
-    rm -rf "${work_dir}/sing-box.deb" "${work_dir}/sb-extract"
+    curl -fSL -o "${work_dir}/${TAR}" "$URL" && \
+    tar -xzf "${work_dir}/${TAR}" -C "$work_dir" && \
+    mv "${work_dir}/sing-box-${latest_version}-linux-${ARCH}/sing-box" "${work_dir}/sing-box" && \
+    chmod +x "${work_dir}/sing-box" && \
+    rm -rf "${work_dir}/${TAR}" "${work_dir}/sing-box-${latest_version}-linux-${ARCH}"
 
     chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
 
