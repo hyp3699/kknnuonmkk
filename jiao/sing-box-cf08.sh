@@ -7869,7 +7869,7 @@ try:
         shutil.rmtree(user_dir)
 except Exception:
     pass
-nginx_conf = Path("/etc/nginx/conf.d") / f"{username}.conf"
+nginx_conf = Path("/etc/nginx/conf.d/singbox_users") / f"{username}.conf"
 try:
     if nginx_conf.exists():
         nginx_conf.unlink()
@@ -7890,11 +7890,13 @@ PY
         fi
     fi
     update_sub_file
+    if [[ "$auto_confirm" != "1" ]]; then
     green "==============================================="
     green " 用户已删除：${username}"
     green "==============================================="
     echo
-	sleep 1
+    sleep 1
+    fi
     return 2
 }
 
