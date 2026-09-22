@@ -228,7 +228,7 @@ check_configs() {
         if [ $? -eq 0 ]; then
             green "[正确] $(basename "$file")"
         else
-            green "[错误] $(basename "$file")"
+            red "[错误] $(basename "$file")"
             errors+=("$file")
 
             translate_text "$result"
@@ -238,11 +238,7 @@ check_configs() {
             if [ -n "$position" ]; then
                 line="${position%%:*}"
                 column="${position##*:}"
-                echo
-                green "错误位置：第 ${line} 行，第 ${column} 列"
             fi
-
-            echo
         fi
     done < <(
         find "/etc/sing-box/conf" \
@@ -252,37 +248,28 @@ check_configs() {
             -print |
             sort
     )
-
-    echo
-
     if [ "${#errors[@]}" -eq 0 ]; then
         green "全部 JSON 配置文件检查通过"
         echo
         read -rp "按回车返回..." _
         return
     fi
-
-    red "发现 ${#errors[@]} 个配置文件存在错误"
-    echo
-
+    red "发现 ${#errors[@]} 个文件错误red 第 ${line} 行，第 ${column} 列"
     for i in "${!errors[@]}"; do
         red "$((i + 1)). ${errors[$i]}"
     done
-
-    green "数字：Micro 编辑"
-    green "数字+n：Nano 编辑"
+    green "输入数字：Micro 编辑"
+    green "输入数字+n：Nano 编辑"
     green "例如：1 或 1n"
 green "========== 编辑器操作说明 =========="
-echo
 green "Micro："
 echo "  保存：Ctrl + S"
 echo "  退出：Ctrl + Q"
 green "Nano："
 echo "  保存：Ctrl + O，然后按 Enter"
 echo "  退出：Ctrl + X"
-green "==================================="
+green "=================================="
     green "0. 返回"
-    echo
 
     read -rp "请选择: " choice
 
