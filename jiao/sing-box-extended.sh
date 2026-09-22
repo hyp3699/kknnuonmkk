@@ -3539,7 +3539,7 @@ manage_service() {
 }
 
 #流量管理
-main_menu() {
+user_traffic_menu() {
     local username="$1"
 
     while true; do
@@ -3582,10 +3582,15 @@ main_menu() {
                 set_download_limit "$username"
                 ;;
             6)
+                show_limit "$username"
                 show_bandwidth_limit "$username"
                 ;;
             0)
                 return
+                ;;
+            *)
+                red "无效选择"
+                sleep 1
                 ;;
         esac
     done
@@ -7696,12 +7701,6 @@ manage_single_inbound() {
 
     IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
     traffic_user="${inbound_type}-user${inbound_number}"
-
-    # 初始化用户流量限制模块
-    init_traffic
-    ensure_extended_limiters
-    ensure_limiter_route
-
     while true; do
         clear
 
