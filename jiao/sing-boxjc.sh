@@ -323,7 +323,7 @@ check_configs() {
         echo -e "${YELLOW}正在定位到第 ${line} 行，第 ${column} 列...${NC}"
         sleep 1
         if [ "$editor" = "micro" ]; then
-            micro -ruler true "+${line}:${column}" "$selected"
+            micro "+${line}:${column}" "$selected"
         else
             nano -c "+${line},${column}" "$selected"
         fi
