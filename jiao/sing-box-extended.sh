@@ -3122,7 +3122,6 @@ close_port() {
 install_singbox() {
     clear
     purple "正在安装sing-box中，请稍后..."
-    # 判断系统架构
     ARCH_RAW=$(uname -m)
     case "${ARCH_RAW}" in
         'x86_64') ARCH='amd64' ;;
@@ -3132,11 +3131,12 @@ install_singbox() {
         's390x') ARCH='s390x' ;;
         *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
     esac
-    [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
+    mkdir -p "${work_dir}"
+    mkdir -p "${conf_dir}"
+    chmod 777 "${work_dir}"
 
     # 下载sing-box,cloudflared
     latest_version=$(curl -s "https://api.github.com/repos/shtorm-7/sing-box-extended/releases" | jq -r '[.[] | select(.prerelease==false)][0].tag_name | sub("^v"; "")')
-
     work_dir=${work_dir:-/etc/sing-box}
     mkdir -p "$work_dir"
 
@@ -12247,7 +12247,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.4===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.5===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
