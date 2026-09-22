@@ -219,7 +219,7 @@ check_configs() {
         else
             green "[错误] $(basename "$file")"
             errors+=("$file")
-            echo "$result"
+            translate_text "$result"
             echo
         fi
     done < <(
@@ -281,6 +281,52 @@ check_configs() {
         esac
     fi
 }
+show_logs() {
+    local title="$1"
+    local cmd="$2"
+
+    clear
+
+    echo
+    echo -e "${CYAN}========== $title ==========${NC}"
+    echo
+
+    TMP_LOG=$(mktemp)
+
+    bash -c "$cmd" > "$TMP_LOG" 2>&1
+
+    translate_logs "$TMP_LOG"
+
+    rm -f "$TMP_LOG"
+
+    echo
+    echo -e "${CYAN}==============================================${NC}"
+    echo
+    read -r -p "按回车返回菜单..." _
+}
+translate_text() {
+    local text="$1"
+
+    if [ -z "$text" ]; then
+        return
+    fi
+
+    printf '%s\n' "$text" |
+    while IFS= read -r line; do
+        if [ -z "$line" ]; then
+            echo
+            continue
+        fi
+
+        result=$(timeout 15 trans -b :zh "$line" 2>/dev/null)
+
+        if [ -n "$result" ]; then
+            echo "$result"
+        else
+            echo "$line"
+        fi
+    done
+}
 
 main_menu() {
     while true; do
@@ -306,8 +352,8 @@ main_menu() {
                     "journalctl -u sing-box -n 50 --no-pager"
                 ;;
             3)
-                check_configs
-                ;;
+               check_configs
+               ;;
             0)
                 clear
                 exit 0
