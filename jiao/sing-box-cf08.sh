@@ -10070,6 +10070,103 @@ SRVEOF
         *) iptables_ssl ;;
     esac
 }
+setup_vps_traffic_stats() {
+    cat > /usr/local/bin/vps-traffic-stat <<'EOF'
+#!/bin/bash
+STATE_DIR="/var/lib/vps-traffic"
+STATE_FILE="$STATE_DIR/state"
+mkdir -p "$STATE_DIR" /run/lock
+exec 9>/run/lock/vps-traffic.lock
+flock -n 9 || exit 0
+current=$(awk -F': *' '
+NR > 2 {
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
+    if ($1 != "lo" && $1 != "") {
+        n = split($2, a, /[[:space:]]+/)
+        rx += a[1]
+        tx += a[9]
+    }
+}
+END {
+    printf "%.0f %.0f\n", rx, tx
+}' /proc/net/dev)
+read -r curr_rx curr_tx <<< "$current"
+cur_month=$(date -u "+%Y-%m")
+last_month=""
+last_rx=""
+last_tx=""
+month_rx=0
+month_tx=0
+if [ -f "$STATE_FILE" ]; then
+    source "$STATE_FILE" 2>/dev/null
+fi
+if ! [[ "$last_rx" =~ ^[0-9]+$ ]] || ! [[ "$last_tx" =~ ^[0-9]+$ ]]; then
+    last_month="$cur_month"
+    month_rx=0
+    month_tx=0
+    last_rx="$curr_rx"
+    last_tx="$curr_tx"
+elif [ "$last_month" = "$cur_month" ]; then
+    delta_rx=$((curr_rx - last_rx))
+    delta_tx=$((curr_tx - last_tx))
+    [ "$delta_rx" -lt 0 ] && delta_rx=0
+    [ "$delta_tx" -lt 0 ] && delta_tx=0
+    month_rx=$((month_rx + delta_rx))
+    month_tx=$((month_tx + delta_tx))
+    last_rx="$curr_rx"
+    last_tx="$curr_tx"
+else
+    delta_rx=$((curr_rx - last_rx))
+    delta_tx=$((curr_tx - last_tx))
+    [ "$delta_rx" -lt 0 ] && delta_rx=0
+    [ "$delta_tx" -lt 0 ] && delta_tx=0
+    last_month="$cur_month"
+    month_rx="$delta_rx"
+    month_tx="$delta_tx"
+    last_rx="$curr_rx"
+    last_tx="$curr_tx"
+fi
+tmp_file="${STATE_FILE}.tmp.$$"
+cat > "$tmp_file" <<EOT
+last_month="$last_month"
+last_rx="$last_rx"
+last_tx="$last_tx"
+month_rx="$month_rx"
+month_tx="$month_tx"
+last_update="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+EOT
+chmod 600 "$tmp_file"
+mv -f "$tmp_file" "$STATE_FILE"
+EOF
+
+    chmod 700 /usr/local/bin/vps-traffic-stat
+    cat > /etc/systemd/system/vps-traffic-stat.service <<'EOF'
+[Unit]
+Description=VPS Traffic Statistics
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vps-traffic-stat
+EOF
+
+    cat > /etc/systemd/system/vps-traffic-stat.timer <<'EOF'
+[Unit]
+Description=VPS Traffic Statistics Timer
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable --now vps-traffic-stat.timer >/dev/null 2>&1
+    systemctl start vps-traffic-stat.service >/dev/null 2>&1
+}
 
 vps_s() {
     ip_address    
@@ -10113,40 +10210,16 @@ vps_s() {
         os_info="Unknown"
       fi
     fi
-
-    clear
-    
-	current_bytes=$(awk 'BEGIN { rx = 0; tx = 0 } NR > 2 { rx += $2; tx += $10 } END { printf "%.0f %.0f", rx, tx }' /proc/net/dev)
-read -r curr_rx curr_tx <<< "$current_bytes"
-traffic_file="$HOME/.vps_traffic_stats"
-cur_month=$(date -u "+%Y-%m")
-last_month=""
-month_start_rx=0
-month_start_tx=0
+    clear 
+	systemctl start vps-traffic-stat.service >/dev/null 2>&1
+traffic_file="/var/lib/vps-traffic/state"
+monthly_rx=0
+monthly_tx=0
 if [ -f "$traffic_file" ]; then
     source "$traffic_file" 2>/dev/null
+    monthly_rx="${month_rx:-0}"
+    monthly_tx="${month_tx:-0}"
 fi
-if [ "$last_month" != "$cur_month" ]; then
-    last_month="$cur_month"
-    month_start_rx="$curr_rx"
-    month_start_tx="$curr_tx"
-fi
-monthly_rx=$((curr_rx - month_start_rx))
-monthly_tx=$((curr_tx - month_start_tx))
-if [ "$monthly_rx" -lt 0 ]; then
-    month_start_rx="$curr_rx"
-    monthly_rx=0
-fi
-if [ "$monthly_tx" -lt 0 ]; then
-    month_start_tx="$curr_tx"
-    monthly_tx=0
-fi
-cat << EOF > "$traffic_file"
-last_month="$last_month"
-month_start_rx="$month_start_rx"
-month_start_tx="$month_start_tx"
-EOF
-
     monthly_output=$(awk -v rx="$monthly_rx" -v tx="$monthly_tx" '
         BEGIN {
             rx_units = "Bytes"; tx_units = "Bytes";
@@ -10459,12 +10532,8 @@ warp_manage() {
     ' "$route_file" 2>/dev/null)  
     [ $has_rules -eq 0 ] && echo "    无"  
     echo ""  
-    green "已添加的 Socks/HTTP 代理出站:"  
-    jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | "  - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "    无"  
-    echo ""
     green "已添加的 Socks/HTTP 代理出站:"
     jq -r '.outbounds[]? | select(.tag != "direct" and .tag != "wireguard-out") | "  - \(.tag) [\(.type)]"' "$outbound_file" 2>/dev/null || echo "    无"
-
     echo ""
     green "1. 设置分流服务"
     skyblue "----------------------"
@@ -11559,7 +11628,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.6===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.7===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
@@ -11625,6 +11694,7 @@ chmod 700 "$TRAFFIC_SCRIPT"
                 
                 add_nginx_conf
 				create_shortcut
+				setup_vps_traffic_stats
             fi
            ;;
         2) uninstall_singbox ;;
