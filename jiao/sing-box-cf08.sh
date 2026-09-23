@@ -7306,7 +7306,7 @@ manage_single_inbound() {
     local inbound_type=""
     local inbound_number=""
     local traffic_user=""
-    IFS='|' read -r config_file engine inbound_type inbound_number <<< "$selected"
+    IFS='|' read -r config_file inbound_type inbound_number <<< "$selected"
     traffic_user="${inbound_type}-user${inbound_number}"
 	while true; do
         clear
