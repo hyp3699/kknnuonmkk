@@ -7024,7 +7024,7 @@ manage_single_inbound() {
         vless-reality|grpc-reality|xhttp-reality)
             modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
-        vless-ws|vmess-ws|trojan-ws|xhttp)
+        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
             enable_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
         *)
