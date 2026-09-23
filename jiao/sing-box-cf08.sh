@@ -5147,16 +5147,17 @@ if [ ${#user_entries[@]} -eq 0 ]; then
 fi
 echo
         green "---------------- 已添加入站 ----------------"
-        local entries=()
-        local index=1
-        local file
-        local filename
-        local inbound_type
-        local inbound_number
-        local inbound_port
-        local firewall_text
-        local port_text
-        shopt -s nullglob
+        green "---------------- 已添加入站 ----------------"
+local entries=()
+local index=1
+local file
+local filename
+local inbound_type
+local inbound_number
+local inbound_port
+local port_text
+local port_status
+shopt -s nullglob
 for file in "$CONF_DIR"/*.json; do
     [ -f "$file" ] || continue
     filename=$(basename "$file")
@@ -5166,49 +5167,46 @@ for file in "$CONF_DIR"/*.json; do
         entries+=("$file|$inbound_type|$inbound_number")
         inbound_port=$(jq -r '.inbounds[0].listen_port // empty' "$file" 2>/dev/null)
         case "$inbound_type" in
-    hysteria2|tuic)
-        port_text="UDP端口未放行"
-        port_status="red"
-
-        if [ -n "$inbound_port" ] && command -v nft >/dev/null 2>&1; then
-            if nft list chain inet filter script_input 2>/dev/null |
-                grep -Eq "udp dport ${inbound_port} .*accept"; then
-                port_text="UDP端口已放行"
-                port_status="green"
-            fi
-        fi
-        ;;
-
-    *)
-        port_text="TCP端口未放行"
-        port_status="red"
-
-        if [ -n "$inbound_port" ] && command -v nft >/dev/null 2>&1; then
-            if nft list chain inet filter script_input 2>/dev/null |
-                grep -Eq "tcp dport ${inbound_port} .*accept"; then
-                port_text="TCP端口已放行"
-                port_status="green"
-            fi
-        fi
-        ;;
-esac
+            hysteria2|tuic)
+                port_text="UDP端口未放行"
+                port_status="red"
+                if [ -n "$inbound_port" ] && command -v nft >/dev/null 2>&1; then
+                    if nft list chain inet filter script_input 2>/dev/null |
+                        grep -Eq "udp dport ${inbound_port} .*accept"; then
+                        port_text="UDP端口已放行"
+                        port_status="green"
+                    fi
+                fi
+                ;;
+            *)
+                port_text="TCP端口未放行"
+                port_status="red"
+                if [ -n "$inbound_port" ] && command -v nft >/dev/null 2>&1; then
+                    if nft list chain inet filter script_input 2>/dev/null |
+                        grep -Eq "tcp dport ${inbound_port} .*accept"; then
+                        port_text="TCP端口已放行"
+                        port_status="green"
+                    fi
+                fi
+                ;;
+        esac
         printf "%s. %s " "$index" "${inbound_type}-${inbound_number}"
-if [ "$port_status" = "green" ]; then
-    green "$port_text"
-else
-    red "$port_text"
-fi
+        if [ "$port_status" = "green" ]; then
+            green "$port_text"
+        else
+            red "$port_text"
+        fi
         index=$((index + 1))
     fi
 done
 firewall_policy=$(nft list chain inet filter input 2>/dev/null |
     awk '/policy/ {print $NF}' |
     tr -d ';')
-
 if [ "$firewall_policy" = "drop" ]; then
     green "---------------- 防火墙已开启 ----------------"
 else
     red "---------------- 防火墙未开启 ----------------"
+fi
 shopt -u nullglob
 if [ ${#entries[@]} -eq 0 ]; then
     yellow "暂无已添加入站"
