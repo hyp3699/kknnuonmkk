@@ -1411,14 +1411,13 @@ set_limit() {
     show_limit "$user"
     echo
     echo -e "${skyblue}支持:${re}"
-    echo -e "  100MB   = 100MB"
-    echo -e "  1GB     = 1GB"
+    echo -e "  1MB   = 1MB"
+    echo -e "  1     = 1GB"
     echo -e "  0       = 关闭流量限制"
     echo
     local input
     read -rp "$(green "请输入流量限制: ")" input
     input="$(echo "$input" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
-
     if [ "$input" = "0" ]; then
         disable_limit "$user"
         return
@@ -1440,7 +1439,7 @@ set_limit() {
         pause
         return
     fi
-    if ! "$PYTHON" - "$number" "$unit" "$lf" "$user" "$TRAFFIC_STATE" <<'PY'
+    if ! "$PYTHON" - "$number" "$unit" "$lf" "$user" <<'PY'
 import sys
 import json
 import os
@@ -1449,7 +1448,6 @@ number = float(sys.argv[1])
 unit = sys.argv[2]
 limit_file = Path(sys.argv[3])
 user = sys.argv[4]
-state_file = Path(sys.argv[5])
 if number <= 0:
     raise SystemExit("限制必须大于 0")
 if unit == "GB":
@@ -1463,29 +1461,26 @@ if limit_file.exists():
             old = json.load(f)
     except Exception:
         old = {}
-try:
-    with open(state_file, "r", encoding="utf-8") as f:
-        state = json.load(f)
-except Exception:
-    state = {}
-users = state.setdefault("users", {})
 data = {
     "user": user,
     "limit_value": number,
     "limit_unit": unit,
     "limit_bytes": limit_bytes,
-    "period": old.get("period", u.get("period", "none")),
-    "period_start": old.get("period_start", u.get("period_start")),
-    "period_end": old.get("period_end", u.get("period_end")),
+    "period": old.get("period", "none"),
+    "period_start": old.get("period_start"),
+    "period_end": old.get("period_end"),
     "enabled": True,
     "disabled_by_limit": False,
     "saved_user": old.get("saved_user"),
     "config_file": old.get("config_file")
 }
-with open(limit_file, "w", encoding="utf-8") as f:
+limit_file.parent.mkdir(parents=True, exist_ok=True)
+tmp_file = limit_file.with_name(limit_file.name + ".tmp")
+with open(tmp_file, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-os.chmod(limit_file, 0o600)
+os.chmod(tmp_file, 0o600)
+os.replace(tmp_file, limit_file)
 PY
     then
         red "流量限制保存失败"
@@ -1535,7 +1530,6 @@ PY
             /etc/sing-box/user_manager/traffic/singbox_traffic.py \
             restore_user "$user" >/dev/null 2>&1; then
             green "用户已恢复到入站"
-
         else
             yellow "用户当前不在入站，且没有可恢复的停用备份"
         fi
@@ -1567,7 +1561,6 @@ PY
     esac
     pause
 }
-
 disable_limit() {
     local user="$1"
 
