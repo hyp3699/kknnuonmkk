@@ -6408,7 +6408,7 @@ EOF
   "inbounds": [
     {
       "type": "vless",
-      "tag": "xhttp-${inbound_number}",
+      "tag": "vless-xhttp-${inbound_number}",
       "listen": "::",
       "listen_port": $xhttp_port,
       "users": [
@@ -6982,7 +6982,7 @@ manage_single_inbound() {
                     yellow "8. 混淆（未开启）"
                 fi
                 ;;
-			xhttp)
+			vless-xhttp)
                 green "6. 开启CDN"
                 ;;
             vless-ws|vmess-ws|trojan-ws)
