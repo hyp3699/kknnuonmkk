@@ -128,10 +128,6 @@ is_cf_supported_port() {
 server_name="sing-box"
 work_dir="/etc/sing-box"
 conf_dir="${work_dir}/conf"
-xray_dir="/etc/xray"
-xray_conf_dir="${xray_dir}/conf"
-serverxray_name="xray"
-configxray_dir="${xray_conf_dir}/config.json"
 config_dir="${conf_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
@@ -150,6 +146,7 @@ naive_port=$(get_available_port)
 h2_reality=$(get_available_port)
 hy2_port=$(get_available_port)
 grpc_reality=$(get_available_port)
+xhttp_port=$(get_available_port)
 xray_xhttp_reality=$(get_available_port)
 vless_ws_port=$(get_available_port)
 vmess_ws_port=$(get_available_port)
@@ -5881,8 +5878,8 @@ add_inbound_menu() {
         green "7. AnyTLS Reality"
         green "8. SOCKS5"
         green "10. XHTTP Reality"
-        green "11. XHTTP CDN"
-        green "12. XHTTP CDN TLS"
+        green "11. VLESS XHTTP"
+     
         green "13. XHTTP UDP TLS"
         green "14. XHTTP TCP+UDP CDN TLS"
         green "15. VLESS TCP TLS"
@@ -5906,8 +5903,8 @@ add_inbound_menu() {
             8) add_inbound "socks5" ;;
            
             10) add_inbound "xhttp-reality" ;;
-            11) add_inbound "xhttp-cdn" ;;
-            12) add_inbound "xhttp-cdn-tls" ;;
+            11) add_inbound "vless-xhttp" ;;
+            
             13) add_inbound "xhttp-udp-tls" ;;
             14) add_inbound "xhttp-tcpudp-cdn-tls" ;;
             15) add_inbound "vless-tcp-tls" ;;
@@ -6402,8 +6399,63 @@ EOF
     echo "$url"
     green "--------------------------------------------------"
     ;;
-        xhttp-cdn) green "这里接入 XHTTP CDN 创建逻辑" ;;
-        xhttp-cdn-tls) green "这里接入 XHTTP CDN TLS 创建逻辑" ;;
+    vless-xhttp)
+    generate_vars
+    server_ip=$(get_realip)
+    xhttp_path="/$(openssl rand -hex 6)-xhttp"
+    cat > "$config_file" << EOF
+{
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "xhttp-${inbound_number}",
+      "listen": "::",
+      "listen_port": $xhttp_port,
+      "users": [
+        {
+          "name": "xhttp-user${inbound_number}",
+          "uuid": "$uuid"
+        },
+        {
+          "name": "tttttt",
+          "uuid": "$uuid99"
+        }
+      ],
+      "transport": {
+        "type": "xhttp",
+        "path": "$xhttp_path"
+      }
+    }
+  ]
+}
+EOF
+    local add_cert
+    local xhttp_tls="false"
+    reading "是否为此入站添加 TLS 证书？(y/回车跳过): " add_cert
+    if [[ "$add_cert" =~ ^[Yy]$ ]]; then
+        check_and_issue_ssl "" || return 1
+        jq --arg domain "$domain" --arg cert "$cert_file" --arg key "$key_file" \
+            '.inbounds[0].tls = {"enabled":true,"server_name":$domain,"certificate_path":$cert,"key_path":$key}' \
+            "$config_file" > "${config_file}.tmp" &&
+        mv -f "${config_file}.tmp" "$config_file"
+        xhttp_tls="true"
+    fi
+    xhttp_remark="${isp}xhttp"
+    if [[ "$xhttp_tls" == "true" ]]; then
+        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&path=${xhttp_path}#${node_remark}"
+    else
+        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=none&type=xhttp&path=${xhttp_path}#${node_remark}"
+    fi
+    add_v2ray_api_user "xhttp-user${inbound_number}"
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    echo "$url" > "$url_file"
+    update_sub_file
+    systemctl reload sing-box
+    green "--------------------------------------------------"
+    green " 节点链接: "
+    echo "$url"
+    green "--------------------------------------------------"
+    ;;
         xhttp-udp-tls) green "这里接入 XHTTP UDP TLS 创建逻辑" ;;
         xhttp-tcpudp-cdn-tls) green "这里接入 XHTTP TCP+UDP CDN TLS 创建逻辑" ;;
         vless-tcp-tls)
@@ -6615,7 +6667,6 @@ EOF
     add_v2ray_api_user "vless-ws-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-    restart_service="singbox"
     update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6931,6 +6982,9 @@ manage_single_inbound() {
                     yellow "8. 混淆（未开启）"
                 fi
                 ;;
+			xhttp)
+                green "6. 开启CDN"
+                ;;
             vless-ws|vmess-ws|trojan-ws)
                 green "6. 开启CDN"
                 green "7. 开启隧道"
@@ -6963,10 +7017,19 @@ manage_single_inbound() {
         show_inbound_config "$config_file"
         ;;
     6)
-    case "$inbound_type" in
-        vless-ws|vmess-ws|trojan-ws)
+        case "$inbound_type" in
+        vless-reality|grpc-reality|xhttp-reality)
+            modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number"
+            ;;
+        vless-ws|vmess-ws|trojan-ws|xhttp)
             enable_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
+        *)
+            red "当前入站没有此功能"
+            sleep 1
+            ;;
+    esac
+    ;;
         *)
             red "当前入站没有此功能"
             sleep 1
