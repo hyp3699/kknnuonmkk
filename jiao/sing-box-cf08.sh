@@ -210,19 +210,6 @@ check_nginx() {
     check_service "nginx" "$(command -v nginx)"
 }
 
-# 检查 xray 是否已安装
-check_xray() {
-if [ -f "/etc/xray/xray" ]; then
-    if [ -f /etc/alpine-release ]; then
-        rc-service xray status | grep -q "started" && return 0 || return 1
-    else
-        [ "$(systemctl is-active xray)" = "active" ] && return 0 || return 1
-    fi
-else
-    return 2
-fi
-}
-
 # 根据系统类型安装、卸载依赖
 manage_packages() {
     if [ $# -lt 2 ]; then
@@ -3540,189 +3527,6 @@ manage_service() {
     esac
 }
 
-#下载安装xray
-install_xray() {
-    clear
-    purple "正在安装 Xray 中，请稍等..."
-    ARCH_RAW=$(uname -m)
-    case "${ARCH_RAW}" in
-        'x86_64') GOARCH='amd64' ;;
-        'aarch64' | 'arm64') GOARCH='arm64' ;;
-        *) GOARCH='amd64' ;;
-    esac
-    # 确保原脚本的目录存在
-    [ ! -d "${xray_dir}" ] && mkdir -p "${xray_dir}"
-    [ ! -d "${xray_conf_dir}" ] && mkdir -p "${xray_conf_dir}"
-
-    if [[ -x "${xray_dir}/xray" ]]; then
-      echo "      已有 $("${xray_dir}/xray" version 2>/dev/null | head -1)"
-    else
-      case "$GOARCH" in
-        amd64) XRAY_ASSET=Xray-linux-64.zip ;;
-        arm64) XRAY_ASSET=Xray-linux-arm64-v8a.zip ;;
-      esac
-      echo "      下载 Xray (${XRAY_ASSET})"
-      XT=$(mktemp -d)
-      XURL="https://github.com/XTLS/Xray-core/releases/latest/download/${XRAY_ASSET}"
-	  if [ -x "$(command -v systemctl)" ]; then
-         xray_main_systemd_services
-         elif [ -x "$(command -v rc-update)" ]; then
-         xray_alpine_openrc_services
-         else
-         red "Unsupported init system"
-         break
-         fi
-      
-      if curl -fsSL "$XURL" -o "$XT/x.zip"; then
-        if command -v unzip >/dev/null; then
-          unzip -qo "$XT/x.zip" -d "$XT"
-        elif command -v python3 >/dev/null; then
-          python3 -c "import zipfile; zipfile.ZipFile('$XT/x.zip').extractall('$XT')"
-        else
-          [[ -n "$MGR" ]] && install_pkgs "$MGR" unzip >/dev/null 2>&1 || true
-          unzip -qo "$XT/x.zip" -d "$XT"
-        fi
-        
-        if [[ -f "$XT/xray" ]]; then
-          install -m 755 "$XT/xray" "${xray_dir}/xray"
-          echo "      $("${xray_dir}/xray" version 2>/dev/null | head -1)"
-        else
-          echo "      解压失败：未找到 xray 二进制文件" >&2
-        fi
-      else
-        echo "      下载失败：网络请求错误" >&2
-      fi
-      rm -rf "$XT"
-    fi
-    rm -rf \
-        "${xray_dir}/geosite.dat" \
-        "${xray_dir}/geoip.dat" \
-        "${xray_dir}/README.md" \
-        "${xray_dir}/LICENSE"
-
-    iptables -F > /dev/null 2>&1 \
-        && iptables -P INPUT ACCEPT > /dev/null 2>&1 \
-        && iptables -P FORWARD ACCEPT > /dev/null 2>&1 \
-        && iptables -P OUTPUT ACCEPT > /dev/null 2>&1
-
-    command -v ip6tables &> /dev/null \
-        && ip6tables -F > /dev/null 2>&1 \
-        && ip6tables -P INPUT ACCEPT > /dev/null 2>&1 \
-        && ip6tables -P FORWARD ACCEPT > /dev/null 2>&1 \
-        && ip6tables -P OUTPUT ACCEPT > /dev/null 2>&1
-
-    cat > "${configxray_dir}" << EOF
-{
-  "log": {
-    "access": "/dev/null",
-    "error": "/dev/null",
-    "loglevel": "none"
-  },
-  "dns": {
-    "servers": ["https+local://8.8.8.8/dns-query"]
-  },
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "tag": "direct"
-    },
-    {
-      "protocol": "blackhole",
-      "tag": "block"
-    }
-  ]
-}
-EOF
-cat > "${xray_conf_dir}/outbounds.json" << EOF
-{
-  "outbounds": [
-    {
-      "protocol": "freedom",
-      "tag": "direct"
-    },
-    {
-      "protocol": "socks",
-      "tag": "warp-40000",
-      "settings": {
-        "servers": [
-          {
-            "address": "127.0.0.1",
-            "port": 40000
-          }
-        ]
-      }
-    }
-  ]
-}
-EOF
-cat > "${xray_conf_dir}/route.json" << EOF
-{
-  "routing": {
-    "domainStrategy": "AsIs",
-    "rules": [
-      {
-        "type": "field",
-        "network": "tcp,udp",
-        "outboundTag": "direct"
-      }
-    ]
-  }
-}
-EOF
-}
-
-# debian/ubuntu/centos 守护进程
-xray_main_systemd_services() {
-    cat > /etc/systemd/system/xray.service << EOF
-[Unit]
-Description=Xray Service
-Documentation=https://github.com/XTLS/Xray-core
-After=network.target nss-lookup.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-NoNewPrivileges=yes
-ExecStart=$xray_dir/xray run -confdir $xray_conf_dir
-Restart=on-failure
-RestartPreventExitStatus=23
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    if [ -f /etc/centos-release ]; then
-        yum install -y chrony
-        systemctl start chronyd
-        systemctl enable chronyd
-        chronyc -a makestep
-        yum update -y ca-certificates
-        bash -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
-    fi
-
-    bash -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
-
-    systemctl daemon-reload
-    systemctl enable xray
-    systemctl is-active --quiet xray || systemctl start xray
-}
-
-# 适配 alpine 守护进程
-xray_alpine_openrc_services() {
-    cat > /etc/init.d/xray << EOF
-#!/sbin/openrc-run
-
-description="Xray service"
-command="/etc/xray/xray"
-command_args="run -confdir /etc/xray/conf"
-command_background=true
-pidfile="/var/run/xray.pid"
-EOF
-
-    chmod +x /etc/init.d/xray
-    rc-update add xray default
-}
-
 # 启动 sing-box
 start_singbox() {
     manage_service "sing-box" "start"
@@ -3751,238 +3555,6 @@ stop_nginx() {
 # 重启 nginx
 restart_nginx() {
     manage_service "nginx" "restart"
-}
-
-# 启动 xray
-start_xray() {
-    check_xray
-    xray_status=$?
-
-    if [ "$xray_status" -eq 1 ]; then
-        yellow "\n正在启动 ${serverxray_name} 服务\n"
-        if [ -f /etc/alpine-release ]; then
-            rc-service xray start
-        else
-            systemctl daemon-reload
-            systemctl start "${serverxray_name}"
-        fi
-        if [ $? -eq 0 ]; then
-            green "${serverxray_name} 服务已成功启动\n"
-        else
-            red "${serverxray_name} 服务启动失败\n"
-        fi
-
-    elif [ "$xray_status" -eq 0 ]; then
-        yellow "xray 正在运行\n"
-        sleep 1
-
-    else
-        yellow "xray 尚未安装！\n"
-        sleep 1
-    fi
-}
-# 停止 xray
-stop_xray() {
-    check_xray
-    xray_status=$?
-
-    if [ "$xray_status" -eq 0 ]; then
-        yellow "\n正在停止 ${serverxray_name} 服务\n"
-        if [ -f /etc/alpine-release ]; then
-            rc-service xray stop
-        else
-            systemctl stop "${serverxray_name}"
-        fi
-        if [ $? -eq 0 ]; then
-            green "${serverxray_name} 服务已成功停止\n"
-        else
-            red "${serverxray_name} 服务停止失败\n"
-        fi
-
-    elif [ "$xray_status" -eq 1 ]; then
-        yellow "xray 未运行\n"
-        sleep 1
-
-    else
-        yellow "xray 尚未安装！\n"
-        sleep 1
-    fi
-}
-# 重启 xray
-restart_xray() {
-    check_xray
-    xray_status=$?
-
-    if [ "$xray_status" -eq 0 ]; then
-        yellow "\n正在重启 ${serverxray_name} 服务\n"
-        if [ -f /etc/alpine-release ]; then
-            rc-service ${serverxray_name} restart
-        else
-            systemctl daemon-reload
-            systemctl restart "${serverxray_name}"
-        fi
-        if [ $? -eq 0 ]; then
-            green "${serverxray_name} 服务已成功重启\n"
-        else
-            red "${serverxray_name} 服务重启失败\n"
-        fi
-
-    elif [ "$xray_status" -eq 1 ]; then
-        yellow "\n${serverxray_name} 未运行，正在启动...\n"
-        if [ -f /etc/alpine-release ]; then
-            rc-service ${serverxray_name} start
-        else
-            systemctl daemon-reload
-            systemctl start "${serverxray_name}"
-        fi
-        if [ $? -eq 0 ]; then
-            green "${serverxray_name} 服务已成功启动\n"
-        else
-            red "${serverxray_name} 服务启动失败\n"
-        fi
-
-    else
-        yellow "${serverxray_name} 尚未安装！\n"
-        sleep 1
-    fi
-}
-
-# 卸载 Xray
-uninstall_xray() {
-    reading "确定要卸载 Xray 吗? (y/n): " choice
-    case "${choice}" in
-        y|Y)
-            yellow "正在卸载 Xray..."
-            if [ -f /etc/alpine-release ]; then
-                rc-service xray stop 2>/dev/null
-                rc-update del xray default 2>/dev/null
-                rm -f /etc/init.d/xray
-            else
-                systemctl stop "${serverxray_name}" 2>/dev/null
-                systemctl disable "${serverxray_name}" 2>/dev/null
-                systemctl daemon-reload 2>/dev/null || true
-            fi
-            for target_conf in \
-                "${xray_conf_dir}/xhttp-reality.json" \
-                "${xray_conf_dir}/xhttp-cdn.json" \
-                "${xray_conf_dir}/xhttp-cdn-tls.json"
-            do
-                if [ -f "$target_conf" ]; then
-                    node_port=$(grep -o '"port"[[:space:]]*:[[:space:]]*[0-9]*' "$target_conf" |
-                        head -1 |
-                        grep -o '[0-9]*$')
-
-                    if [ -n "$node_port" ]; then
-                        for handle in $(nft -a list chain inet filter input 2>/dev/null |
-                            awk -v p="$node_port" '$0 ~ "dport "p {print $NF}')
-                        do
-                            nft delete rule inet filter input handle "$handle" 2>/dev/null
-                        done
-                    fi
-                fi
-            done
-            nft list ruleset > /etc/nftables.conf 2>/dev/null
-            if [ -f "/etc/sing-box/url.txt" ]; then
-                sed -i \
-                    -e '/_xray_vless_xhttp_reality$/d' \
-                    -e '/_xray_vless_xhttp_cdn$/d' \
-                    -e '/_xray_vless_xhttp_cdn_tls$/d' \
-					-e '/_xray_vless_xhttp_tls$/d' \
-					-e '/_xray_vless_xhttp_h3$/d' \
-					-e '/_xray_vless_xhttp_tcpudpcdn$/d' \
-                    "/etc/sing-box/url.txt"
-                sed -i '/^$/N;/\n$/D' "/etc/sing-box/url.txt"
-
-                echo "" >> "/etc/sing-box/url.txt"
-            fi
-            if [ -s "/etc/sing-box/url.txt" ]; then
-                base64 -w0 "/etc/sing-box/url.txt" \
-                    > "/etc/sing-box/sub.txt" 2>/dev/null
-            else
-                truncate -s 0 "/etc/sing-box/sub.txt"
-            fi
-            rm -rf "${xray_dir}" 2>/dev/null || true
-            rm -f /etc/systemd/system/xray.service 2>/dev/null
-            systemctl daemon-reload 2>/dev/null || true
-            green "==============================================="
-            green " Xray 已卸载，所有 Xray 节点已移除!"
-            green "==============================================="
-            ;;
-        *)
-            purple "已取消卸载操作"
-            ;;
-    esac
-}
-
-update_xray_status() {
-    check_xray >/dev/null 2>&1
-    xray_check_result=$?
-    case "${xray_check_result}" in
-        0) check_xray_status="running" ;;
-        1) check_xray_status="not running" ;;
-        2) check_xray_status="not installed" ;;
-    esac
-}
-  
-# xray 管理
-manage_xray() { 
-    while true; do
-	update_xray_status
-        clear
-		green "=== xray 管理 ===\n"
-        printf "${purple} Xray 状态: %s${re}\n\n" "$(to_chinese "$check_xray_status")"
-        green "1. 安装xray服务"
-        skyblue "-------------------"
-        green "2. 卸载xray服务"
-        skyblue "-------------------"
-        green "3. 启动xray服务"
-        skyblue "-------------------"
-        green "4. 停止xray服务"
-        skyblue "-------------------"
-		green "5. 重启xray服务"
-        skyblue "-------------------"
-        purple "0. 返回主菜单"
-        skyblue "------------"
-        reading "\n请输入选择: " choice
-        case "${choice}" in
-            1)
-                check_xray
-                if [ $? -eq 0 ]; then
-                yellow "Xray 已经安装！"
-                else
-                install_xray
-                if [ $? -ne 0 ]; then
-                red "Xray 安装失败！"
-                break
-                fi
-                fi
-                read -n 1 -s -r -p "按任意键返回..."
-                ;;
-            2)
-                uninstall_xray
-                read -n 1 -s -r -p "按任意键返回..."
-                ;;
-            3)
-                start_xray
-                read -n 1 -s -r -p "按任意键返回..."
-                ;;
-            4)
-                stop_xray
-                read -n 1 -s -r -p "按任意键返回..."
-                ;;
-			5)
-                restart_xray
-                read -n 1 -s -r -p "按任意键返回..."
-                ;;
-            0)
-                return 0
-                ;;
-            *)
-                red "无效的选项！"
-                read -n 1 -s -r -p "按任意键返回..."
-                ;;
-        esac
-    done
 }
 
 # 卸载 sing-box
@@ -4040,6 +3612,7 @@ change_hosts() {
     sed -i '2s/.*/::1         localhost/' /etc/hosts
 }
 # 修改sing-box节点uuid
+
 modify_inbound_uuid() {
     local config_file="$1"
     local engine="$2"
@@ -4049,13 +3622,9 @@ modify_inbound_uuid() {
     local protocol=""
     local old_value=""
     local new_uuid=""
+    local auth_type=""
     if [ ! -f "$config_file" ]; then
         red "配置文件不存在：$config_file"
-        sleep 1
-        return 1
-    fi
-    if [ "$engine" != "sing-box" ]; then
-        red "当前 UUID 修改功能暂未接入 Xray 入站"
         sleep 1
         return 1
     fi
@@ -4070,29 +3639,52 @@ modify_inbound_uuid() {
         sleep 1
         return 1
     fi
-    case "$protocol" in
-        socks|http)
-            red "当前入站没有 UUID"
-            sleep 1
-            return 1
-            ;;
-    esac
-    old_value=$(jq -r '
-        .inbounds[0].users[0].uuid //
-        .inbounds[0].users[0].password //
-        empty
+    auth_type=$(jq -r '
+        if (.inbounds[0].users? | type) == "array" then
+            if any(.inbounds[0].users[]?; .uuid != null and .uuid != "") then
+                "uuid"
+            elif any(.inbounds[0].users[]?; .password != null and .password != "") then
+                "password"
+            else
+                ""
+            end
+        else
+            ""
+        end
     ' "$config_file" 2>/dev/null)
+    if [ -z "$auth_type" ]; then
+        red "当前入站没有可修改的 UUID 或密码"
+        sleep 1
+        return 1
+    fi
+    old_value=$(jq -r '
+        if (.inbounds[0].users? | type) == "array" then
+            if any(.inbounds[0].users[]?; .uuid != null and .uuid != "") then
+                .inbounds[0].users[] | select(.uuid != null and .uuid != "") | .uuid
+            elif any(.inbounds[0].users[]?; .password != null and .password != "") then
+                .inbounds[0].users[] | select(.password != null and .password != "") | .password
+            else
+                empty
+            end
+        else
+            empty
+        end
+    ' "$config_file" 2>/dev/null | head -n1)
     if [ -z "$old_value" ] || [ "$old_value" = "null" ]; then
-        red "当前入站没有可修改的 UUID"
+        red "当前入站没有可修改的 UUID 或密码"
         sleep 1
         return 1
     fi
     new_uuid=$(cat /proc/sys/kernel/random/uuid)
-    if [ "$protocol" = "tuic" ] || [ "$protocol" = "vmess" ]; then
+    if [ "$auth_type" = "uuid" ]; then
         jq --arg uuid "$new_uuid" '
             if (.inbounds[0].users? | type) == "array" then
                 .inbounds[0].users |= map(
-                    if .uuid != null then .uuid = $uuid else . end
+                    if .uuid != null and .uuid != "" then
+                        .uuid = $uuid
+                    else
+                        .
+                    end
                 )
             else
                 .
@@ -4102,8 +3694,11 @@ modify_inbound_uuid() {
         jq --arg uuid "$new_uuid" '
             if (.inbounds[0].users? | type) == "array" then
                 .inbounds[0].users |= map(
-                    if .uuid != null then .uuid = $uuid else . end |
-                    if .password != null then .password = $uuid else . end
+                    if .password != null and .password != "" then
+                        .password = $uuid
+                    else
+                        .
+                    end
                 )
             else
                 .
@@ -4117,9 +3712,6 @@ modify_inbound_uuid() {
         return 1
     fi
     case "$protocol" in
-        tuic)
-            sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
-            ;;
         vmess)
             while IFS= read -r line; do
                 case "$line" in
@@ -4127,9 +3719,15 @@ modify_inbound_uuid() {
                         vmess_b64="${line#vmess://}"
                         vmess_json=$(printf '%s' "$vmess_b64" | base64 -d 2>/dev/null)
                         [ -z "$vmess_json" ] && continue
-                        vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
-                        [ "$vmess_id" = "$old_value" ] || continue
-                        new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
+                        if [ "$auth_type" = "uuid" ]; then
+                            vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
+                            [ "$vmess_id" = "$old_value" ] || continue
+                            new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
+                        else
+                            vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
+                            [ "$vmess_id" = "$old_value" ] || continue
+                            new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
+                        fi
                         [ -z "$new_vmess_json" ] && continue
                         new_vmess_b64=$(printf '%s' "$new_vmess_json" | base64 -w0)
                         sed -i "s#^vmess://.*#vmess://${new_vmess_b64}#" "$url_file"
@@ -4138,8 +3736,15 @@ modify_inbound_uuid() {
                 esac
             done < "$url_file"
             ;;
+        tuic)
+            if [ "$auth_type" = "uuid" ]; then
+                sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
+            else
+                sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
+            fi
+            ;;
         *)
-            for scheme in vless hysteria2 anytls trojan; do
+            for scheme in vless hysteria2 anytls trojan shadowtls naive socks http mixed tuic; do
                 if grep -Fq "${scheme}://${old_value}@" "$url_file"; then
                     sed -i "s#${scheme}://${old_value}@#${scheme}://${new_uuid}@#g" "$url_file"
                     break
@@ -4154,12 +3759,7 @@ modify_inbound_uuid() {
     green "新 UUID：${new_uuid}"
     green "==============================================="
     echo
-	sleep 2
-	if [ "$engine" = "xray" ]; then
-        restart_xray
-    else
-        systemctl reload sing-box
-    fi
+    systemctl reload sing-box
     sleep 2
     return 0
 }
@@ -4173,11 +3773,6 @@ modify_reality_domain() {
     local new_sni
     if [ ! -f "$config_file" ]; then
         red "配置文件不存在：$config_file"
-        sleep 1
-        return 1
-    fi
-    if ! command -v jq >/dev/null 2>&1; then
-        red "未安装 jq，无法修改 Reality 域名"
         sleep 1
         return 1
     fi
@@ -11814,7 +11409,6 @@ edit_singbox_files() {
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
-   #update_xray_status
    
    clear
    echo ""
@@ -11822,7 +11416,6 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
    purple "=== 老王sing-box四合一安装脚本 1.3===\n"
-   #printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
@@ -11841,7 +11434,7 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "6. 配置文件查看" "$red" "15. WARP分流管理" "$re"
-   printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. xray管理" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red"              "$re"
    printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点"                     "$re"
    echo
@@ -11910,7 +11503,7 @@ chmod 700 "$TRAFFIC_SCRIPT"
 		   ;;
 		14) vps_s ;;
 		15)  warp_manage ;;
-		16)  manage_xray ;;
+		
 		17)  token_manage ;;
 		99) 
            clear
