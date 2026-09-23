@@ -4755,7 +4755,7 @@ enable_ws_cdn() {
     ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
     origin_port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
     case "$inbound_type" in
-        vless-ws|vmess-ws)
+        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
             if [ -z "$uuid" ]; then
                 red "无法读取 UUID"
                 sleep 1
@@ -4860,6 +4860,9 @@ fi
             ;;
         trojan-ws)
             cdn_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
+            ;;
+		vless-xhttp)
+            cdn_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=${ws_path}#${node_remark_enc}"
             ;;
         *)
             red "当前入站类型不支持 CDN：$inbound_type"
