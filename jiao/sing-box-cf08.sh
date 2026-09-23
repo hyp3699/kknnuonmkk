@@ -6413,7 +6413,7 @@ EOF
       "listen_port": $xhttp_port,
       "users": [
         {
-          "name": "xhttp-user${inbound_number}",
+          "name": "vless-xhttp-user${inbound_number}",
           "uuid": "$uuid"
         },
         {
