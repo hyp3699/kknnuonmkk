@@ -5153,23 +5153,52 @@ echo
         local filename
         local inbound_type
         local inbound_number
+        local inbound_port
+        local firewall_text
+        local port_text
         shopt -s nullglob
-        for file in "$CONF_DIR"/*.json; do
-            [ -f "$file" ] || continue
-            filename=$(basename "$file")
-            if [[ "$filename" =~ ^(.+)-([0-9]+)\.json$ ]]; then
-                inbound_type="${BASH_REMATCH[1]}"
-                inbound_number="${BASH_REMATCH[2]}"
-                entries+=("$file|$inbound_type|$inbound_number")
-                green "${index}. ${inbound_type}-${inbound_number}"
-                index=$((index + 1))
-            fi
-        done
-        shopt -u nullglob
-        if [ ${#entries[@]} -eq 0 ]; then
-            yellow "暂无已添加入站"
+for file in "$CONF_DIR"/*.json; do
+    [ -f "$file" ] || continue
+    filename=$(basename "$file")
+    if [[ "$filename" =~ ^(.+)-([0-9]+)\.json$ ]]; then
+        inbound_type="${BASH_REMATCH[1]}"
+        inbound_number="${BASH_REMATCH[2]}"
+        entries+=("$file|$inbound_type|$inbound_number")
+        inbound_port=$(jq -r '.inbounds[0].listen_port // empty' "$file" 2>/dev/null)
+        if systemctl is-active --quiet nftables 2>/dev/null; then
+            firewall_text="\033[0;32m防火墙开启\033[0m"
+        else
+            firewall_text="\033[0;31m防火墙未开启\033[0m"
         fi
-        echo
+        case "$inbound_type" in
+            hysteria2|tuic)
+                port_text="\033[0;31mUDP端口未放行\033[0m"
+                if [ -n "$inbound_port" ] && command -v nft >/dev/null 2>&1; then
+                    if nft list chain inet filter script_input 2>/dev/null |
+                        grep -Eq "udp dport ${inbound_port} .*accept"; then
+                        port_text="\033[0;32mUDP端口已放行\033[0m"
+                    fi
+                fi
+                ;;
+            *)
+                port_text="\033[0;31mTCP端口未放行\033[0m"
+                if [ -n "$inbound_port" ] && command -v nft >/dev/null 2>&1; then
+                    if nft list chain inet filter script_input 2>/dev/null |
+                        grep -Eq "tcp dport ${inbound_port} .*accept"; then
+                        port_text="\033[0;32mTCP端口已放行\033[0m"
+                    fi
+                fi
+                ;;
+        esac
+        echo -e "${index}. ${inbound_type}-${inbound_number} ${firewall_text} ${port_text}"
+        index=$((index + 1))
+    fi
+done
+shopt -u nullglob
+if [ ${#entries[@]} -eq 0 ]; then
+    yellow "暂无已添加入站"
+fi
+echo
         green "--------------------------------------------"
         green "0. 返回"
         echo
@@ -11467,7 +11496,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.4===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.5===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
