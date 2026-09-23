@@ -1347,25 +1347,20 @@ show_limit() {
 }
 set_limit() {
     local user="$1"
-
     if [ -z "$user" ]; then
         red "错误：未获取到用户名"
         pause
         return 1
     fi
-
     local lf="$LIMIT_DIR/${user}.json"
-
     title "流量限制"
     show_limit "$user"
-
     echo
     echo -e "${skyblue}支持:${re}"
     echo -e "  100MB   = 100MB"
     echo -e "  1GB     = 1GB"
     echo -e "  0       = 关闭流量限制"
     echo
-
     local input
     read -rp "$(green "请输入流量限制: ")" input
     input="$(echo "$input" | tr '[:lower:]' '[:upper:]' | tr -d ' ')"
@@ -1374,10 +1369,8 @@ set_limit() {
         disable_limit "$user"
         return
     fi
-
     local number
     local unit
-
     if [[ "$input" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
         number="$input"
         unit="GB"
@@ -1393,28 +1386,22 @@ set_limit() {
         pause
         return
     fi
-
     if ! "$PYTHON" - "$number" "$unit" "$lf" "$user" "$TRAFFIC_STATE" <<'PY'
 import sys
 import json
 import os
 from pathlib import Path
-
 number = float(sys.argv[1])
 unit = sys.argv[2]
 limit_file = Path(sys.argv[3])
 user = sys.argv[4]
 state_file = Path(sys.argv[5])
-
 if number <= 0:
     raise SystemExit("限制必须大于 0")
-
 if unit == "GB":
     limit_bytes = int(number * 1024 * 1024 * 1024)
 else:
     limit_bytes = int(number * 1024 * 1024)
-
-# 读取旧限制配置
 old = {}
 if limit_file.exists():
     try:
@@ -1422,80 +1409,48 @@ if limit_file.exists():
             old = json.load(f)
     except Exception:
         old = {}
-
-# 读取流量状态
 try:
     with open(state_file, "r", encoding="utf-8") as f:
         state = json.load(f)
 except Exception:
     state = {}
-
 users = state.setdefault("users", {})
-
 u = users.get(user, {})
 if not isinstance(u, dict):
     u = {}
-
-# ============================================================
-# 重新设置流量限制：
-# 当前周期流量从 0 开始
-# ============================================================
 u["period_uplink"] = 0
 u["period_downlink"] = 0
 u["period_total"] = 0
-
-# 如果原来不存在周期字段，则保留/建立基本字段
 if "period" not in u:
     u["period"] = old.get("period", "none")
-
 if "period_start" not in u:
     u["period_start"] = old.get("period_start")
-
 if "period_end" not in u:
     u["period_end"] = old.get("period_end")
-
 users[user] = u
-
-# 原子保存 traffic state
 state_file.parent.mkdir(parents=True, exist_ok=True)
-
 tmp_state = state_file.with_name(state_file.name + ".tmp")
-
 with open(tmp_state, "w", encoding="utf-8") as f:
     json.dump(state, f, ensure_ascii=False, indent=2)
     f.write("\n")
-
 os.chmod(tmp_state, 0o600)
 os.replace(tmp_state, state_file)
-
-# ============================================================
-# 保存新的限制
-# ============================================================
 data = {
     "user": user,
     "limit_value": number,
     "limit_unit": unit,
     "limit_bytes": limit_bytes,
-
-    # 保留原来的周期
     "period": old.get("period", u.get("period", "none")),
     "period_start": old.get("period_start", u.get("period_start")),
     "period_end": old.get("period_end", u.get("period_end")),
-
     "enabled": True,
-
-    # 重新设置后解除“达到限制停用”状态
     "disabled_by_limit": False,
-
-    # 保留旧字段
     "saved_user": old.get("saved_user"),
     "config_file": old.get("config_file")
 }
-
 with open(limit_file, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
-
 os.chmod(limit_file, 0o600)
 PY
     then
@@ -1503,86 +1458,64 @@ PY
         pause
         return 1
     fi
-
-    # ========================================================
-    # 检查用户是否目前存在于入站
-    # ========================================================
+    fi
+    if systemctl is-active --quiet singbox-traffic.service; then
+        systemctl restart singbox-traffic.service
+        if ! systemctl is-active --quiet singbox-traffic.service; then
+            red "警告：流量采集服务重启失败"
+            pause
+            return 1
+        fi
+        sleep 1
+    fi
     local user_exists
-
     user_exists="$("$PYTHON" - "$user" "$CONF_DIR" <<'PY'
 import sys
 import json
 from pathlib import Path
-
 user = sys.argv[1]
 conf_dir = Path(sys.argv[2])
-
 found = False
-
 for fn in conf_dir.glob("*.json"):
     if fn.name == "config.json":
         continue
-
     try:
         with open(fn, "r", encoding="utf-8") as f:
             cfg = json.load(f)
     except Exception:
         continue
-
     for inbound in cfg.get("inbounds", []):
         if not isinstance(inbound, dict):
             continue
-
         for u in inbound.get("users", []):
             if isinstance(u, dict) and u.get("name") == user:
                 found = True
                 break
-
         if found:
             break
-
     if found:
         break
-
 print("YES" if found else "NO")
 PY
 )"
-
-    # ========================================================
-    # 如果用户之前因为达到限制被停用，则恢复入站
-    # ========================================================
     if [ "$user_exists" = "NO" ]; then
         if /usr/bin/python3 \
             /etc/sing-box/user_manager/traffic/singbox_traffic.py \
             restore_user "$user" >/dev/null 2>&1; then
-
             green "用户已恢复到入站"
 
         else
-            # 没有停用备份时，不算设置限制失败
             yellow "用户当前不在入站，且没有可恢复的停用备份"
         fi
     fi
-
-    # ========================================================
-    # 这里故意不调用 sync_v2ray_stats_users
-    #
-    # 重新设置流量限制不应该修改：
-    # experimental.v2ray_api.stats.users
-    # ========================================================
-
     green "流量限制已设置：${number}${unit}"
-
     echo
-    echo "本周期流量已清零，将从 0 开始计算。"
-
+    echo "本周期流量已清零"
     echo
     echo "当前时间周期："
-
     case "$("$PYTHON" - "$lf" <<'PY'
 import sys
 import json
-
 try:
     with open(sys.argv[1], encoding="utf-8") as f:
         print(json.load(f).get("period", "none"))
@@ -1600,7 +1533,6 @@ PY
             echo "不重置"
             ;;
     esac
-
     pause
 }
 
