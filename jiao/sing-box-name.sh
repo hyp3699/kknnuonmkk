@@ -779,6 +779,22 @@ def initialize_periods(state):
         start, end = period_window(period, now)
         start_iso = start.isoformat() if start else None
         end_iso = end.isoformat() if end else None
+        if period == "none":
+            if u.get("period") != "none":
+                u["period"] = "none"
+                u["period_start"] = None
+                u["period_end"] = None
+                u.setdefault("period_uplink", 0)
+                u.setdefault("period_downlink", 0)
+                u.setdefault("period_total", 0)
+                changed = True
+            else:
+                u.setdefault("period_uplink", 0)
+                u.setdefault("period_downlink", 0)
+                u.setdefault("period_total", 0)
+                u["period_start"] = None
+                u["period_end"] = None
+            continue
         if u.get("period") != period:
             u["period"] = period
             u["period_start"] = start_iso
@@ -788,19 +804,19 @@ def initialize_periods(state):
             u["period_total"] = 0
             changed = True
             continue
-        if period in ("day", "month") and (not u.get("period_start") or not u.get("period_end")):
+        if not u.get("period_start") or not u.get("period_end"):
             u["period_start"] = start_iso
             u["period_end"] = end_iso
-            u["period_uplink"] = 0
-            u["period_downlink"] = 0
-            u["period_total"] = 0
+            u.setdefault("period_uplink", 0)
+            u.setdefault("period_downlink", 0)
+            u.setdefault("period_total", 0)
             changed = True
             continue
         try:
             stored_end = datetime.fromisoformat(u["period_end"])
         except Exception:
             stored_end = None
-        if stored_end is None or now >= stored_end:
+        if stored_end is not None and now >= stored_end:
             u["period_uplink"] = 0
             u["period_downlink"] = 0
             u["period_total"] = 0
