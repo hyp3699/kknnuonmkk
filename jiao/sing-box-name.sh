@@ -1543,6 +1543,7 @@ PY
         red "V2Ray Stats 用户同步失败"
         pause
         return
+    fi
     if /usr/bin/python3 \
     /etc/sing-box/user_manager/traffic/singbox_traffic.py \
     restore_user "$user" >/dev/null 2>&1; then
