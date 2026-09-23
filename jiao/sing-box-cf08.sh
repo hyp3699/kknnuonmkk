@@ -5506,7 +5506,11 @@ local file
 shopt -s nullglob
 for file in "$CONF_DIR"/*.json; do
 [ -f "$file" ] || continue
-[ "$(basename "$file")" = "config.json" ] && continue
+case "$(basename "$file")" in
+    config.json|cloudflared.json)
+        continue
+        ;;
+esac
 while IFS=$'\t' read -r inbound_type inbound_tag; do
 [ -n "$inbound_type" ] || continue
 [ -n "$inbound_tag" ] || continue
