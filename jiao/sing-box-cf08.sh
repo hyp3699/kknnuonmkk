@@ -5190,7 +5190,7 @@ for file in "$CONF_DIR"/*.json; do
                 fi
                 ;;
         esac
-        printf "%s. %s " "$index" "${inbound_type}-${inbound_number}"
+		printf "%s. %-30s " "$index" "${inbound_type}-${inbound_number}"
         if [ "$port_status" = "green" ]; then
             green "$port_text"
         else
@@ -5203,9 +5203,9 @@ firewall_policy=$(nft list chain inet filter input 2>/dev/null |
     awk '/policy/ {print $NF}' |
     tr -d ';')
 if [ "$firewall_policy" = "drop" ]; then
-    green "---------------- 防火墙已开启 ----------------"
+    green "--------------- 防火墙已开启 ---------------"
 else
-    red "---------------- 防火墙未开启 ----------------"
+    red "--------------- 防火墙未开启 ---------------"
 fi
 shopt -u nullglob
 if [ ${#entries[@]} -eq 0 ]; then
