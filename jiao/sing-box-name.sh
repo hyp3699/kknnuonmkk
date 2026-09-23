@@ -1458,7 +1458,6 @@ PY
         pause
         return 1
     fi
-    fi
     if systemctl is-active --quiet singbox-traffic.service; then
         systemctl restart singbox-traffic.service
         if ! systemctl is-active --quiet singbox-traffic.service; then
