@@ -282,21 +282,28 @@ manage_packages() {
 
 # 获取ip
 get_realip() {
-    ip=$(curl -4 -sL -m 3 ip.sb)
-    ipv6() { curl -6 -sL -m 3 ip.sb; }
-
+    local ip=""
+    local v6=""
+    ip=$(curl -4 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
     if [ -z "$ip" ]; then
-        echo "[$(ipv6)]"
-    elif curl -4 -sL -m 2 http://ipinfo.io/org | grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
-        v6=$(ipv6)
+        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
         if [ -n "$v6" ]; then
             echo "[$v6]"
-        else
-            echo "$ip"
+            return 0
         fi
-    else
-        echo "$ip"
+        return 1
     fi
+    if curl -4 -sL --connect-timeout 3 --max-time 5 \
+        http://ipinfo.io/org 2>/dev/null |
+        grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
+        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 \
+            ip.sb 2>/dev/null)
+        if [ -n "$v6" ]; then
+            echo "[$v6]"
+            return 0
+        fi
+    fi
+    echo "$ip"
 }
 ip_address() {
     ipv4_address=$(curl -4 -sS -L -m 3 https://ipv4.ip.sb 2>/dev/null | tr -d '[:space:]')
@@ -360,7 +367,7 @@ cf_find_zone() {
     echo "$best_id"
 }
 # ── 自动添加或【修改/覆盖】 DNS 记录 ──────────
-cccccf_upsert_dns() {
+cf_upsert_dns() {
     local zone_id="$1" domain="$2" raw_ip="$3"
     local existing rid payload type clean_ip
     clean_ip="${raw_ip//[/}"
@@ -379,62 +386,6 @@ cccccf_upsert_dns() {
     else
     cf_call POST "/zones/${zone_id}/dns_records" "$payload" >/dev/null
 fi
-}
-cf_upsert_dns() {
-    local zone_id="$1" domain="$2" raw_ip="$3"
-    local existing rid payload type clean_ip result
-
-    clean_ip="${raw_ip//[/}"
-    clean_ip="${clean_ip//]/}"
-
-    if [[ "$clean_ip" =~ ":" ]]; then
-        type="AAAA"
-    else
-        type="A"
-    fi
-
-    existing=$(cf_call GET "/zones/$zone_id/dns_records?type=$type&name=$domain")
-    if ! echo "$existing" | jq -e '.success == true' >/dev/null 2>&1; then
-        yellow "Cloudflare DNS 查询失败："
-        echo "$existing" | jq .
-        return 1
-    fi
-
-    existing=$(echo "$existing" | jq '.result[0] // empty')
-
-    payload=$(jq -n \
-        --arg n "$domain" \
-        --arg c "$clean_ip" \
-        --arg t "$type" \
-        '{type:$t,name:$n,content:$c,proxied:true,ttl:1}')
-
-    if [[ -n "$existing" && "$existing" != "null" ]]; then
-        rid=$(echo "$existing" | jq -r '.id')
-
-        result=$(cf_call PUT \
-            "/zones/${zone_id}/dns_records/${rid}" \
-            "$payload")
-
-        if echo "$result" | jq -e '.success == true' >/dev/null 2>&1; then
-            return 0
-        fi
-
-        yellow "Cloudflare DNS 修改失败："
-        echo "$result" | jq .
-        return 1
-    else
-        result=$(cf_call POST \
-            "/zones/${zone_id}/dns_records" \
-            "$payload")
-
-        if echo "$result" | jq -e '.success == true' >/dev/null 2>&1; then
-            return 0
-        fi
-
-        yellow "Cloudflare DNS 创建失败："
-        echo "$result" | jq .
-        return 1
-    fi
 }
 cf_get_zone_id_by_domain() {
     local domain="$1"
@@ -4805,6 +4756,17 @@ enable_ws_cdn() {
         red "入站配置文件不存在：$config_file"
         sleep 1
         return 1
+    fi
+	generate_vars
+    if [ $? -ne 0 ]; then
+    red "无法获取服务器地区信息，请检查网络后重试"
+    sleep 2
+    return 1
+    fi
+    if ! server_ip=$(get_realip); then
+    red "无法获取服务器公网 IP，请检查网络后重试"
+    sleep 2
+    return 1
     fi
     uuid=$(jq -r '.inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
     password=$(jq -r '.inbounds[0].users[0].password // empty' "$config_file" 2>/dev/null)
