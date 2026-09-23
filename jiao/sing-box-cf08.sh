@@ -5526,8 +5526,7 @@ manage_nodes_menu() {
     CONF_DIR="/etc/sing-box/conf"
     URL_DIR="/etc/sing-box/url"
     SUB_FILE="/etc/sing-box/sub.txt"
-    mkdir -p "$CONF_DIR" "$XRAY_CONF_DIR" "$URL_DIR"
-    mkdir -p "$CONF_DIR" "$XRAY_CONF_DIR"
+	mkdir -p "$CONF_DIR" "$URL_DIR"
     while true; do
         clear
         green "================= 入站管理 ================="
@@ -5570,18 +5569,7 @@ echo
             if [[ "$filename" =~ ^(.+)-([0-9]+)\.json$ ]]; then
                 inbound_type="${BASH_REMATCH[1]}"
                 inbound_number="${BASH_REMATCH[2]}"
-                entries+=("$file|sing-box|$inbound_type|$inbound_number")
-                green "${index}. ${inbound_type}-${inbound_number}"
-                index=$((index + 1))
-            fi
-        done
-        for file in "$XRAY_CONF_DIR"/*.json; do
-            [ -f "$file" ] || continue
-            filename=$(basename "$file")
-            if [[ "$filename" =~ ^(.+)-([0-9]+)\.json$ ]]; then
-                inbound_type="${BASH_REMATCH[1]}"
-                inbound_number="${BASH_REMATCH[2]}"
-                entries+=("$file|xray|$inbound_type|$inbound_number")
+                entries+=("$file|$inbound_type|$inbound_number")
                 green "${index}. ${inbound_type}-${inbound_number}"
                 index=$((index + 1))
             fi
@@ -6336,25 +6324,25 @@ add_inbound_menu() {
         echo
         read -rp "请选择入站类型: " choice
         case "$choice" in
-            1) add_inbound "vless-reality" "sing-box" ;;
-            2) add_inbound "hysteria2" "sing-box" ;;
-            3) add_inbound "tuic" "sing-box" ;;
-            4) add_inbound "http-reality" "sing-box" ;;
-            5) add_inbound "grpc-reality" "sing-box" ;;
-            6) add_inbound "anytls" "sing-box" ;;
-            7) add_inbound "anytls-reality" "sing-box" ;;
-            8) add_inbound "socks5" "sing-box" ;;
+            1) add_inbound "vless-reality" ;;
+            2) add_inbound "hysteria2" ;;
+            3) add_inbound "tuic" ;;
+            4) add_inbound "http-reality" ;;
+            5) add_inbound "grpc-reality" ;;
+            6) add_inbound "anytls" ;;
+            7) add_inbound "anytls-reality" ;;
+            8) add_inbound "socks5" ;;
            
-            10) add_inbound "xhttp-reality" "sing-box" ;;
-            11) add_inbound "xhttp-cdn" "xray" ;;
-            12) add_inbound "xhttp-cdn-tls" "xray" ;;
-            13) add_inbound "xhttp-udp-tls" "xray" ;;
-            14) add_inbound "xhttp-tcpudp-cdn-tls" "xray" ;;
-            15) add_inbound "vless-tcp-tls" "sing-box" ;;
-            16) add_inbound "naiveproxy" "sing-box" ;;
+            10) add_inbound "xhttp-reality" ;;
+            11) add_inbound "xhttp-cdn" ;;
+            12) add_inbound "xhttp-cdn-tls" ;;
+            13) add_inbound "xhttp-udp-tls" ;;
+            14) add_inbound "xhttp-tcpudp-cdn-tls" ;;
+            15) add_inbound "vless-tcp-tls" ;;
+            16) add_inbound "naiveproxy" ;;
 			
-			18) add_inbound "vmess-ws" "sing-box" ;;
-            19) add_inbound "vless-ws" "sing-box" ;;
+			18) add_inbound "vmess-ws" ;;
+            19) add_inbound "vless-ws" ;;
             0) return ;;
             *) red "无效选项"; sleep 1 ;;
         esac
@@ -6422,7 +6410,6 @@ EOF
     url="vless://${uuid}@${server_ip}:${xtls_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6491,7 +6478,6 @@ EOF
     url="hysteria2://${uuid}@${server_ip}:${hy2_port}/?${url_param}&alpn=h3#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6557,7 +6543,6 @@ EOF
     url="tuic://${uuid}:${password}@${server_ip}:${tuic_port}/?${url_param}&congestion_control=bbr&udp_relay_mode=native&alpn=h3#${node_remark}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6617,7 +6602,6 @@ EOF
     url="vless://${uuid}@${server_ip}:${h2_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=http#${node_remark}"
 	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6678,7 +6662,6 @@ EOF
     url="vless://${uuid}@${server_ip}:${grpc_reality}?encryption=none&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=grpc&serviceName=grpc#${node_remark}"
 	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6746,7 +6729,6 @@ EOF
     url="anytls://${password}@${server_ip}:${anytls_port}?${url_param}&alpn=h3#${node_remark}"
 	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6782,7 +6764,6 @@ EOF
     url="socks://${username}:${password}@${server_ip}:${socks_port}#${node_remark}"
 	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6804,46 +6785,44 @@ EOF
       "users": [
         {
           "name": "xhttp-reality-user${inbound_number}",
-          "uuid": "$uuid",
-          "flow": "xtls-rprx-vision"
+          "uuid": "$uuid"
         },
-		{
+        {
           "name": "tttttt",
-          "uuid": "$uuid99",
-          "flow": "xtls-rprx-vision"
+          "uuid": "$uuid99"
         }
       ],
-      "streamSettings": {
-        "network": "xhttp",
-        "security": "reality",
-        "realitySettings": {
-          "show": false,
-          "dest": "www.iij.ad.jp:443",
-          "xver": 0,
-          "serverNames": [
-            "www.iij.ad.jp"
-          ],
-          "privateKey": "$private_key",
-          "shortIds": [
+      "tls": {
+        "enabled": true,
+		"server_name": "www.iij.ad.jp",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.iij.ad.jp",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": [
             "$short_id"
           ]
-        },
-        "xhttpSettings": {
-          "path": "/xhttp",
-          "mode": "auto"
         }
+      },
+      "transport": {
+        "type": "xhttp",
+        "mode": "auto",
+        "path": "/sssisuiu-xhttp"
       }
     }
   ]
 }
+
 EOF
     allow_port "$xray_xhttp_reality/tcp" >/dev/null 2>&1
 	node_remark="${isp}vless_xhttp_reality"
 	add_v2ray_api_user "xhttp-reality-user${inbound_number}"
-    url="vless://${uuid}@${server_ip}:${xray_xhttp_reality}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${node_remark}"
-    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    url="vless://${uuid}@${server_ip}:${xray_xhttp_reality}?encryption=none&flow=&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=${public_key}&sid=${short_id}&type=xhttp&path=/sssisuiu-xhttp&mode=auto#${node_remark}"	
+	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6889,7 +6868,6 @@ EOF
     url="vless://${uuid}@${domain:-$server_ip}:${vless_tcp_tls}?encryption=none&security=tls&sni=${domain:-$server_ip}&type=tcp#${node_remark}"
 	url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
-	restart_service="singbox"
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -6944,8 +6922,7 @@ EOF
       echo "$NAIVE_H2_URL"
 	  echo
       echo "$NAIVE_H3_URL"
-    } > "$url_file"  
-	restart_service="singbox"
+    } > "$url_file" 
 	update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -7006,8 +6983,7 @@ EOF
     url="vmess://$(echo -n "$VMESS" | base64 -w0)"
     add_v2ray_api_user "vmess-ws-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
-    echo "$url" > "$url_file"
-    restart_service="singbox"
+    echo "$url" > "$url_file" 
     update_sub_file
     systemctl reload sing-box
 	green "--------------------------------------------------"
@@ -7800,11 +7776,7 @@ delete_inbound() {
       delete_v2ray_api_user "$v2ray_api_user"
     fi
     update_sub_file
-    if [ "$engine" = "xray" ]; then
-        restart_xray
-    else
-        systemctl reload sing-box
-    fi
+    systemctl reload sing-box
     green "==============================================="
     green " 入站已移除：${inbound_type}-${inbound_number}"
     green "==============================================="
