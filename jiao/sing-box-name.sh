@@ -1509,6 +1509,7 @@ disable_limit() {
     result="$("$PYTHON" - "$lf" <<'PY'
 import sys
 import json
+import os
 from pathlib import Path
 lf = Path(sys.argv[1])
 try:
@@ -1542,12 +1543,16 @@ PY
         red "V2Ray Stats 用户同步失败"
         pause
         return
-    fi
-        if /usr/bin/python3 /etc/sing-box/user_manager/traffic/singbox_traffic.py restore_user "$user" >/dev/null 2>&1; then
-        green "流量限制已解除"
+    if /usr/bin/python3 \
+    /etc/sing-box/user_manager/traffic/singbox_traffic.py \
+    restore_user "$user" >/dev/null 2>&1; then
+
+    green "流量限制已解除"
     else
-        green "流量限制已解除"
-        echo "用户当前未恢复，可能没有可用的停用备份。"
+    red "流量限制解除失败：用户状态恢复失败"
+    echo "可能没有可用的停用备份。"
+    pause
+    return 1
     fi
     pause
 }
