@@ -848,6 +848,8 @@ def main():
     TRAFFIC_DIR.mkdir(parents=True, exist_ok=True)
     LIMIT_DIR.mkdir(parents=True, exist_ok=True)
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    RESET_DIR = TRAFFIC_DIR / "reset_requests"
+    RESET_DIR.mkdir(parents=True, exist_ok=True)
     state = load_json(STATE_FILE, {"users": {}, "connections": {}, "stats_counters": {}})
     if not isinstance(state, dict):
         state = {"users": {}, "connections": {}, "stats_counters": {}}
@@ -866,6 +868,9 @@ def main():
             check_limits(state)
             current_stats = get_stats()
             if current_stats is not None:
+                if process_reset_requests(state, current_stats):
+                    save_state(state)
+                    last_save = time.monotonic()
                 process_stats(state, current_stats)
                 update_connection_count(state)
                 check_limits(state)
