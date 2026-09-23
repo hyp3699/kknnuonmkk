@@ -4758,11 +4758,6 @@ enable_ws_cdn() {
         return 1
     fi
 	generate_vars
-    if [ $? -ne 0 ]; then
-    red "无法获取服务器地区信息，请检查网络后重试"
-    sleep 2
-    return 1
-    fi
     if ! server_ip=$(get_realip); then
     red "无法获取服务器公网 IP，请检查网络后重试"
     sleep 2
@@ -4773,7 +4768,7 @@ enable_ws_cdn() {
     ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
     origin_port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
     case "$inbound_type" in
-        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
+        vless-ws|vmess-ws|vless-xhttp)
             if [ -z "$uuid" ]; then
                 red "无法读取 UUID"
                 sleep 1
@@ -4901,13 +4896,14 @@ fi
     base64 -w0 "${work_dir}/url.txt" > "${work_dir}/sub.txt" 2>/dev/null
     green "============================================"
     green "CDN 配置完成"
-    green "协议：${inbound_type}"
     green "域名：${domain}"
     green "Cloudflare IP：${CFIP}"
     green "回源端口：${origin_port}"
     green "SSL 模式：${cf_ssl_mode}"
     green "CDN 节点链接："
-    echo "$cdn_url"
+	echo
+    red "$cdn_url"
+    echo
     green "============================================"
     read -rp "按回车返回..." _
 }
@@ -5945,7 +5941,6 @@ add_inbound() {
     local config_file
     inbound_number=$(get_next_inbound_number "$inbound_type")
     config_file=$(get_inbound_config_file "$inbound_type" "$inbound_number" "$engine")
-    clear
     green "================ 添加入站 ================"
     echo
     green "入站类型：${inbound_type}"
@@ -6004,7 +5999,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
 	   hysteria2)
@@ -6072,7 +6067,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
 	;;
         tuic)
@@ -6137,7 +6132,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
 	;;
         http-reality)
@@ -6196,7 +6191,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
         grpc-reality)
@@ -6256,7 +6251,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
         anytls)
@@ -6323,7 +6318,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
         anytls-reality) green "这里接入 AnyTLS Reality 创建逻辑" ;;
@@ -6358,7 +6353,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
         xhttp-reality)
@@ -6417,7 +6412,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
     vless-xhttp)
@@ -6474,7 +6469,7 @@ EOF
     systemctl reload sing-box
     green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
         xhttp-udp-tls) green "这里接入 XHTTP UDP TLS 创建逻辑" ;;
@@ -6517,7 +6512,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
         naiveproxy)
@@ -6572,8 +6567,9 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green "节点链接："
-	echo  "$NAIVE_H2_URL"
-	echo  "$NAIVE_H3_URL"
+	green  "$NAIVE_H2_URL"
+    echo
+	red  "$NAIVE_H3_URL"
     green "--------------------------------------------------"
     ;;
         vmess-ws)
@@ -6633,7 +6629,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
 	vless-ws)
@@ -6692,7 +6688,7 @@ EOF
     systemctl reload sing-box
 	green "--------------------------------------------------"
     green " 节点链接: "
-    echo "$url"
+    green "$url"
     green "--------------------------------------------------"
     ;;
         *) red "未知入站类型" ;;
