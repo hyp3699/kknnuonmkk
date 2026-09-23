@@ -770,6 +770,55 @@ def process_stats(state, current_stats):
 def update_connection_count(state):
     for username, data in state.setdefault("users", {}).items():
         data["connections"] = 0
+def process_reset_requests(state, current_stats):
+    reset_dir = TRAFFIC_DIR / "reset_requests"
+    try:
+        reset_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        log(f"创建 reset_requests 目录失败: {e}")
+        return False
+    changed = False
+    try:
+        request_files = list(reset_dir.iterdir())
+    except Exception as e:
+        log(f"读取 reset_requests 失败: {e}")
+        return False
+    for request_file in request_files:
+        if not request_file.is_file():
+            continue
+        username = request_file.name
+        if not username or "/" in username:
+            try:
+                request_file.unlink()
+            except Exception:
+                pass
+            continue
+        try:
+            current = current_stats.get(username, {"uplink": 0, "downlink": 0})
+            current_uplink = max(0, int(current.get("uplink", 0) or 0))
+            current_downlink = max(0, int(current.get("downlink", 0) or 0))
+            users = state.setdefault("users", {})
+            u = users.get(username)
+            if not isinstance(u, dict):
+                u = {}
+                users[username] = u
+            u["period_uplink"] = 0
+            u["period_downlink"] = 0
+            u["period_total"] = 0
+            counters = state.setdefault("stats_counters", {})
+            counters[username] = {
+                "uplink": current_uplink,
+                "downlink": current_downlink
+            }
+            changed = True
+            log(f"用户周期流量已重置: {username}, base_uplink={current_uplink}, base_downlink={current_downlink}")
+            try:
+                request_file.unlink()
+            except Exception as e:
+                log(f"删除 reset request 失败: {username}: {e}")
+        except Exception as e:
+            log(f"处理 reset request 失败: {username}: {type(e).__name__}: {e}")
+    return changed
 def initialize_periods(state):
     changed = False
     now = datetime.now().astimezone()
@@ -1420,26 +1469,6 @@ try:
 except Exception:
     state = {}
 users = state.setdefault("users", {})
-u = users.get(user, {})
-if not isinstance(u, dict):
-    u = {}
-u["period_uplink"] = 0
-u["period_downlink"] = 0
-u["period_total"] = 0
-if "period" not in u:
-    u["period"] = old.get("period", "none")
-if "period_start" not in u:
-    u["period_start"] = old.get("period_start")
-if "period_end" not in u:
-    u["period_end"] = old.get("period_end")
-users[user] = u
-state_file.parent.mkdir(parents=True, exist_ok=True)
-tmp_state = state_file.with_name(state_file.name + ".tmp")
-with open(tmp_state, "w", encoding="utf-8") as f:
-    json.dump(state, f, ensure_ascii=False, indent=2)
-    f.write("\n")
-os.chmod(tmp_state, 0o600)
-os.replace(tmp_state, state_file)
 data = {
     "user": user,
     "limit_value": number,
@@ -1463,14 +1492,13 @@ PY
         pause
         return 1
     fi
-    if systemctl is-active --quiet singbox-traffic.service; then
-        systemctl restart singbox-traffic.service
-        if ! systemctl is-active --quiet singbox-traffic.service; then
-            red "警告：流量采集服务重启失败"
-            pause
-            return 1
-        fi
-        sleep 1
+    local reset_dir="/etc/sing-box/user_manager/traffic/reset_requests"
+    mkdir -p "$reset_dir"
+    chmod 700 "$reset_dir"
+    if ! touch "$reset_dir/$user"; then
+        red "流量周期重置请求创建失败"
+        pause
+        return 1
     fi
     local user_exists
     user_exists="$("$PYTHON" - "$user" "$CONF_DIR" <<'PY'
