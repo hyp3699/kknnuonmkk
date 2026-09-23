@@ -5147,7 +5147,6 @@ if [ ${#user_entries[@]} -eq 0 ]; then
 fi
 echo
         green "---------------- 已添加入站 ----------------"
-        green "---------------- 已添加入站 ----------------"
 local entries=()
 local index=1
 local file
@@ -6503,7 +6502,7 @@ EOF
     else
         url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=none&type=xhttp&path=${xhttp_path}#${node_remark}"
     fi
-    add_v2ray_api_user "xhttp-user${inbound_number}"
+    add_v2ray_api_user "vless-xhttp-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     echo "$url" > "$url_file"
     update_sub_file
