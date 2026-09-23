@@ -3827,12 +3827,8 @@ modify_reality_domain() {
         update_sub_file
     else
         yellow "对应链接文件不存在：$url_file"
-    fi
-    if [ "$engine" = "xray" ]; then
-        restart_xray
-    else
-        systemctl reload sing-box
-    fi
+    fi    
+    systemctl reload sing-box
     echo
     green "==============================================="
     green " Reality SNI 已修改"
@@ -5214,7 +5210,7 @@ echo
 get_next_inbound_number() {
     local inbound_type="$1"
     local number=1
-    while [ -f "$CONF_DIR/${inbound_type}-${number}.json" ] || [ -f "$XRAY_CONF_DIR/${inbound_type}-${number}.json" ]; do
+    while [ -f "$CONF_DIR/${inbound_type}-${number}.json" ]; do
         number=$((number + 1))
     done
     echo "$number"
@@ -5222,12 +5218,7 @@ get_next_inbound_number() {
 get_inbound_config_file() {
     local inbound_type="$1"
     local number="$2"
-    local engine="$3"
-    if [ "$engine" = "xray" ]; then
-        echo "$XRAY_CONF_DIR/${inbound_type}-${number}.json"
-    else
-        echo "$CONF_DIR/${inbound_type}-${number}.json"
-    fi
+    echo "$CONF_DIR/${inbound_type}-${number}.json"
 }
 
 add_user_menu() {
