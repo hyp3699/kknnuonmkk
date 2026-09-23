@@ -3612,12 +3612,11 @@ change_hosts() {
     sed -i '2s/.*/::1         localhost/' /etc/hosts
 }
 # 修改sing-box节点uuid
-
 modify_inbound_uuid() {
     local config_file="$1"
-    local engine="$2"
     local inbound_type="$3"
     local inbound_number="$4"
+    local username="$5"
     local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
     local protocol=""
     local old_value=""
@@ -3625,6 +3624,11 @@ modify_inbound_uuid() {
     local auth_type=""
     if [ ! -f "$config_file" ]; then
         red "配置文件不存在：$config_file"
+        sleep 1
+        return 1
+    fi
+    if [ -z "$username" ]; then
+        red "未获取到指定用户名"
         sleep 1
         return 1
     fi
@@ -3639,71 +3643,59 @@ modify_inbound_uuid() {
         sleep 1
         return 1
     fi
-    auth_type=$(jq -r '
-        if (.inbounds[0].users? | type) == "array" then
-            if any(.inbounds[0].users[]?; .uuid != null and .uuid != "") then
-                "uuid"
-            elif any(.inbounds[0].users[]?; .password != null and .password != "") then
-                "password"
-            else
-                ""
-            end
+    auth_type=$(jq -r --arg username "$username" '
+        .inbounds[0].users[]? |
+        select(.name == $username) |
+        if (.uuid != null and .uuid != "") then
+            "uuid"
+        elif (.password != null and .password != "") then
+            "password"
         else
             ""
         end
-    ' "$config_file" 2>/dev/null)
+    ' "$config_file" 2>/dev/null | head -n 1)
     if [ -z "$auth_type" ]; then
-        red "当前入站没有可修改的 UUID 或密码"
+        red "指定用户名不存在，或该用户没有 UUID / password"
         sleep 1
         return 1
     fi
-    old_value=$(jq -r '
-        if (.inbounds[0].users? | type) == "array" then
-            if any(.inbounds[0].users[]?; .uuid != null and .uuid != "") then
-                .inbounds[0].users[] | select(.uuid != null and .uuid != "") | .uuid
-            elif any(.inbounds[0].users[]?; .password != null and .password != "") then
-                .inbounds[0].users[] | select(.password != null and .password != "") | .password
-            else
-                empty
-            end
+    old_value=$(jq -r --arg username "$username" --arg auth_type "$auth_type" '
+        .inbounds[0].users[]? |
+        select(.name == $username) |
+        if $auth_type == "uuid" then
+            .uuid
         else
-            empty
+            .password
         end
-    ' "$config_file" 2>/dev/null | head -n1)
+    ' "$config_file" 2>/dev/null | head -n 1)
     if [ -z "$old_value" ] || [ "$old_value" = "null" ]; then
-        red "当前入站没有可修改的 UUID 或密码"
+        red "当前用户没有可修改的 UUID"
         sleep 1
         return 1
     fi
     new_uuid=$(cat /proc/sys/kernel/random/uuid)
-    if [ "$auth_type" = "uuid" ]; then
-        jq --arg uuid "$new_uuid" '
-            if (.inbounds[0].users? | type) == "array" then
-                .inbounds[0].users |= map(
-                    if .uuid != null and .uuid != "" then
+    jq --arg username "$username" --arg uuid "$new_uuid" --arg auth_type "$auth_type" '
+        if (.inbounds[0].users? | type) == "array" then
+            .inbounds[0].users |= map(
+                if .name == $username then
+                    if $auth_type == "uuid" then
                         .uuid = $uuid
                     else
-                        .
-                    end
-                )
-            else
-                .
-            end
-        ' "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
-    else
-        jq --arg uuid "$new_uuid" '
-            if (.inbounds[0].users? | type) == "array" then
-                .inbounds[0].users |= map(
-                    if .password != null and .password != "" then
                         .password = $uuid
-                    else
-                        .
                     end
-                )
-            else
-                .
-            end
-        ' "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+                else
+                    .
+                end
+            )
+        else
+            .
+        end
+    ' "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+    if [ $? -ne 0 ]; then
+        red "UUID 修改失败"
+        rm -f "$config_file.tmp"
+        sleep 1
+        return 1
     fi
     if [ ! -f "$url_file" ]; then
         red "链接文件不存在：$url_file"
@@ -3712,6 +3704,9 @@ modify_inbound_uuid() {
         return 1
     fi
     case "$protocol" in
+        tuic)
+            sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
+            ;;
         vmess)
             while IFS= read -r line; do
                 case "$line" in
@@ -3719,15 +3714,9 @@ modify_inbound_uuid() {
                         vmess_b64="${line#vmess://}"
                         vmess_json=$(printf '%s' "$vmess_b64" | base64 -d 2>/dev/null)
                         [ -z "$vmess_json" ] && continue
-                        if [ "$auth_type" = "uuid" ]; then
-                            vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
-                            [ "$vmess_id" = "$old_value" ] || continue
-                            new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
-                        else
-                            vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
-                            [ "$vmess_id" = "$old_value" ] || continue
-                            new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
-                        fi
+                        vmess_id=$(printf '%s' "$vmess_json" | jq -r '.id // empty' 2>/dev/null)
+                        [ "$vmess_id" = "$old_value" ] || continue
+                        new_vmess_json=$(printf '%s' "$vmess_json" | jq --arg uuid "$new_uuid" '.id = $uuid' 2>/dev/null)
                         [ -z "$new_vmess_json" ] && continue
                         new_vmess_b64=$(printf '%s' "$new_vmess_json" | base64 -w0)
                         sed -i "s#^vmess://.*#vmess://${new_vmess_b64}#" "$url_file"
@@ -3736,15 +3725,8 @@ modify_inbound_uuid() {
                 esac
             done < "$url_file"
             ;;
-        tuic)
-            if [ "$auth_type" = "uuid" ]; then
-                sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
-            else
-                sed -i "s#tuic://${old_value}:#tuic://${new_uuid}:#g" "$url_file"
-            fi
-            ;;
         *)
-            for scheme in vless hysteria2 anytls trojan shadowtls naive socks http mixed tuic; do
+            for scheme in vless hysteria2 anytls trojan; do
                 if grep -Fq "${scheme}://${old_value}@" "$url_file"; then
                     sed -i "s#${scheme}://${old_value}@#${scheme}://${new_uuid}@#g" "$url_file"
                     break
@@ -3755,14 +3737,18 @@ modify_inbound_uuid() {
     update_sub_file
     green "==============================================="
     green " UUID 修改完成"
+    green "用户名：${username}"
     green "入站：${inbound_type}-${inbound_number}"
     green "新 UUID：${new_uuid}"
     green "==============================================="
     echo
     systemctl reload sing-box
     sleep 2
+    read -n 1 -s -r -p "按任意键返回..."
+    echo
     return 0
 }
+
 #修改reality  sni
 modify_reality_domain() {
     local config_file="$1"
@@ -6962,7 +6948,7 @@ manage_single_inbound() {
                 fi
                 ;;
             1)
-                modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number" "$traffic_user"
                 ;;
             2)
                 modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
