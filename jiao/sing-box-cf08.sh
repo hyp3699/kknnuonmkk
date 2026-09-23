@@ -7707,6 +7707,30 @@ edit_inbound() {
     echo
     read -rp "按回车返回..." _
 }
+delete_user_traffic_data() {
+    local username="$1"
+    [ -n "$username" ] || return 0
+    local state_file="/etc/sing-box/user_manager/traffic/state.json"
+    local limit_file="/etc/sing-box/user_manager/limits/${username}.json"
+    if [ -f "$state_file" ] && command -v jq >/dev/null 2>&1; then
+        local tmp_file
+        tmp_file=$(mktemp)
+        if jq --arg u "$username" '
+            del(.users[$u]) |
+            del(.stats_counters[$u]) |
+            del(.connections[$u])
+        ' "$state_file" > "$tmp_file"; then
+            chmod 600 "$tmp_file"
+            mv -f "$tmp_file" "$state_file"
+        else
+            rm -f "$tmp_file"
+            red "删除 ${username} 的流量数据失败"
+            return 1
+        fi
+    fi
+    rm -f "$limit_file"
+    return 0
+}
 delete_inbound() {
     local config_file="$1"
     local engine="$2"
@@ -7773,7 +7797,10 @@ delete_inbound() {
     rm -f "$config_file"
     rm -f "$url_file"
     if [ -n "$v2ray_api_user" ]; then
-      delete_v2ray_api_user "$v2ray_api_user"
+    delete_v2ray_api_user "$v2ray_api_user"
+    if ! delete_user_traffic_data "$v2ray_api_user"; then
+        red "警告：${v2ray_api_user} 的流量数据清理失败"
+    fi
     fi
     update_sub_file
     systemctl reload sing-box
