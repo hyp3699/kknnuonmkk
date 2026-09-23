@@ -5591,6 +5591,8 @@ import tempfile
 import secrets
 import subprocess
 import copy
+import urllib.parse
+import ipaddress
 
 username = os.environ["USERNAME"]
 user_uuid = os.environ["USER_UUID"]
@@ -5711,7 +5713,49 @@ def replace_link(line, protocol):
         except Exception:
             return line
     return line
-
+def has_ip_address(host):
+    try:
+        import ipaddress
+        ipaddress.ip_address(host.strip("[]"))
+        return True
+    except Exception:
+        return False
+def is_valid_connection(line, inbound_type):
+    line = line.strip()
+    if not line:
+        return False
+    protocol = inbound_type.lower()
+    if protocol == "vmess":
+        try:
+            m = re.match(r'^vmess://([^#\s]+)', line)
+            if not m:
+                return False
+            encoded = m.group(1)
+            encoded += "=" * (-len(encoded) % 4)
+            try:
+                raw = base64.urlsafe_b64decode(encoded)
+            except Exception:
+                raw = base64.b64decode(encoded)
+            obj = json.loads(raw.decode("utf-8"))
+            host = str(obj.get("add", "")).strip()
+            sni = str(obj.get("sni", "")).strip()
+            if has_ip_address(host) and not sni:
+                return False
+            return True
+        except Exception:
+            return False
+    if protocol in ("vless", "trojan"):
+        try:
+            parsed = urllib.parse.urlsplit(line)
+            host = parsed.hostname or ""
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            sni = query.get("sni", [""])[0].strip()
+            if has_ip_address(host) and not sni:
+                return False
+            return True
+        except Exception:
+            return False
+    return True
 def copy_links(inbound_type, inbound_tag):
     src_candidates = [
         os.path.join(url_dir, f"{inbound_tag}.txt"),
@@ -5728,13 +5772,21 @@ def copy_links(inbound_type, inbound_tag):
     protocol = inbound_type.lower()
     with open(src, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
+    need_check = protocol in ("vless", "vmess", "trojan")
+    filtered_lines = []
+    for line in lines:
+        if not line.strip():
+            continue
+        if need_check and not is_valid_connection(line, protocol):
+            continue
+        filtered_lines.append(line)
+    if not filtered_lines:
+        return 0
     mode = "a" if os.path.exists(links_file) and os.path.getsize(links_file) > 0 else "w"
     with open(links_file, mode, encoding="utf-8") as out:
         if mode == "a":
             out.write("\n")
-        for line in lines:
-            if not line.strip():
-                continue
+        for line in filtered_lines:
             out.write(replace_link(line, protocol) + "\n")
             count += 1
     return count
@@ -11511,7 +11563,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.5===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.6===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
