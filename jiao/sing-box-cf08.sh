@@ -7401,7 +7401,7 @@ delete_inbound() {
         return 1
     fi
 	case "$inbound_type" in
-    vless-ws|vmess-ws|trojan-ws)
+    vless-ws|vmess-ws|trojan-ws|vless-xhttp)
         cdn_domain=$(get_inbound_cdn_domain "$inbound_type" "$inbound_number")
         if [[ -n "$cdn_domain" ]]; then
             reading "检测到此入站存在 CDN：${cdn_domain}，是否同时删除 CDN 回源规则和 DNS 记录？(y/N): " delete_cdn
