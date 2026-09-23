@@ -11787,7 +11787,7 @@ edit_singbox_files() {
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
-   update_xray_status
+   #update_xray_status
    
    clear
    echo ""
@@ -11795,7 +11795,7 @@ menu() {
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
    purple "=== 老王sing-box四合一安装脚本 1.3===\n"
-   printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
+   #printf "${purple} --Xray 状态: %s${re}\n" "$(to_chinese "$check_xray_status")"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
