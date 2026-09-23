@@ -360,7 +360,7 @@ cf_find_zone() {
     echo "$best_id"
 }
 # ── 自动添加或【修改/覆盖】 DNS 记录 ──────────
-cf_upsert_dns() {
+cccccf_upsert_dns() {
     local zone_id="$1" domain="$2" raw_ip="$3"
     local existing rid payload type clean_ip
     clean_ip="${raw_ip//[/}"
@@ -379,6 +379,62 @@ cf_upsert_dns() {
     else
     cf_call POST "/zones/${zone_id}/dns_records" "$payload" >/dev/null
 fi
+}
+cf_upsert_dns() {
+    local zone_id="$1" domain="$2" raw_ip="$3"
+    local existing rid payload type clean_ip result
+
+    clean_ip="${raw_ip//[/}"
+    clean_ip="${clean_ip//]/}"
+
+    if [[ "$clean_ip" =~ ":" ]]; then
+        type="AAAA"
+    else
+        type="A"
+    fi
+
+    existing=$(cf_call GET "/zones/$zone_id/dns_records?type=$type&name=$domain")
+    if ! echo "$existing" | jq -e '.success == true' >/dev/null 2>&1; then
+        yellow "Cloudflare DNS 查询失败："
+        echo "$existing" | jq .
+        return 1
+    fi
+
+    existing=$(echo "$existing" | jq '.result[0] // empty')
+
+    payload=$(jq -n \
+        --arg n "$domain" \
+        --arg c "$clean_ip" \
+        --arg t "$type" \
+        '{type:$t,name:$n,content:$c,proxied:true,ttl:1}')
+
+    if [[ -n "$existing" && "$existing" != "null" ]]; then
+        rid=$(echo "$existing" | jq -r '.id')
+
+        result=$(cf_call PUT \
+            "/zones/${zone_id}/dns_records/${rid}" \
+            "$payload")
+
+        if echo "$result" | jq -e '.success == true' >/dev/null 2>&1; then
+            return 0
+        fi
+
+        yellow "Cloudflare DNS 修改失败："
+        echo "$result" | jq .
+        return 1
+    else
+        result=$(cf_call POST \
+            "/zones/${zone_id}/dns_records" \
+            "$payload")
+
+        if echo "$result" | jq -e '.success == true' >/dev/null 2>&1; then
+            return 0
+        fi
+
+        yellow "Cloudflare DNS 创建失败："
+        echo "$result" | jq .
+        return 1
+    fi
 }
 cf_get_zone_id_by_domain() {
     local domain="$1"
@@ -11453,7 +11509,7 @@ menu() {
    green "Telegram群组: ${purple}https://t.me/eooceu${re}"
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.3===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.4===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
