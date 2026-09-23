@@ -7307,17 +7307,13 @@ echo
         else
             subscription_url="https://${formatted_domain}${sub_path}"
         fi
-        echo
-        green "用户名：$username"
-        green "订阅地址："
-        echo
-        echo
-        green "$subscription_url"
-        echo
-        echo
         green "节点连接："
         echo
         cat "$links_file"
+        echo
+		green "订阅地址："
+        echo
+        green "$subscription_url"
         echo
         read -rp "按回车返回..."
         ;;
