@@ -7030,12 +7030,7 @@ manage_single_inbound() {
             ;;
     esac
     ;;
-        *)
-            red "当前入站没有此功能"
-            sleep 1
-            ;;
-    esac
-    ;;
+       
     7)
     case "$inbound_type" in
         vless-ws|vmess-ws|trojan-ws)
