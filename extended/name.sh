@@ -1,20 +1,5 @@
 #!/bin/bash
 
-export LANG=en_US.UTF-8
-# --- 颜色和基础工具函数 ---
-re="\033[0m"
-red="\033[1;91m"
-green="\e[1;32m"
-yellow="\e[1;33m"
-purple="\e[1;35m"
-skyblue="\e[1;36m"
-red() { echo -e "\e[1;91m$1\033[0m"; }
-green() { echo -e "\e[1;32m$1\033[0m"; }
-yellow() { echo -e "\e[1;33m$1\033[0m"; }
-purple() { echo -e "\e[1;35m$1\033[0m"; }
-skyblue() { echo -e "\e[1;36m$1\033[0m"; }
-reading() { read -p "$(red "$1")" "$2"; }
-
 generate_vars() {
     local cc=""
     local c1 c2 n1 n2
@@ -85,15 +70,39 @@ port_is_used() {
         fi
     fi
 }
+# 获取ip
+get_realip() {
+    local ip=""
+    local v6=""
+    ip=$(curl -4 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
+    if [ -z "$ip" ]; then
+        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
+        if [ -n "$v6" ]; then
+            echo "[$v6]"
+            return 0
+        fi
+        return 1
+    fi
+    if curl -4 -sL --connect-timeout 3 --max-time 5 \
+        http://ipinfo.io/org 2>/dev/null |
+        grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
+        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 \
+            ip.sb 2>/dev/null)
+        if [ -n "$v6" ]; then
+            echo "[$v6]"
+            return 0
+        fi
+    fi
+    echo "$ip"
+}
+ip_address() {
+    ipv4_address=$(curl -4 -sS -L -m 3 https://ipv4.ip.sb 2>/dev/null | tr -d '[:space:]')
+    ipv6_address=$(curl -6 -sS -L -m 3 https://ipv6.ip.sb 2>/dev/null | tr -d '[:space:]')
+    [[ "$ipv4_address" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ipv4_address=""
+    [[ "$ipv6_address" =~ : ]] || ipv6_address=""
+}
 
 # 定义常量
-server_name="sing-box"
-work_dir="/etc/sing-box"
-conf_dir="${work_dir}/conf"
-config_dir="${conf_dir}/config.json"
-client_dir="${work_dir}/url.txt"
-export CFIP=${CFIP:-'cf.877774.xyz'} 
-export CFPORT=${CFPORT:-'443'} 
 uuid=$(cat /proc/sys/kernel/random/uuid)
 uuid99=$(cat /proc/sys/kernel/random/uuid)
 nginx_port=$(get_available_port)
