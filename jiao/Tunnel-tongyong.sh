@@ -152,22 +152,23 @@ server() {
         exit 0
     fi
     python3 - "$VPS_FILE" "$PORT" "$WG_PUBLIC_KEY" "$WG_PORT" "$WG_INTERFACE" "$WG_NETWORK" <<'PY'
-import json, os, sys, subprocess, urllib.request
+import json
+import os
+import sys
+import subprocess
+import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
-
 FILE = sys.argv[1]
 PORT = int(sys.argv[2])
 WG_PUBLIC_FILE = sys.argv[3]
 WG_PORT = int(sys.argv[4])
 WG_INTERFACE = sys.argv[5]
 WG_NETWORK = sys.argv[6]
-
+WG_CONFIG = "/etc/wireguard/" + WG_INTERFACE + ".conf"
 _cached_ip = ""
-
 def load():
     with open(FILE, "r", encoding="utf-8") as f:
         return json.load(f)
-
 def save(data):
     tmp = FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -175,46 +176,112 @@ def save(data):
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, FILE)
-
 def public_ip():
     global _cached_ip
+
     if _cached_ip:
         return _cached_ip
     try:
-        req = urllib.request.Request("https://api.ipify.org", headers={'User-Agent': 'curl/7.68.0'})
+        req = urllib.request.Request(
+            "https://api.ipify.org",
+            headers={"User-Agent": "curl/7.68.0"}
+        )
         with urllib.request.urlopen(req, timeout=5) as resp:
-            _cached_ip = resp.read().decode('utf-8').strip()
+            _cached_ip = resp.read().decode("utf-8").strip()
             return _cached_ip
+
     except Exception:
         return ""
-
+def persist_peer(public_key, wg_address):
+    if not public_key or not wg_address:
+        return False
+    try:
+        if os.path.exists(WG_CONFIG):
+            with open(WG_CONFIG, "r", encoding="utf-8") as f:
+                config = f.read()
+        else:
+            config = ""
+        blocks = config.split("[Peer]")
+        for block in blocks[1:]:
+            for line in block.splitlines():
+                line = line.strip()
+                if line.startswith("PublicKey"):
+                    parts = line.split("=", 1)
+                    if len(parts) == 2:
+                        existing_key = parts[1].strip()
+                        if existing_key == public_key:
+                            return True
+                    break
+        config = config.rstrip() + "\n\n"
+        config += "[Peer]\n"
+        config += "PublicKey = " + public_key + "\n"
+        config += "AllowedIPs = " + wg_address.split("/")[0] + "/32\n"
+        tmp = WG_CONFIG + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(config)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, WG_CONFIG)
+        return True
+    except Exception:
+        try:
+            if os.path.exists(WG_CONFIG + ".tmp"):
+                os.remove(WG_CONFIG + ".tmp")
+        except Exception:
+            pass
+        return False
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
-
     def send_json(self, code, data):
-        raw = json.dumps(data, ensure_ascii=False).encode()
+        raw = json.dumps(
+            data,
+            ensure_ascii=False
+        ).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
-
     def do_POST(self):
         if self.path != "/api/register":
-            self.send_json(404, {"ok": False, "error": "not found"})
+            self.send_json(
+                404,
+                {
+                    "ok": False,
+                    "error": "not found"
+                }
+            )
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
+            length = int(
+                self.headers.get(
+                    "Content-Length",
+                    "0"
+                )
+            )
             if length <= 0 or length > 10240:
-                self.send_json(400, {"ok": False, "error": "invalid request size"})
+                self.send_json(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "invalid request size"
+                    }
+                )
                 return
             body = self.rfile.read(length)
             data = json.loads(body)
             token = data.get("token", "")
             wg_key = data.get("wg_public_key", "")
             if not token or not wg_key:
-                self.send_json(400, {"ok": False, "error": "missing token or wg_public_key"})
+                self.send_json(
+                    400,
+                    {
+                        "ok": False,
+                        "error": "missing token or wg_public_key"
+                    }
+                )
                 return
             db = load()
             item = None
@@ -223,19 +290,42 @@ class Handler(BaseHTTPRequestHandler):
                     item = x
                     break
             if item is None:
-                self.send_json(403, {"ok": False, "error": "invalid token"})
+                self.send_json(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "invalid token"
+                    }
+                )
                 return
-            old_key = item.get("wg_public_key", "")
-            if old_key and old_key != wg_key:
-                self.send_json(403, {"ok": False, "error": "wireguard key mismatch"})
+            old_key = item.get(
+                "wg_public_key",
+                ""
+            )
+           if old_key and old_key != wg_key:
+                self.send_json(
+                    403,
+                    {
+                        "ok": False,
+                        "error": "wireguard key mismatch"
+                    }
+                )
                 return
             if not item.get("wg_address"):
                 used = set()
                 for x in db.get("vps", []):
-                    address = x.get("wg_address", "")
+                    address = x.get(
+                        "wg_address",
+                        ""
+                    )
                     if address:
                         try:
-                            used.add(int(address.split(".")[-1].split("/")[0]))
+                            last_octet = int(
+                                address
+                                .split(".")[-1]
+                                .split("/")[0]
+                            )
+                            used.add(last_octet)
                         except Exception:
                             pass
                 address = ""
@@ -244,45 +334,128 @@ class Handler(BaseHTTPRequestHandler):
                         address = f"{WG_NETWORK}.{i}"
                         break
                 if not address:
-                    self.send_json(500, {"ok": False, "error": "no wg address available"})
+                    self.send_json(
+                        500,
+                        {
+                            "ok": False,
+                            "error": "no wg address available"
+                        }
+                    )
                     return
                 item["wg_address"] = address
             item["wg_public_key"] = wg_key
             item["online"] = True
-            item["ipv4"] = data.get("ipv4", "")
-            item["ipv6"] = data.get("ipv6", "")
-            item["country"] = data.get("country", "")
-            item["hostname"] = data.get("hostname", "")
-            item["os"] = data.get("os", "")
-            item["arch"] = data.get("arch", "")
-            save(db)
-            subprocess.run(
-                ["wg", "set", WG_INTERFACE, "peer", wg_key, "allowed-ips", item["wg_address"] + "/32"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+            item["ipv4"] = data.get(
+                "ipv4",
+                ""
             )
+            item["ipv6"] = data.get(
+                "ipv6",
+                ""
+            )
+            item["country"] = data.get(
+                "country",
+                ""
+            )
+            item["hostname"] = data.get(
+                "hostname",
+                ""
+            )
+            item["os"] = data.get(
+                "os",
+                ""
+            )
+            item["arch"] = data.get(
+                "arch",
+                ""
+            )
+            save(db)
+            wg_result = subprocess.run(
+                [
+                    "wg",
+                    "set",
+                    WG_INTERFACE,
+                    "peer",
+                    wg_key,
+                    "allowed-ips",
+                    item["wg_address"] + "/32"
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False
+            )
+            if wg_result.returncode != 0:
+                self.send_json(
+                    500,
+                    {
+                        "ok": False,
+                        "error": "failed to configure wireguard peer"
+                    }
+                )
+                return
+            if not persist_peer(
+                wg_key,
+                item["wg_address"]
+            ):
+                self.send_json(
+                    500,
+                    {
+                        "ok": False,
+                        "error": "failed to save wireguard peer"
+                    }
+                )
+                return
             endpoint = public_ip()
             if not endpoint:
-                self.send_json(500, {"ok": False, "error": "failed to get central public IPv4"})
+                self.send_json(
+                    500,
+                    {
+                        "ok": False,
+                        "error": "failed to get central public IPv4"
+                    }
+                )
                 return
             try:
-                with open(WG_PUBLIC_FILE, "r", encoding="utf-8") as f:
+               with open(
+                    WG_PUBLIC_FILE,
+                    "r",
+                    encoding="utf-8"
+                ) as f:
                     server_key = f.read().strip()
             except Exception:
-                self.send_json(500, {"ok": False, "error": "failed to read server public key"})
+                self.send_json(
+                    500,
+                    {
+                        "ok": False,
+                        "error": "failed to read server public key"
+                    }
+                )
                 return
-            self.send_json(200, {
-                "ok": True,
-                "wg_address": item["wg_address"],
-                "wg_server_public_key": server_key,
-                "wg_endpoint": endpoint + ":" + str(WG_PORT)
-            })
+            self.send_json(
+                200,
+                {
+                    "ok": True,
+                    "wg_address": item["wg_address"],
+                    "wg_server_public_key": server_key,
+                    "wg_endpoint": endpoint + ":" + str(WG_PORT)
+                }
+            )
         except Exception as e:
-            self.send_json(500, {"ok": False, "error": str(e)})
-
-server = HTTPServer(("0.0.0.0", PORT), Handler)
+            self.send_json(
+                500,
+                {
+                    "ok": False,
+                    "error": str(e)
+                }
+            )
+server = HTTPServer(
+    ("0.0.0.0", PORT),
+    Handler
+)
 server.serve_forever()
 PY
 }
+
 start_server() {
     cat > /etc/systemd/system/central-vps.service <<EOF
 [Unit]
