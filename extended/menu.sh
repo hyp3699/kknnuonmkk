@@ -6,9 +6,12 @@
 MODULE_DIR="/etc/sing-box"
 GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended"
 MODULES=(
-    menu.sh
     install.sh
 )
+if [ "${BASH_SOURCE[0]}" != "$MODULE_DIR/menu.sh" ]; then
+    curl -fsSL "$GITHUB_RAW/menu.sh" -o "$MODULE_DIR/menu.sh"
+    chmod 700 "$MODULE_DIR/menu.sh"
+fi
 download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
@@ -261,7 +264,13 @@ while true; do
         setup_vps_traffic_stats
     fi
     ;;    
-        2) uninstall_singbox ;;
+        2)
+          if ! type -t uninstall_singbox >/dev/null 2>&1; then
+          yellow "请先安装 sing-box！"
+          continue
+          fi
+          uninstall_singbox
+         ;;
         3) manage_singbox ;;
         4) manage_cf ;;
         5) check_nodes ;;
