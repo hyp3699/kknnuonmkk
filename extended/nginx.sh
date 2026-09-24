@@ -1,3 +1,15 @@
+nginx_get_domain() {
+    local file="$1"
+    awk '/server_name/ {
+        for(i=2;i<=NF;i++){
+            gsub(";","",$i)
+            if($i != "_")
+                print $i
+        }
+    }' "$file" | sort -u | tr '\n' ' '
+}
+
+
 disable_open_sub() {
     while true; do
     local nginx_status=$(check_nginx 2>/dev/null)
