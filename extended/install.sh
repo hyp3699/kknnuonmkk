@@ -380,3 +380,208 @@ EOF
     systemctl enable sing-box
     systemctl start sing-box
 }
+# 适配alpine 守护进程
+alpine_openrc_services() {
+    cat > /etc/init.d/sing-box << 'EOF'
+#!/sbin/openrc-run
+
+description="sing-box service"
+command="/etc/sing-box/sing-box"
+command_args="run -C /etc/sing-box/conf"
+command_background=true
+pidfile="/var/run/sing-box.pid"
+EOF
+
+    chmod +x /etc/init.d/sing-box
+    rc-update add sing-box default > /dev/null 2>&1
+}
+
+# nginx订阅配置
+add_nginx_conf() {
+    if ! command_exists nginx; then
+        red "nginx未安装,无法配置订阅服务"
+        return 1
+    else
+        manage_service "nginx" "stop" > /dev/null 2>&1
+        pkill nginx  > /dev/null 2>&1
+    fi
+
+    mkdir -p /etc/nginx/conf.d
+
+    [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
+
+    cat > /etc/nginx/conf.d/sing-box.conf << EOF
+# sing-box 订阅配置
+server {
+    listen $nginx_port;
+    listen [::]:$nginx_port;
+    server_name _;
+
+    # 安全设置
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+
+    location = /$password {
+        alias /etc/sing-box/sub.txt;
+        default_type 'text/plain; charset=utf-8';
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+    }
+
+    location / {
+        return 404;
+    }
+	    # 禁止访问隐藏文件
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}
+EOF
+
+    # 检查主配置文件是否存在
+    if [ -f "/etc/nginx/nginx.conf" ]; then
+        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.sb > /dev/null 2>&1
+        sed -i -e '15{/include \/etc\/nginx\/modules\/\*\.conf/d;}' -e '18{/include \/etc\/nginx\/conf\.d\/\*\.conf/d;}' /etc/nginx/nginx.conf > /dev/null 2>&1
+        # 检查是否已包含配置目录
+        if ! grep -q "include.*conf.d" /etc/nginx/nginx.conf; then
+            http_end_line=$(grep -n "^}" /etc/nginx/nginx.conf | tail -1 | cut -d: -f1)
+            if [ -n "$http_end_line" ]; then
+                sed -i "${http_end_line}i \    include /etc/nginx/conf.d/*.conf;" /etc/nginx/nginx.conf > /dev/null 2>&1
+            fi
+        fi
+    else 
+        cat > /etc/nginx/nginx.conf << EOF
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+    
+    access_log  /var/log/nginx/access.log  main;
+    sendfile        on;
+    keepalive_timeout  65;
+    
+    include /etc/nginx/conf.d/*.conf;
+}
+EOF
+    fi
+
+    # 检查nginx配置语法
+    if nginx -t > /dev/null 2>&1; then
+    
+        if nginx -s reload > /dev/null 2>&1; then
+            green "nginx订阅配置已加载"
+        else
+            start_nginx  > /dev/null 2>&1
+        fi
+    else
+        yellow "nginx配置失败,订阅不可应,但不影响节点使用, issues反馈: https://github.com/eooce/Sing-box/issues"
+        restart_nginx  > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            green "nginx订阅配置已生效"
+        else
+            [[ -f "/etc/nginx/nginx.conf.bak.sb" ]] && cp "/etc/nginx/nginx.conf.bak.sb" /etc/nginx/nginx.conf > /dev/null 2>&1
+            restart_nginx  > /dev/null 2>&1
+        fi
+    fi
+}
+
+# 启动 sing-box
+start_singbox() {
+    manage_service "sing-box" "start"
+}
+
+# 停止 sing-box
+stop_singbox() {
+    manage_service "sing-box" "stop"
+}
+
+# 重启 sing-box
+restart_singbox() {
+    manage_service "sing-box" "restart"
+}
+
+# 启动 nginx
+start_nginx() {
+    manage_service "nginx" "start"
+}
+
+# 停止 nginx
+stop_nginx() {
+    manage_service "nginx" "stop"
+}
+
+# 重启 nginx
+restart_nginx() {
+    manage_service "nginx" "restart"
+}
+
+# 卸载 sing-box
+uninstall_singbox() {
+   reading "确定要卸载 sing-box 吗? (y/n): " choice
+   case "${choice}" in
+       y|Y)
+           yellow "正在卸载 sing-box"
+           if command_exists rc-service; then
+                rc-service sing-box stop
+                rm /etc/init.d/sing-box
+                rc-update del sing-box default
+           else
+                
+                systemctl stop "${server_name}"
+                systemctl disable "${server_name}"
+                
+                systemctl stop singbox-traffic.service 2>/dev/null || true
+                systemctl disable singbox-traffic.service 2>/dev/null || true
+                rm -f /etc/systemd/system/singbox-traffic.service
+            
+                systemctl daemon-reload || true
+            fi
+           rm -rf "${work_dir}" || true
+           rm -rf "${log_dir}" || true
+           rm -rf /etc/systemd/system/sing-box.service > /dev/null 2>&1
+           rm -rf /etc/systemd/system/singbox-traffic.service > /dev/null 2>&1
+           rm -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
+           rm -f /etc/sing-box/sing-box-name.sh
+           rm -rf /etc/sing-box/user_manager
+           reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
+            case "${choice}" in
+                y|Y)
+                    stop_nginx
+                    manage_packages uninstall nginx
+                    rm -f /etc/nginx/conf.d/sing-box.conf
+                    rm -f /etc/nginx/conf.d/sing-box.conf.bak*
+                    ;;
+                 *)
+                    yellow "取消卸载Nginx\n\n"
+                    ;;
+            esac
+            green "\nsing-box 卸载成功\n\n" && exit 0
+           ;;
+       *)
+           purple "已取消卸载操作\n\n"
+           ;;
+   esac
+}
+
+# 适配alpine运行argo报错用户组和dns的问题
+change_hosts() {
+    sh -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
+    sed -i '1s/.*/127.0.0.1   localhost/' /etc/hosts
+    sed -i '2s/.*/::1         localhost/' /etc/hosts
+}
