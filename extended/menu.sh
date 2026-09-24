@@ -8,6 +8,10 @@ GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main
 MODULES=(
     menu.sh
     install.sh
+	tls.sh
+	nginx.sh
+	name.sh
+	cf.sh
 )
 download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
