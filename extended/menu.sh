@@ -6,16 +6,9 @@
 MODULE_DIR="/etc/sing-box"
 GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended"
 MODULES=(
+    menu.sh
     install.sh
 )
-mkdir -p "$MODULE_DIR"
-if [ ! -f "$MODULE_DIR/menu.sh" ]; then
-    curl -fsSL "$GITHUB_RAW/menu.sh" -o "$MODULE_DIR/menu.sh" || {
-        echo "menu.sh 下载失败"
-        exit 1
-    }
-    chmod 700 "$MODULE_DIR/menu.sh"
-fi
 download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
