@@ -28,22 +28,57 @@ generate_token() {
 tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32
 }
 install_wireguard() {
-if command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1; then
-return
-fi
-if command -v apt-get >/dev/null 2>&1; then
-apt-get update -y >/dev/null 2>&1
-apt-get install -y wireguard >/dev/null 2>&1
-elif command -v dnf >/dev/null 2>&1; then
-dnf install -y wireguard-tools >/dev/null 2>&1
-elif command -v yum >/dev/null 2>&1; then
-yum install -y wireguard-tools >/dev/null 2>&1
-elif command -v apk >/dev/null 2>&1; then
-apk add wireguard-tools >/dev/null 2>&1
-else
-echo "无法安装 WireGuard"
-exit 1
-fi
+    # 已经存在完整 WireGuard，直接使用
+    if command -v wg >/dev/null 2>&1 &&
+       command -v wg-quick >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo
+    echo "正在检查 WireGuard..."
+
+    if command -v apt-get >/dev/null 2>&1; then
+
+        export DEBIAN_FRONTEND=noninteractive
+
+        apt-get update -y
+
+        # Debian / Ubuntu
+        apt-get install -y wireguard-tools
+
+    elif command -v dnf >/dev/null 2>&1; then
+
+        dnf install -y wireguard-tools
+
+    elif command -v yum >/dev/null 2>&1; then
+
+        yum install -y wireguard-tools
+
+    elif command -v apk >/dev/null 2>&1; then
+
+        apk add wireguard-tools
+
+    else
+        echo
+        echo "无法自动安装 WireGuard"
+        echo "请手动安装 wireguard-tools"
+        exit 1
+    fi
+
+    # 安装后再次确认
+    if ! command -v wg >/dev/null 2>&1 ||
+       ! command -v wg-quick >/dev/null 2>&1; then
+
+        echo
+        echo "WireGuard 安装失败"
+        echo "请检查系统软件源"
+        exit 1
+    fi
+
+    echo
+    echo "WireGuard 已就绪"
+    echo "wg       : $(command -v wg)"
+    echo "wg-quick : $(command -v wg-quick)"
 }
 init_wireguard() {
 install_wireguard
