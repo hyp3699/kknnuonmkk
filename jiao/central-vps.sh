@@ -8,6 +8,12 @@ AGENT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/agent.
 mkdir -p "$DATA_DIR"
 chmod 700 "$BASE_DIR" "$DATA_DIR"
 [ -f "$VPS_FILE" ] || echo '{"vps":[]}' > "$VPS_FILE"
+get_ipv4() {
+curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true
+}
+get_ipv6() {
+curl -6 -fsS --max-time 5 https://api64.ipify.org 2>/dev/null || true
+}
 generate_token() {
 tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32
 }
@@ -60,13 +66,15 @@ server.serve_forever()
 PY
 }
 start_server() {
+local script_path
+script_path=$(readlink -f "$0")
 cat > /etc/systemd/system/central-vps.service <<EOF
 [Unit]
 After=network-online.target
 Wants=network-online.target
 [Service]
 Type=simple
-ExecStart=$0 --server
+ExecStart=$script_path --server
 Restart=always
 RestartSec=2
 [Install]
@@ -76,9 +84,16 @@ systemctl daemon-reload
 systemctl enable --now central-vps.service >/dev/null
 }
 add_vps() {
-local name token
+local name token central_ip
 read -rp "请输入 VPS 名称: " name
 [ -n "$name" ] || return
+central_ip=$(get_ipv4)
+if [ -z "$central_ip" ]; then
+echo
+echo "获取中央 VPS 公网 IP 失败"
+read -rp "按 Enter 返回..." _
+return
+fi
 token=$(generate_token)
 python3 - "$VPS_FILE" "$name" "$token" <<'PY'
 import json,sys
@@ -90,10 +105,11 @@ json.dump(d,open(p,"w"),ensure_ascii=False,indent=2)
 PY
 echo
 echo "========================================"
-echo "请在目标 VPS 执行："
+echo "中央 VPS IPv4: $central_ip"
 echo "========================================"
+echo "请在目标 VPS 执行："
 echo
-printf 'curl -fsSL %s | bash -s -- "%s"\n' "$AGENT_URL" "$token"
+printf 'curl -fsSL %s | bash -s -- "%s" "%s"\n' "$AGENT_URL" "$central_ip" "$token"
 echo
 echo "========================================"
 echo
