@@ -4,18 +4,34 @@
 # 主菜单
 # ============================================================
 MODULE_DIR="/etc/sing-box"
-source "$MODULE_DIR/core.sh"
-source "$MODULE_DIR/install.sh"
-source "$MODULE_DIR/service.sh"
-source "$MODULE_DIR/nodes.sh"
-source "$MODULE_DIR/subscription.sh"
-source "$MODULE_DIR/config.sh"
-source "$MODULE_DIR/cf.sh"
-source "$MODULE_DIR/bbr.sh"
-source "$MODULE_DIR/firewall.sh"
-source "$MODULE_DIR/warp.sh"
-source "$MODULE_DIR/token.sh"
-source "$MODULE_DIR/system.sh"
+GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended"
+MODULES=(
+    install.sh
+)
+load_modules() {
+    local file
+    for file in "${MODULES[@]}"; do
+        [ -f "$MODULE_DIR/$file" ] || return 1
+    done
+    for file in "${MODULES[@]}"; do
+        source "$MODULE_DIR/$file"
+    done
+    return 0
+}
+download_modules() {
+    mkdir -p "$MODULE_DIR"
+    local file
+    for file in "${MODULES[@]}"; do
+        echo "正在下载 $file ..."
+        if ! curl -fsSL "$GITHUB_RAW/$file" -o "$MODULE_DIR/$file"; then
+            red "下载失败: $file"
+            rm -f "$MODULE_DIR/$file"
+            return 1
+        fi
+        chmod 700 "$MODULE_DIR/$file"
+    done
+    return 0
+}
 
 # 定义常量
 server_name="sing-box"
@@ -245,7 +261,16 @@ trap 'red "已取消操作"; exit' INT
 while true; do
    menu
    case "${choice}" in
-        1)  
+        1)  if ! load_modules >/dev/null 2>&1; then
+            if ! download_modules; then
+            red "安装失败！"
+            continue
+            fi
+            if ! load_modules >/dev/null 2>&1; then
+            red "安装失败"
+            continue
+            fi
+            fi
             check_singbox &>/dev/null; check_singbox=$?
             if [ ${check_singbox} -eq 0 ]; then
                 yellow "sing-box 已经安装！\n"
