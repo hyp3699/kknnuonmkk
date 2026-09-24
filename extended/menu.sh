@@ -17,6 +17,62 @@ source "$MODULE_DIR/warp.sh"
 source "$MODULE_DIR/token.sh"
 source "$MODULE_DIR/system.sh"
 
+# 定义常量
+server_name="sing-box"
+work_dir="/etc/sing-box"
+conf_dir="${work_dir}/conf"
+config_dir="${conf_dir}/config.json"
+client_dir="${work_dir}/url.txt"
+export CFIP=${CFIP:-'cf.877774.xyz'} 
+export CFPORT=${CFPORT:-'443'} 
+uuid=$(cat /proc/sys/kernel/random/uuid)
+uuid99=$(cat /proc/sys/kernel/random/uuid)
+nginx_port=$(get_available_port)
+tuic_port=$(get_available_port)
+socks_port=$(get_available_port)
+http_port=$(get_available_port)
+anytls_port=$(get_available_port)
+xtls_reality=$(get_available_port)
+vless_tcp_tls=$(get_available_port)
+anytls_reality=$(get_available_port)
+naive_port=$(get_available_port)
+h2_reality=$(get_available_port)
+hy2_port=$(get_available_port)
+grpc_reality=$(get_available_port)
+xhttp_port=$(get_available_port)
+xray_xhttp_reality=$(get_available_port)
+vless_ws_port=$(get_available_port)
+vmess_ws_port=$(get_available_port)
+trojan_ws_port=$(get_available_port)
+username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
+
+BASE_DIR="/etc/sing-box"
+DATA_DIR="$BASE_DIR/user_manager"
+LIMIT_DIR="$DATA_DIR/limits"
+TRAFFIC_DIR="$DATA_DIR/traffic"
+TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
+PYTHON="$(command -v python3 2>/dev/null || true)"
+
+to_chinese() {
+    local clean_status=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
+    [ -z "$clean_status" ] && clean_status="unknown" 
+    case "$clean_status" in
+        "running")       echo -e "\033[1;32m运行中\033[0m" ;;
+        "not running")   echo -e "\033[1;33m未运行\033[0m" ;;
+        "not installed") echo -e "\033[1;31m未安装\033[0m" ;;
+        *)               echo -e "\033[0;37m$clean_status\033[0m" ;;
+    esac
+}
+
+# 检查是否为root下运行
+[[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
+
+# 检查命令是否存在
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
 export LANG=en_US.UTF-8
 re="\033[0m"
 red="\033[1;91m"
@@ -39,6 +95,91 @@ check_singbox() {
 check_nginx() {
     command_exists nginx || { red "not installed"; return 2; }
     check_service "nginx" "$(command -v nginx)"
+}
+manage_service() {
+    local service_name="$1"
+    local action="$2"
+    if [ -z "$service_name" ] || [ -z "$action" ]; then
+        red "缺少服务名或操作参数\n"
+        return 1
+    fi    
+    local status=$(check_service "$service_name" 2>/dev/null)
+    case "$action" in
+        "start")
+            if [ "$status" == "running" ]; then 
+                yellow "${service_name} 正在运行\n"
+                return 0
+            elif [ "$status" == "not installed" ]; then 
+                yellow "${service_name} 尚未安装!\n"
+                return 1
+            else 
+                yellow "正在启动 ${service_name} 服务\n"
+                if command_exists rc-service; then
+                    rc-service "$service_name" start
+                elif command_exists systemctl; then
+                    systemctl daemon-reload
+                    systemctl start "$service_name"
+                fi      
+                if [ $? -eq 0 ]; then
+                    green "${service_name} 服务已成功启动\n"
+                    return 0
+                else
+                    red "${service_name} 服务启动失败\n"
+                    return 1
+                fi
+            fi
+            ;;         
+        "stop")
+            if [ "$status" == "not installed" ]; then 
+                yellow "${service_name} 尚未安装！\n"
+                return 2
+            elif [ "$status" == "not running" ]; then
+                yellow "${service_name} 未运行\n"
+                return 1
+            else
+                yellow "正在停止 ${service_name} 服务\n"
+                if command_exists rc-service; then
+                    rc-service "$service_name" stop
+                elif command_exists systemctl; then
+                    systemctl stop "$service_name"
+                fi          
+                if [ $? -eq 0 ]; then
+                    green "${service_name} 服务已成功停止\n"
+                    return 0
+                else
+                    red "${service_name} 服务停止失败\n"
+                    return 1
+                fi
+            fi
+            ;;        
+        "restart")
+            if [ "$status" == "not installed" ]; then
+                yellow "${service_name} 尚未安装！\n"
+                return 1
+            else
+                yellow "正在重启 ${service_name} 服务\n"
+                if command_exists rc-service; then
+                    rc-service "$service_name" restart
+                elif command_exists systemctl; then
+                    systemctl daemon-reload
+                    systemctl restart "$service_name"
+                fi          
+                if [ $? -eq 0 ]; then
+                    green "${service_name} 服务已成功重启\n"
+                    return 0
+                else
+                    red "${service_name} 服务重启失败\n"
+                    return 1
+                fi
+            fi
+            ;;
+          
+        *)
+            red "无效的操作: $action\n"
+            red "可用操作: start, stop, restart\n"
+            return 1
+            ;;
+    esac
 }
 
 menu() {
