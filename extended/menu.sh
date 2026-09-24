@@ -21,8 +21,7 @@ download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
     local module_file
-    for file in "${MODULES[@]:0:9}"; do
-        [ -z "$file" ] && continue
+    for file in "${MODULES[@]:1}"; do
         module_file="$MODULE_DIR/$file"
         if ! curl -fsSL "$GITHUB_RAW/$file" -o "$module_file" >/dev/null 2>&1; then
             red "$file 下载失败"
@@ -30,25 +29,14 @@ download_and_load_modules() {
         fi
         chmod 700 "$module_file"
     done
-    for file in "${MODULES[@]:0:9}"; do
-        [ -z "$file" ] && continue
+    for file in "${MODULES[@]:1}"; do
         module_file="$MODULE_DIR/$file"
+
         if ! source "$module_file"; then
             red "$file 加载失败"
             return 1
         fi
     done
-    file="install.sh"
-    module_file="$MODULE_DIR/$file"
-    if ! curl -fsSL "$GITHUB_RAW/$file" -o "$module_file" >/dev/null 2>&1; then
-        red "$file 下载失败"
-        return 1
-    fi
-    chmod 700 "$module_file"
-    if ! source "$module_file"; then
-        red "$file 加载失败"
-        return 1
-    fi
     return 0
 }
 
@@ -244,28 +232,34 @@ while true; do
    menu
    case "${choice}" in
         1)
-
-	if ! source "$MODULE_DIR/$file"; then
-    red "$file 加载失败"
-    return 1
+    if ! download_and_load_modules; then
+        red "安装失败！"
+        continue
     fi
+
     check_singbox &>/dev/null
     check_singbox=$?
+
     if [ ${check_singbox} -eq 0 ]; then
         yellow "sing-box 已经安装！\n"
     else
         optimize_dns
         manage_packages install nginx jq tar openssl lsof coreutils
         install_singbox
+
         TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
         TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
+
         curl -fsSL "$TRAFFIC_SCRIPT_URL" \
             -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
+
         if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
             mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
         fi
+
         chmod 700 "$TRAFFIC_SCRIPT"
         "$TRAFFIC_SCRIPT" --init >/dev/null 2>&1 || true
+
         if command_exists systemctl; then
             main_systemd_services
         elif command_exists rc-update; then
@@ -276,12 +270,13 @@ while true; do
             echo "Unsupported init system"
             exit 1
         fi
+
         sleep 5
         add_nginx_conf
         create_shortcut
         setup_vps_traffic_stats
     fi
-    ;;    
+    ;;       
         2)
           if ! type -t uninstall_singbox >/dev/null 2>&1; then
           yellow "请先安装 sing-box！"
