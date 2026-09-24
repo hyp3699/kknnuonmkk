@@ -1,3 +1,10 @@
+server_name="sing-box"
+work_dir="/etc/sing-box"
+conf_dir="${work_dir}/conf"
+config_dir="${conf_dir}/config.json"
+client_dir="${work_dir}/url.txt"
+export CFIP=${CFIP:-'cf.877774.xyz'} 
+export CFPORT=${CFPORT:-'443'} 
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-cf08.sh"
