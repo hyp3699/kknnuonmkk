@@ -268,17 +268,18 @@ install_singbox() {
 }
 TAR="sing-box-linux-${ARCH}.tar.gz"
 URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
-curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && chmod +x "${work_dir}/sing-box-linux-${ARCH}" && mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box" && rm -f "${work_dir}/${TAR}"
-    chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
-
-    allow_port $nginx_port/tcp > /dev/null 2>&1
-    openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
-    openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
-    fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
-
-    dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || \
-        (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
-    
+curl -fSL -o "${work_dir}/${TAR}" "$URL" && \
+tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && \
+chmod +x "${work_dir}/sing-box" && \
+rm -f "${work_dir}/${TAR}"
+chown root:root "${work_dir}/sing-box"
+chmod 755 "${work_dir}/sing-box"
+allow_port "$nginx_port/tcp" > /dev/null 2>&1
+openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
+openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
+fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
+dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || \
+    (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
     cat > "${config_dir}" << EOF
 {
    "http_clients": [
