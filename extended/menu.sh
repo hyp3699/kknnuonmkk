@@ -31,35 +31,6 @@ download_and_load_modules() {
     done
     return 0
 }
-# 定义常量
-uuid=$(cat /proc/sys/kernel/random/uuid)
-uuid99=$(cat /proc/sys/kernel/random/uuid)
-nginx_port=$(get_available_port)
-tuic_port=$(get_available_port)
-socks_port=$(get_available_port)
-http_port=$(get_available_port)
-anytls_port=$(get_available_port)
-xtls_reality=$(get_available_port)
-vless_tcp_tls=$(get_available_port)
-anytls_reality=$(get_available_port)
-naive_port=$(get_available_port)
-h2_reality=$(get_available_port)
-hy2_port=$(get_available_port)
-grpc_reality=$(get_available_port)
-xhttp_port=$(get_available_port)
-xray_xhttp_reality=$(get_available_port)
-vless_ws_port=$(get_available_port)
-vmess_ws_port=$(get_available_port)
-trojan_ws_port=$(get_available_port)
-username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
-password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
-
-BASE_DIR="/etc/sing-box"
-DATA_DIR="$BASE_DIR/user_manager"
-LIMIT_DIR="$DATA_DIR/limits"
-TRAFFIC_DIR="$DATA_DIR/traffic"
-TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
-PYTHON="$(command -v python3 2>/dev/null || true)"
 
 to_chinese() {
     local clean_status=$(echo "$1" | sed 's/\x1b\[[0-9;]*m//g')
@@ -257,10 +228,8 @@ while true; do
         red "安装失败！"
         continue
     fi
-
     check_singbox &>/dev/null
     check_singbox=$?
-
     if [ ${check_singbox} -eq 0 ]; then
         yellow "sing-box 已经安装！\n"
     else
@@ -268,7 +237,6 @@ while true; do
         manage_packages install nginx jq tar openssl lsof coreutils
         install_singbox
     fi
-    ;;
 				TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
 TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
 curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
