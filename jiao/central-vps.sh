@@ -407,25 +407,109 @@ echo "================================"
 echo "             删除管理脚本"
 echo "================================"
 echo
-echo "将删除："
-echo "/usr/local/bin/central-vps.sh"
-echo "/etc/systemd/system/central-vps.service"
-echo "/etc/central-vps"
-echo "/etc/wireguard/wg0.conf"
+echo "将停止并删除中央 VPS 管理系统的全部内容。"
 echo
-read -rp "确认删除？输入 yes: " confirm
+echo "不会卸载 WireGuard 软件包。"
+echo
+read -rp "确认彻底删除？输入 yes: " confirm
 [ "$confirm" = "yes" ] || return
-systemctl disable --now central-vps.service >/dev/null 2>&1 || true
-systemctl disable --now wg-quick@$WG_INTERFACE >/dev/null 2>&1 || true
-rm -f /etc/systemd/system/central-vps.service
-rm -f "$LOCAL_SCRIPT"
-rm -rf "$BASE_DIR"
-rm -f "$WG_CONFIG" "$WG_PRIVATE_KEY" "$WG_PUBLIC_KEY"
-systemctl daemon-reload
+
 echo
-echo "中央 VPS 管理脚本已删除"
+echo "正在停止所有相关服务..."
+
+# 停止中央 VPS 服务
+systemctl disable --now central-vps.service >/dev/null 2>&1 || true
+
+# 停止所有 wg-quick 实例
+systemctl disable --now wg-quick@wg0.service >/dev/null 2>&1 || true
+systemctl disable --now wg-quick@central0.service >/dev/null 2>&1 || true
+
+# 停止可能存在的其他 WireGuard wg-quick 服务
+while read -r service; do
+    [ -n "$service" ] || continue
+    systemctl disable --now "$service" >/dev/null 2>&1 || true
+done < <(
+    systemctl list-units --all --type=service --no-legend 2>/dev/null |
+    awk '{print $1}' |
+    grep '^wg-quick@.*\.service$' || true
+)
+
+echo "正在停止残留进程..."
+
+# 停止 central-vps 相关进程
+pkill -f '/usr/local/bin/central-vps.sh' >/dev/null 2>&1 || true
+pkill -f 'central-vps.sh --server' >/dev/null 2>&1 || true
+
+# 停止所有 wg-quick 相关进程
+pkill -f 'wg-quick.*wg0' >/dev/null 2>&1 || true
+pkill -f 'wg-quick.*central0' >/dev/null 2>&1 || true
+
+echo "正在删除所有 WireGuard 接口..."
+
+# 删除所有 WireGuard 接口
+while read -r interface; do
+    [ -n "$interface" ] || continue
+    ip link del "$interface" >/dev/null 2>&1 || true
+done < <(
+    wg show interfaces 2>/dev/null || true
+)
+
+echo "正在删除 systemd 服务..."
+
+# 删除中央 VPS 服务
+rm -f /etc/systemd/system/central-vps.service
+
+# 删除所有 wg-quick@*.service 的自定义残留链接
+rm -f /etc/systemd/system/wg-quick@wg0.service
+rm -f /etc/systemd/system/wg-quick@central0.service
+
+systemctl daemon-reload
+
+# 清除失败状态
+systemctl reset-failed central-vps.service >/dev/null 2>&1 || true
+systemctl reset-failed wg-quick@wg0.service >/dev/null 2>&1 || true
+systemctl reset-failed wg-quick@central0.service >/dev/null 2>&1 || true
+
+echo "正在删除中央 VPS 管理文件..."
+
+# 删除本地管理脚本
+rm -f /usr/local/bin/central-vps.sh
+
+# 删除中央 VPS 全部数据
+rm -rf /etc/central-vps
+
+echo "正在删除 WireGuard 全部配置..."
+
+# 删除 WireGuard 配置和密钥
+rm -rf /etc/wireguard
+
+echo "正在清理 systemd..."
+
+systemctl daemon-reload
+
+echo
+echo "========================================"
+echo "       中央 VPS 管理系统已彻底删除"
+echo "========================================"
+echo
+echo "已停止："
+echo "  ✓ central-vps.service"
+echo "  ✓ 所有 wg-quick 服务"
+echo "  ✓ central-vps 相关进程"
+echo "  ✓ wg-quick 相关进程"
+echo
+echo "已删除："
+echo "  ✓ /usr/local/bin/central-vps.sh"
+echo "  ✓ /etc/central-vps"
+echo "  ✓ /etc/systemd/system/central-vps.service"
+echo "  ✓ /etc/wireguard"
+echo "  ✓ 所有 WireGuard 接口"
+echo "  ✓ 所有 WireGuard 配置和密钥"
+echo
+echo "WireGuard 软件包未卸载。"
 echo
 exit 0
+
 }
 main() {
 mkdir -p "$(dirname "$LOCAL_SCRIPT")"
