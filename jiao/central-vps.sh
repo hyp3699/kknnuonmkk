@@ -434,10 +434,8 @@ exit 0
 }
 main() {
 install_local_script
-if [ "$(readlink -f "$0")" != "$LOCAL_SCRIPT" ]; then
-exec "$LOCAL_SCRIPT"
-fi
-start_server
+exec /bin/bash "$LOCAL_SCRIPT" --menu
+}
 while true; do
 clear
 echo "================================"
