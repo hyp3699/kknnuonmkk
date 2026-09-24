@@ -5,6 +5,8 @@ TOKEN="${2:-}"
 CENTRAL_URL="http://${CENTRAL_IP}:18089/api/register"
 [ -n "$CENTRAL_IP" ] || { echo "缺少中央 VPS IP"; exit 1; }
 [ -n "$TOKEN" ] || { echo "缺少注册码"; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "未安装 curl"; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "未安装 python3"; exit 1; }
 get_ipv4() {
 curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true
 }
@@ -37,4 +39,3 @@ PY
 )
 RESULT=$(curl -fsS --max-time 15 -X POST "$CENTRAL_URL" -H "Content-Type: application/json" -d "$PAYLOAD")
 echo "$RESULT"
-
