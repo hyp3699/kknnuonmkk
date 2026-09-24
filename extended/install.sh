@@ -332,13 +332,11 @@ dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || \
       "stats": {
         "enabled": true,
         "users": []
-        }
       }
     }
   }
 }
 EOF
-
     cat > "${conf_dir}/outbounds.json" << EOF
 {
   "outbounds": [
