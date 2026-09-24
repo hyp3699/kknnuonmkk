@@ -502,24 +502,53 @@ agent_request() {
     local path="$4"
     local command="${5:-}"
     local url="http://${address}:18090${path}"
+
     if [ "$method" = "GET" ]; then
         curl -sS \
             --connect-timeout 3 \
             --max-time 10 \
-            -H "Authorization: Bearer $token" \
-            "$url" 2>/dev/null
+            -H "Authorization: Bearer ${token}" \
+            "$url"
     else
-        python3 - "$command" <<'PY' | curl -sS \
-            --connect-timeout 3 \
-            --max-time 35 \
-            -X POST \
-            -H "Authorization: Bearer '"$token"'" \
-            -H "Content-Type: application/json" \
-            -d @- \
-            "$url" 2>/dev/null
+        python3 - "$command" "$token" "$url" <<'PY'
 import json
 import sys
-print(json.dumps({"command": sys.argv[1]}, ensure_ascii=False))
+import urllib.request
+import urllib.error
+
+command = sys.argv[1]
+token = sys.argv[2]
+url = sys.argv[3]
+
+payload = json.dumps({
+    "command": command
+}, ensure_ascii=False).encode("utf-8")
+
+req = urllib.request.Request(
+    url,
+    data=payload,
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+)
+try:
+    with urllib.request.urlopen(req, timeout=35) as response:
+        print(response.read().decode("utf-8"))
+except urllib.error.HTTPError as e:
+    body = e.read().decode("utf-8", errors="replace")
+    print(json.dumps({
+        "ok": False,
+        "error": f"HTTP {e.code}",
+        "detail": body
+    }, ensure_ascii=False))
+
+except Exception as e:
+    print(json.dumps({
+        "ok": False,
+        "error": str(e)
+    }, ensure_ascii=False))
 PY
     fi
 }
@@ -1049,7 +1078,7 @@ case "${1:-}" in
         while true; do
             clear
             echo "========================================"
-            echo "          中央 VPS 管理脚本"
+            echo "          中央 VPS 管理脚本 1 "
             echo "========================================"
             echo
             echo "1. 添加 VPS"
