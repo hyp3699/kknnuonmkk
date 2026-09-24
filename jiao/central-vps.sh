@@ -428,7 +428,9 @@ echo
 exit 0
 }
 main() {
-install_local_script
+mkdir -p "$(dirname "$LOCAL_SCRIPT")"
+curl -fsSL "$SCRIPT_URL" -o "$LOCAL_SCRIPT"
+chmod 700 "$LOCAL_SCRIPT"
 exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
 case "${1:-}" in
