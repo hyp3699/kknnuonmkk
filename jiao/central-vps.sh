@@ -4,7 +4,7 @@ BASE_DIR=/etc/central-vps
 DATA_DIR=$BASE_DIR/data
 VPS_FILE=$DATA_DIR/vps.json
 PORT=18089
-GITHUB_RAW_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/agent.sh"
+AGENT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/agent.sh"
 mkdir -p "$DATA_DIR"
 chmod 700 "$BASE_DIR" "$DATA_DIR"
 [ -f "$VPS_FILE" ] || echo '{"vps":[]}' > "$VPS_FILE"
