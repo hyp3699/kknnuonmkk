@@ -431,10 +431,15 @@ main() {
 install_local_script
 exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
+case "${1:-}" in
+--server)
+server
+;;
+--menu)
 while true; do
 clear
 echo "================================"
-echo "       中央 VPS 管理脚本"
+echo "       中央 VPS 管理脚本 1 "
 echo "================================"
 echo
 echo "1. 添加 VPS"
@@ -455,8 +460,8 @@ case "$choice" in
 0) exit 0 ;;
 esac
 done
-}
-case "${1:-}" in
---server) server ;;
-*) main ;;
+;;
+*)
+main
+;;
 esac
