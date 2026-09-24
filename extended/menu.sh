@@ -3,6 +3,35 @@
 # ============================================================
 # 主菜单
 # ============================================================
+MODULE_DIR="/etc/sing-box"
+source "$MODULE_DIR/core.sh"
+source "$MODULE_DIR/install.sh"
+source "$MODULE_DIR/service.sh"
+source "$MODULE_DIR/nodes.sh"
+source "$MODULE_DIR/subscription.sh"
+source "$MODULE_DIR/config.sh"
+source "$MODULE_DIR/cf.sh"
+source "$MODULE_DIR/bbr.sh"
+source "$MODULE_DIR/firewall.sh"
+source "$MODULE_DIR/warp.sh"
+source "$MODULE_DIR/token.sh"
+source "$MODULE_DIR/system.sh"
+
+export LANG=en_US.UTF-8
+re="\033[0m"
+red="\033[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+skyblue="\e[1;36m"
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+skyblue() { echo -e "\e[1;36m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
+
+
 menu() {
     local singbox_status
     local nginx_status
@@ -141,3 +170,4 @@ main_menu() {
             $'\033[1;91m按任意键返回...\033[0m'
     done
 }
+main_menu
