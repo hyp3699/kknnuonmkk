@@ -8,6 +8,9 @@ GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main
 MODULES=(
     menu.sh
 	nftables.sh
+	100.sh
+	101.sh
+	fen.sh
 	tls.sh
 	nginx.sh
 	name.sh
