@@ -3,10 +3,13 @@ set -e
 CENTRAL_IP="${1:-}"
 TOKEN="${2:-}"
 CENTRAL_URL="http://${CENTRAL_IP}:18089/api/register"
-WG_INTERFACE=wg0
+WG_INTERFACE=central-mgmt
+WG_NETWORK=10.231.47
+WG_ADDRESS_PREFIX=24
+WG_SERVER_ADDRESS=10.231.47.1
 WG_DIR=/etc/wireguard
-WG_CONFIG=$WG_DIR/wg0.conf
-WG_PRIVATE_KEY=$WG_DIR/privatekey
+WG_CONFIG=$WG_DIR/central-mgmt.conf
+WG_PRIVATE_KEY=$WG_DIR/central-mgmt-privatekey
 [ -n "$CENTRAL_IP" ] || { echo "缺少中央 VPS IP"; exit 1; }
 [ -n "$TOKEN" ] || { echo "缺少注册码"; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "未安装 curl"; exit 1; }
@@ -80,30 +83,33 @@ exit 1
 fi
 cat > "$WG_CONFIG" <<EOF
 [Interface]
-Address = $WG_ADDRESS/24
+Address = $WG_ADDRESS/$WG_ADDRESS_PREFIX
 PrivateKey = $PRIVATE_KEY
 [Peer]
 PublicKey = $WG_SERVER_KEY
 Endpoint = $WG_ENDPOINT
-AllowedIPs = 10.88.0.0/24
+AllowedIPs = $WG_NETWORK.0/24
 PersistentKeepalive = 25
 EOF
 chmod 600 "$WG_CONFIG"
-systemctl enable wg-quick@$WG_INTERFACE >/dev/null 2>&1 || true
-systemctl restart wg-quick@$WG_INTERFACE
+systemctl enable "wg-quick@$WG_INTERFACE" >/dev/null 2>&1 || true
+systemctl restart "wg-quick@$WG_INTERFACE"
 sleep 2
-if ping -c 2 -W 3 10.88.0.1 >/dev/null 2>&1; then
+if ping -c 2 -W 3 "$WG_SERVER_ADDRESS" >/dev/null 2>&1; then
 echo
 echo "========================================"
 echo "WG 通信成功"
 echo "本机 WG: $WG_ADDRESS"
-echo "中央 WG: 10.88.0.1"
+echo "中央 WG: $WG_SERVER_ADDRESS"
+echo "接口: $WG_INTERFACE"
 echo "========================================"
 else
 echo
 echo "========================================"
 echo "WG 已启动，但无法 ping 中央 VPS"
 echo "本机 WG: $WG_ADDRESS"
+echo "中央 WG: $WG_SERVER_ADDRESS"
+echo "接口: $WG_INTERFACE"
 echo "========================================"
 wg show "$WG_INTERFACE"
 fi
