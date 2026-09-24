@@ -401,116 +401,166 @@ esac
 done
 done
 }
+
 delete_script() {
-echo
-echo "================================"
-echo "             删除管理脚本"
-echo "================================"
-echo
-echo "将停止并删除中央 VPS 管理系统的全部内容。"
-echo
-echo "不会卸载 WireGuard 软件包。"
-echo
-read -rp "确认彻底删除？输入 yes: " confirm
-[ "$confirm" = "yes" ] || return
+    echo
+    echo "========================================"
+    echo "          删除中央 VPS 管理系统"
+    echo "========================================"
+    echo
+    echo "只删除本管理系统创建的内容："
+    echo
+    echo "  - central-vps.service"
+    echo "  - wg0"
+    echo "  - wg0.conf"
+    echo "  - /etc/central-vps"
+    echo "  - /usr/local/bin/central-vps.sh"
+    echo
+    echo "不会删除："
+    echo "  - route64"
+    echo "  - central0"
+    echo "  - 其他 WireGuard 配置"
+    echo "  - WireGuard 软件包"
+    echo
+    read -rp "确认删除？输入 yes: " confirm
 
-echo
-echo "正在停止所有相关服务..."
+    [ "$confirm" = "yes" ] || return
 
-# 停止中央 VPS 服务
-systemctl disable --now central-vps.service >/dev/null 2>&1 || true
+    echo
+    echo "开始删除..."
 
-# 停止所有 wg-quick 实例
-systemctl disable --now wg-quick@wg0.service >/dev/null 2>&1 || true
-systemctl disable --now wg-quick@central0.service >/dev/null 2>&1 || true
+    #
+    # 1. 停止中央 VPS 服务
+    #
+    echo
+    echo "[1/6] 停止 central-vps.service..."
 
-# 停止可能存在的其他 WireGuard wg-quick 服务
-while read -r service; do
-    [ -n "$service" ] || continue
-    systemctl disable --now "$service" >/dev/null 2>&1 || true
-done < <(
-    systemctl list-units --all --type=service --no-legend 2>/dev/null |
-    awk '{print $1}' |
-    grep '^wg-quick@.*\.service$' || true
-)
+    systemctl stop central-vps.service >/dev/null 2>&1 || true
+    systemctl disable central-vps.service >/dev/null 2>&1 || true
 
-echo "正在停止残留进程..."
+    #
+    # 2. 停止 wg0
+    #
+    echo
+    echo "[2/6] 停止 wg0..."
 
-# 停止 central-vps 相关进程
-pkill -f '/usr/local/bin/central-vps.sh' >/dev/null 2>&1 || true
-pkill -f 'central-vps.sh --server' >/dev/null 2>&1 || true
+    systemctl stop wg-quick@wg0.service >/dev/null 2>&1 || true
+    systemctl disable wg-quick@wg0.service >/dev/null 2>&1 || true
 
-# 停止所有 wg-quick 相关进程
-pkill -f 'wg-quick.*wg0' >/dev/null 2>&1 || true
-pkill -f 'wg-quick.*central0' >/dev/null 2>&1 || true
+    #
+    # 3. 删除 wg0 接口
+    #
+    echo
+    echo "[3/6] 删除 wg0..."
 
-echo "正在删除所有 WireGuard 接口..."
+    ip link set wg0 down >/dev/null 2>&1 || true
+    ip link del wg0 >/dev/null 2>&1 || true
 
-# 删除所有 WireGuard 接口
-while read -r interface; do
-    [ -n "$interface" ] || continue
-    ip link del "$interface" >/dev/null 2>&1 || true
-done < <(
-    wg show interfaces 2>/dev/null || true
-)
+    #
+    # 4. 删除本系统自己的 systemd 文件
+    #
+    echo
+    echo "[4/6] 删除 systemd 文件..."
 
-echo "正在删除 systemd 服务..."
+    rm -f /etc/systemd/system/central-vps.service
 
-# 删除中央 VPS 服务
-rm -f /etc/systemd/system/central-vps.service
+    # 只删除 wg0 自己的自定义 unit
+    rm -f /etc/systemd/system/wg-quick@wg0.service
 
-# 删除所有 wg-quick@*.service 的自定义残留链接
-rm -f /etc/systemd/system/wg-quick@wg0.service
-rm -f /etc/systemd/system/wg-quick@central0.service
+    # 删除 wg0 的 systemd enable 链接
+    find /etc/systemd/system \
+        -type l \
+        -name 'wg-quick@wg0.service' \
+        -delete 2>/dev/null || true
 
-systemctl daemon-reload
+    systemctl daemon-reload
 
-# 清除失败状态
-systemctl reset-failed central-vps.service >/dev/null 2>&1 || true
-systemctl reset-failed wg-quick@wg0.service >/dev/null 2>&1 || true
-systemctl reset-failed wg-quick@central0.service >/dev/null 2>&1 || true
+    systemctl reset-failed central-vps.service >/dev/null 2>&1 || true
+    systemctl reset-failed wg-quick@wg0.service >/dev/null 2>&1 || true
 
-echo "正在删除中央 VPS 管理文件..."
+    #
+    # 5. 只删除 wg0 配置
+    #
+    echo
+    echo "[5/6] 删除 wg0 配置..."
 
-# 删除本地管理脚本
-rm -f /usr/local/bin/central-vps.sh
+    rm -f /etc/wireguard/wg0.conf
 
-# 删除中央 VPS 全部数据
-rm -rf /etc/central-vps
+    #
+    # 删除本系统自己的数据和脚本
+    #
+    rm -rf /etc/central-vps
+    rm -f /usr/local/bin/central-vps.sh
 
-echo "正在删除 WireGuard 全部配置..."
+    #
+    # 6. 最终检查
+    #
+    echo
+    echo "[6/6] 检查..."
 
-# 删除 WireGuard 配置和密钥
-rm -rf /etc/wireguard
+    echo
+    echo "===== 当前 WireGuard ====="
 
-echo "正在清理 systemd..."
+    if command -v wg >/dev/null 2>&1; then
+        wg show
+    fi
 
-systemctl daemon-reload
+    echo
+    echo "===== 检查 wg0 ====="
 
-echo
-echo "========================================"
-echo "       中央 VPS 管理系统已彻底删除"
-echo "========================================"
-echo
-echo "已停止："
-echo "  ✓ central-vps.service"
-echo "  ✓ 所有 wg-quick 服务"
-echo "  ✓ central-vps 相关进程"
-echo "  ✓ wg-quick 相关进程"
-echo
-echo "已删除："
-echo "  ✓ /usr/local/bin/central-vps.sh"
-echo "  ✓ /etc/central-vps"
-echo "  ✓ /etc/systemd/system/central-vps.service"
-echo "  ✓ /etc/wireguard"
-echo "  ✓ 所有 WireGuard 接口"
-echo "  ✓ 所有 WireGuard 配置和密钥"
-echo
-echo "WireGuard 软件包未卸载。"
-echo
-exit 0
+    if ip link show wg0 >/dev/null 2>&1; then
+        echo "⚠ wg0 仍然存在"
+    else
+        echo "✓ wg0 已删除"
+    fi
 
+    echo
+    echo "===== 检查配置 ====="
+
+    if [ -e /etc/wireguard/wg0.conf ]; then
+        echo "⚠ /etc/wireguard/wg0.conf 仍然存在"
+    else
+        echo "✓ wg0.conf 已删除"
+    fi
+
+    echo
+    echo "===== 检查管理文件 ====="
+
+    if [ -e /etc/central-vps ]; then
+        echo "⚠ /etc/central-vps 仍然存在"
+    else
+        echo "✓ /etc/central-vps 已删除"
+    fi
+
+    if [ -e /usr/local/bin/central-vps.sh ]; then
+        echo "⚠ central-vps.sh 仍然存在"
+    else
+        echo "✓ central-vps.sh 已删除"
+    fi
+
+    echo
+    echo "========================================"
+    echo "       中央 VPS 管理系统已删除"
+    echo "========================================"
+    echo
+    echo "保留："
+    echo "  ✓ route64"
+    echo "  ✓ central0"
+    echo "  ✓ 其他 WireGuard"
+    echo "  ✓ WireGuard 软件包"
+    echo
+    echo "删除："
+    echo "  ✓ wg0"
+    echo "  ✓ wg0.conf"
+    echo "  ✓ central-vps.service"
+    echo "  ✓ /etc/central-vps"
+    echo "  ✓ /usr/local/bin/central-vps.sh"
+    echo
+
+    exit 0
 }
+
+
 main() {
 mkdir -p "$(dirname "$LOCAL_SCRIPT")"
 curl -fsSL "$SCRIPT_URL" -o "$LOCAL_SCRIPT"
