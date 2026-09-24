@@ -20,20 +20,35 @@ MODULES=(
 download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
-    for file in "${MODULES[@]}"; do
-        if ! curl -fsSL "$GITHUB_RAW/$file" -o "$MODULE_DIR/$file" >/dev/null 2>&1; then
+    local module_file
+    for file in "${MODULES[@]:0:9}"; do
+        [ -z "$file" ] && continue
+        module_file="$MODULE_DIR/$file"
+        if ! curl -fsSL "$GITHUB_RAW/$file" -o "$module_file" >/dev/null 2>&1; then
             red "$file 下载失败"
             return 1
         fi
-        chmod 700 "$MODULE_DIR/$file"
-        if [ "$file" = "menu.sh" ]; then
-            continue
-        fi
-        if ! source "$MODULE_DIR/$file" >/dev/null 2>&1; then
+        chmod 700 "$module_file"
+    done
+    for file in "${MODULES[@]:0:9}"; do
+        [ -z "$file" ] && continue
+        module_file="$MODULE_DIR/$file"
+        if ! source "$module_file"; then
             red "$file 加载失败"
             return 1
         fi
     done
+    file="install.sh"
+    module_file="$MODULE_DIR/$file"
+    if ! curl -fsSL "$GITHUB_RAW/$file" -o "$module_file" >/dev/null 2>&1; then
+        red "$file 下载失败"
+        return 1
+    fi
+    chmod 700 "$module_file"
+    if ! source "$module_file"; then
+        red "$file 加载失败"
+        return 1
+    fi
     return 0
 }
 
