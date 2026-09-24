@@ -1,96 +1,8 @@
-#!/bin/bash
 
-# ========================
-# 老王sing-box四合一安装脚本
-# vless-version-reality|vmess-ws-tls(tunnel)|hysteria2|tuic5
-# 最后更新时间: 2026.3.05
-# =========================
 
-export LANG=en_US.UTF-8
-# --- 颜色和基础工具函数 ---
-re="\033[0m"
-red="\033[1;91m"
-green="\e[1;32m"
-yellow="\e[1;33m"
-purple="\e[1;35m"
-skyblue="\e[1;36m"
-red() { echo -e "\e[1;91m$1\033[0m"; }
-green() { echo -e "\e[1;32m$1\033[0m"; }
-yellow() { echo -e "\e[1;33m$1\033[0m"; }
-purple() { echo -e "\e[1;35m$1\033[0m"; }
-skyblue() { echo -e "\e[1;36m$1\033[0m"; }
-reading() { read -p "$(red "$1")" "$2"; }
 
-generate_vars() {
-    local cc=""
-    local c1 c2 n1 n2
-    local response
-    response=$(curl -4 -sS --connect-timeout 3 --max-time 5 \
-        "https://api.ip.sb/geoip" 2>/dev/null)
-    cc=$(echo "$response" |
-        jq -r '.country_code // empty' 2>/dev/null |
-        tr '[:lower:]' '[:upper:]')
-    if [[ ! "$cc" =~ ^[A-Z]{2}$ ]]; then
-        response=$(curl -4 -sS --connect-timeout 3 --max-time 5 \
-            "https://ipapi.co/json/" 2>/dev/null)
-        cc=$(echo "$response" |
-            jq -r '.country_code // empty' 2>/dev/null |
-            tr '[:lower:]' '[:upper:]')
-    fi
-    if [[ ! "$cc" =~ ^[A-Z]{2}$ ]]; then
-        response=$(curl -4 -sS --connect-timeout 3 --max-time 5 \
-            "https://ipinfo.io/json" 2>/dev/null)
 
-        cc=$(echo "$response" |
-            jq -r '.country // empty' 2>/dev/null |
-            tr '[:lower:]' '[:upper:]')
-    fi
-    if [[ "$cc" =~ ^[A-Z]{2}$ ]]; then
-        printf -v c1 '%d' "'${cc:0:1}"
-        printf -v c2 '%d' "'${cc:1:1}"
-        n1=$((0x1F1E6 + c1 - 65))
-        n2=$((0x1F1E6 + c2 - 65))
-        printf -v isp '%b' \
-            "\\U$(printf '%08X' "$n1")\\U$(printf '%08X' "$n2")"
-    else
-        isp="🌐"
-    fi
-}
 
-# 用于存放已分配端口的数组
-declare -A used_ports
-get_available_port() {
-    local port
-    while true; do
-        port=$(shuf -i 10000-65535 -n 1)
-        if [ -n "${used_ports[$port]}" ]; then
-            continue
-        fi
-        if port_is_used "$port" "$protocol"; then
-            continue
-        fi
-        used_ports[$port]=1
-        echo "$port"
-        break
-    done
-}
-port_is_used() {
-    local port="$1"
-    local protocol="$2"
-    if command -v ss >/dev/null 2>&1; then
-        if [ "$protocol" = "udp" ]; then
-            ss -H -lun | grep -qE "[:.]${port}([[:space:]]|$)"
-        else
-            ss -H -ltn | grep -qE "[:.]${port}([[:space:]]|$)"
-        fi
-    elif command -v netstat >/dev/null 2>&1; then
-        if [ "$protocol" = "udp" ]; then
-            netstat -lun | grep -qE "[:.]${port}([[:space:]]|$)"
-        else
-            netstat -ltn | grep -qE "[:.]${port}([[:space:]]|$)"
-        fi
-    fi
-}
 
 # 自动检测并安装 nftables
 check_and_install_nftables() {
@@ -125,52 +37,6 @@ is_cf_supported_port() {
 }
 
 
-
-
-
-
-
-# 获取ip
-get_realip() {
-    local ip=""
-    local v6=""
-    ip=$(curl -4 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
-    if [ -z "$ip" ]; then
-        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
-        if [ -n "$v6" ]; then
-            echo "[$v6]"
-            return 0
-        fi
-        return 1
-    fi
-    if curl -4 -sL --connect-timeout 3 --max-time 5 \
-        http://ipinfo.io/org 2>/dev/null |
-        grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
-        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 \
-            ip.sb 2>/dev/null)
-        if [ -n "$v6" ]; then
-            echo "[$v6]"
-            return 0
-        fi
-    fi
-    echo "$ip"
-}
-ip_address() {
-    ipv4_address=$(curl -4 -sS -L -m 3 https://ipv4.ip.sb 2>/dev/null | tr -d '[:space:]')
-    ipv6_address=$(curl -6 -sS -L -m 3 https://ipv6.ip.sb 2>/dev/null | tr -d '[:space:]')
-    [[ "$ipv4_address" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ipv4_address=""
-    [[ "$ipv6_address" =~ : ]] || ipv6_address=""
-}
-nginx_get_domain() {
-    local file="$1"
-    awk '/server_name/ {
-        for(i=2;i<=NF;i++){
-            gsub(";","",$i)
-            if($i != "_")
-                print $i
-        }
-    }' "$file" | sort -u | tr '\n' ' '
-}
 
 
 
