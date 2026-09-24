@@ -152,16 +152,10 @@ OS=$(awk -F= '
 ' /etc/os-release 2>/dev/null || uname -s)
 
 ARCH=$(uname -m)
-
-
-# ============================================================
-# 注册数据
-# ============================================================
-
-PAYLOAD=$(python3 - "$TOKEN" "$PUBLIC_KEY" "$IPV4" "$IPV6" "$COUNTRY" "$HOSTNAME" "$OS" "$ARCH" <<'PY'
+AGENT_TOKEN=$(cat "$AGENT_TOKEN_FILE")
+PAYLOAD=$(python3 - "$TOKEN" "$PUBLIC_KEY" "$IPV4" "$IPV6" "$COUNTRY" "$HOSTNAME" "$OS" "$ARCH" "$AGENT_TOKEN" <<'PY'
 import json
 import sys
-
 print(json.dumps({
     "token": sys.argv[1],
     "wg_public_key": sys.argv[2],
@@ -170,15 +164,11 @@ print(json.dumps({
     "country": sys.argv[5],
     "hostname": sys.argv[6],
     "os": sys.argv[7],
-    "arch": sys.argv[8]
+    "arch":sys.argv[8],
+    "agent_token":sys.argv[9]
 }, ensure_ascii=False))
 PY
 )
-
-
-# ============================================================
-# 注册中央 VPS
-# ============================================================
 
 RESULT=$(curl -fsS \
     --connect-timeout 5 \
@@ -187,14 +177,7 @@ RESULT=$(curl -fsS \
     "$CENTRAL_URL" \
     -H "Content-Type: application/json" \
     -d "$PAYLOAD")
-
-
 echo "$RESULT"
-
-
-# ============================================================
-# 解析中央返回
-# ============================================================
 
 WG_ADDRESS=$(printf '%s' "$RESULT" |
     python3 -c '
