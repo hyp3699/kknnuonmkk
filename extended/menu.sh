@@ -96,6 +96,20 @@ check_nginx() {
     command_exists nginx || { red "not installed"; return 2; }
     check_service "nginx" "$(command -v nginx)"
 }
+check_service() {
+    local service_name=$1
+    local service_file=$2
+    [[ -n "${service_file}" && ! -f "${service_file}" ]] && { red "not installed"; return 2; }
+    if command_exists rc-service; then
+        rc-service "${service_name}" status 2>&1 | grep -qE "started|running" && { green "running"; return 0; } || { yellow "not running"; return 1; }
+    elif command_exists systemctl; then
+        systemctl is-active --quiet "${service_name}" && { green "running"; return 0; } || { yellow "not running"; return 1; }
+    else
+        yellow "service manager not found"
+        return 2
+    fi
+}
+
 manage_service() {
     local service_name="$1"
     local action="$2"
