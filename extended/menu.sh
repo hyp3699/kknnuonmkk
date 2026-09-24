@@ -8,8 +8,12 @@ GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main
 MODULES=(
     install.sh
 )
-if [ "${BASH_SOURCE[0]}" != "$MODULE_DIR/menu.sh" ]; then
-    curl -fsSL "$GITHUB_RAW/menu.sh" -o "$MODULE_DIR/menu.sh"
+mkdir -p "$MODULE_DIR"
+if [ ! -f "$MODULE_DIR/menu.sh" ]; then
+    curl -fsSL "$GITHUB_RAW/menu.sh" -o "$MODULE_DIR/menu.sh" || {
+        echo "menu.sh 下载失败"
+        exit 1
+    }
     chmod 700 "$MODULE_DIR/menu.sh"
 fi
 download_and_load_modules() {
