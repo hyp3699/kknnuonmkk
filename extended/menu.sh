@@ -19,52 +19,23 @@ MODULES=(
 )
 download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
-
     local file
     local module_file
-
     for file in "${MODULES[@]:1}"; do
         module_file="$MODULE_DIR/$file"
-
-        echo
-        echo "正在下载: $file"
-        echo "地址: $GITHUB_RAW/$file"
-
-        if ! curl -fSL "$GITHUB_RAW/$file" -o "$module_file"; then
+        if ! curl -fsSL "$GITHUB_RAW/$file" -o "$module_file" >/dev/null 2>&1; then
             red "$file 下载失败"
-            echo
-            read -r -p "按回车返回菜单..." _
             return 1
         fi
-
         chmod 700 "$module_file"
-        green "$file 下载完成"
     done
-
-    echo
-    green "所有模块下载完成"
-    echo
-    yellow "开始加载模块..."
-
     for file in "${MODULES[@]:1}"; do
         module_file="$MODULE_DIR/$file"
-
-        echo
-        echo "正在加载: $file"
-
-        if ! source "$module_file"; then
+        if ! source "$module_file" >/dev/null 2>&1; then
             red "$file 加载失败"
-            echo
-            read -r -p "按回车返回菜单..." _
             return 1
         fi
-
-        green "$file 加载完成"
     done
-
-    echo
-    green "所有模块加载完成"
-
     return 0
 }
 to_chinese() {
