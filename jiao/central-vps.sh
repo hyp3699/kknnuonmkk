@@ -258,6 +258,7 @@ with open(config_file, "a", encoding="utf-8") as f:
                 ip.split("/")[0] +
                 "/32\n"
             )
+PY
 
 
 chmod 600 "$WG_CONFIG"
