@@ -7,6 +7,7 @@ MODULE_DIR="/etc/sing-box"
 GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended"
 MODULES=(
     menu.sh
+	nftables.sh
 	tls.sh
 	nginx.sh
 	name.sh
