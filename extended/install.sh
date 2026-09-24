@@ -242,94 +242,43 @@ install_singbox() {
             return 1
             ;;
     esac
-
     mkdir -p "${work_dir}"
     chmod 755 "${work_dir}"
-
     mkdir -p "${conf_dir}"
     chmod 755 "${conf_dir}"
-
     mkdir -p "${log_dir}"
 
     nginx_port=$(get_available_port)
     tuic_port=$(get_available_port)
-
     uuid=$(cat /proc/sys/kernel/random/uuid)
     uuid99=$(cat /proc/sys/kernel/random/uuid)
     username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
     latest_tag=$(curl -fsSL \
-        "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" |
-        jq -r '[.[] |
-            select(.prerelease==false) |
-            select(.draft==false) |
-            select(.tag_name | endswith("-xhttp"))
-        ][0].tag_name')
+    "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" |
+    jq -r '[.[] |
+        select(.prerelease==false) |
+        select(.draft==false) |
+        select(.tag_name | endswith("-xhttp"))
+    ][0].tag_name')
+[ -n "$latest_tag" ] || {
+    red "获取 sing-box 最新版本失败"
+    exit 1
+}
+TAR="sing-box-linux-${ARCH}.tar.gz"
+URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
+curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && chmod +x "${work_dir}/sing-box-linux-${ARCH}" && mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box" && rm -f "${work_dir}/${TAR}"
+    chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
 
-    if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
-        red "获取 sing-box 最新版本失败"
-        return 1
-    fi
+    allow_port $nginx_port/tcp > /dev/null 2>&1
+    openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
+    openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
+    fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
 
-    TAR="sing-box-linux-${ARCH}.tar.gz"
-    URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
-
-    if ! curl -fSL -o "${work_dir}/${TAR}" "$URL"; then
-        red "sing-box 下载失败"
-        rm -f "${work_dir}/${TAR}"
-        return 1
-    fi
-
-    if ! tar -xzf "${work_dir}/${TAR}" -C "${work_dir}"; then
-        red "sing-box 解压失败"
-        rm -f "${work_dir}/${TAR}"
-        return 1
-    fi
-
-    if [ ! -f "${work_dir}/sing-box-linux-${ARCH}" ]; then
-        red "解压后没有找到 sing-box-linux-${ARCH}"
-        rm -f "${work_dir}/${TAR}"
-        return 1
-    fi
-
-    chmod +x "${work_dir}/sing-box-linux-${ARCH}"
-    mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box"
-    rm -f "${work_dir}/${TAR}"
-
-    chown root:root "${work_dir}/sing-box"
-    chmod 755 "${work_dir}/sing-box"
-
-    allow_port "${nginx_port}/tcp" "${tuic_port}/udp" >/dev/null 2>&1
-
-    if ! openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"; then
-        red "生成私钥失败"
-        return 1
-    fi
-
-    if ! openssl req -new -x509 -days 3650 \
-        -key "${work_dir}/private.key" \
-        -out "${work_dir}/cert.pem" \
-        -subj "/CN=bing.com"; then
-        red "生成证书失败"
-        return 1
-    fi
-
-    fingerprint=$(openssl x509 -noout -fingerprint -sha256 \
-        -in "${work_dir}/cert.pem" |
-        cut -d'=' -f2 |
-        sed 's/:/%3A/g')
-
-    dns_strategy=$(
-        ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 &&
-        echo "prefer_ipv4" ||
-        (
-            ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 &&
-            echo "prefer_ipv6" ||
-            echo "prefer_ipv4"
-        )
-    )
-
+    dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || \
+        (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
+    
     cat > "${config_dir}" << EOF
 {
    "http_clients": [
