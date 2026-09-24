@@ -700,6 +700,7 @@ manage_single_vps() {
     local token
     local agent_token
     local action
+    local confirm
     name=$(get_vps_field "$index" name)
     address=$(get_vps_field "$index" wg_address)
     token=$(get_vps_field "$index" token)
@@ -722,9 +723,6 @@ manage_single_vps() {
         green "========================================"
         green "              VPS 管理"
         green "========================================"
-        echo
-        green "VPS 名称 : $name"
-        green "WG 地址  : $address"
         echo
         green "1. 查看 VPS 详细信息"
         green "2. 执行 VPS 命令"
@@ -765,9 +763,6 @@ manage_single_vps() {
                 red "              删除 VPS"
                 red "========================================"
                 echo
-                echo "VPS 名称 : $name"
-                echo "WG 地址  : $address"
-                echo
                 read -r -p "确认删除此 VPS？输入 yes: " confirm
                 if [ "$confirm" = "yes" ]; then
                     delete_vps "$name"
@@ -803,78 +798,23 @@ manage_vps() {
             read -rp "按 Enter 返回..." _
             return
         fi
-        printf "%-4s %-18s %-12s %-16s %-13s %-12s %-10s %-10s %-8s\n" "编号" "名称" "地区" "公网 IPv4" "WG 地址" "CPU" "内存" "磁盘" "状态"
-        echo "------------------------------------------------------------------------------------------------"
+        printf "%-4s %-24s %-20s\n" "编号" "名称" "公网 IP"
+        echo "------------------------------------------------------------"
         local i
         for ((i=0;i<count;i++)); do
             local name
-            local country
             local ipv4
-            local address
-            local agent_token
-            local cpu="-"
-            local mem="-"
-            local disk="-"
-            local status="离线"
-            local result
             name=$(get_vps_field "$i" name)
-            country=$(get_vps_field "$i" country)
             ipv4=$(get_vps_field "$i" ipv4)
-            address=$(get_vps_field "$i" wg_address)
-            agent_token=$(get_vps_field "$i" agent_token)
-            country="${country:--}"
-            ipv4="${ipv4:--}"
-            address="${address:--}"
-            if [ -n "$agent_token" ] && [ "$address" != "-" ]; then
-                result=$(get_vps_status "$address" "$agent_token" 2>/dev/null || true)
-                if printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-    raise SystemExit(0 if d.get("ok") else 1)
-except:
-    raise SystemExit(1)
-'; then
-                    status="在线"
-                    eval "$(
-                        printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-    out=d.get("stdout","")
-except:
-    raise SystemExit
-cpu="-"
-mem="-"
-disk="-"
-for line in out.splitlines():
-    if line.startswith("CPU_CORES="):
-        cpu=line.split("=",1)[1]+"核"
-    elif line.startswith("LOAD="):
-        load=line.split("=",1)[1].split()
-        if load:
-            cpu+="/"+load[0]
-    elif line.startswith("MEM="):
-        p=line.split("=",1)[1].split()
-        if len(p)>=3:
-            mem=p[2]+"%"
-    elif line.startswith("DISK="):
-        p=line.split("=",1)[1].split()
-        if len(p)>=3:
-            disk=p[2]+"%"
-print("CPU="+repr(cpu))
-print("MEM="+repr(mem))
-print("DISK="+repr(disk))
-'
-                    )"
-                fi
-            fi
-            printf "%-4s %-18.18s %-12.12s %-16.16s %-13.13s %-12.12s %-10.10s %-10.10s %-8s\n" "$((i+1))" "$name" "$country" "$ipv4" "$address" "$cpu" "$mem" "$disk" "$status"
+            [ -n "$name" ] || name="-"
+            [ -n "$ipv4" ] || ipv4="-"
+            printf "%-4s %-24.24s %-20.20s\n" "$((i+1))" "$name" "$ipv4"
         done
         echo
         green "1～$count 选择 VPS"
         green "0. 返回"
         echo
+        local choice
         read -rp "请选择 VPS: " choice
         [ "$choice" = "0" ] && return
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
@@ -885,7 +825,6 @@ print("DISK="+repr(disk))
         fi
     done
 }
-
 
 
 
