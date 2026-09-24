@@ -5,6 +5,36 @@ config_dir="${conf_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
+uuid=$(cat /proc/sys/kernel/random/uuid)
+uuid99=$(cat /proc/sys/kernel/random/uuid)
+nginx_port=$(get_available_port)
+tuic_port=$(get_available_port)
+socks_port=$(get_available_port)
+http_port=$(get_available_port)
+anytls_port=$(get_available_port)
+xtls_reality=$(get_available_port)
+vless_tcp_tls=$(get_available_port)
+anytls_reality=$(get_available_port)
+naive_port=$(get_available_port)
+h2_reality=$(get_available_port)
+hy2_port=$(get_available_port)
+grpc_reality=$(get_available_port)
+xhttp_port=$(get_available_port)
+xray_xhttp_reality=$(get_available_port)
+vless_ws_port=$(get_available_port)
+vmess_ws_port=$(get_available_port)
+trojan_ws_port=$(get_available_port)
+username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
+
+BASE_DIR="/etc/sing-box"
+DATA_DIR="$BASE_DIR/user_manager"
+LIMIT_DIR="$DATA_DIR/limits"
+TRAFFIC_DIR="$DATA_DIR/traffic"
+TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
+PYTHON="$(command -v python3 2>/dev/null || true)"
+
+
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
     local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-cf08.sh"
