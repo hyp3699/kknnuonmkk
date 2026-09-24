@@ -7,14 +7,14 @@ LOCAL_SCRIPT=/usr/local/bin/central-vps.sh
 SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/central-vps.sh"
 PORT=18089
 AGENT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/agent.sh"
-WG_INTERFACE=wg0
+WG_INTERFACE=central-mgmt
 WG_PORT=51821
 WG_NETWORK=10.88.0
 WG_ADDRESS=10.88.0.1/24
 WG_DIR=/etc/wireguard
-WG_CONFIG=$WG_DIR/wg0.conf
-WG_PRIVATE_KEY=$WG_DIR/privatekey
-WG_PUBLIC_KEY=$WG_DIR/publickey
+WG_CONFIG=$WG_DIR/central-mgmt.conf
+WG_PRIVATE_KEY=$WG_DIR/central-mgmt-privatekey
+WG_PUBLIC_KEY=$WG_DIR/central-mgmt-publickey
 mkdir -p "$DATA_DIR"
 chmod 700 "$BASE_DIR" "$DATA_DIR"
 [ -f "$VPS_FILE" ] || echo '{"vps":[]}' > "$VPS_FILE"
@@ -28,57 +28,33 @@ generate_token() {
 tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32
 }
 install_wireguard() {
-    # 已经存在完整 WireGuard，直接使用
-    if command -v wg >/dev/null 2>&1 &&
-       command -v wg-quick >/dev/null 2>&1; then
-        return 0
-    fi
-
-    echo
-    echo "正在检查 WireGuard..."
-
-    if command -v apt-get >/dev/null 2>&1; then
-
-        export DEBIAN_FRONTEND=noninteractive
-
-        apt-get update -y
-
-        # Debian / Ubuntu
-        apt-get install -y wireguard-tools
-
-    elif command -v dnf >/dev/null 2>&1; then
-
-        dnf install -y wireguard-tools
-
-    elif command -v yum >/dev/null 2>&1; then
-
-        yum install -y wireguard-tools
-
-    elif command -v apk >/dev/null 2>&1; then
-
-        apk add wireguard-tools
-
-    else
-        echo
-        echo "无法自动安装 WireGuard"
-        echo "请手动安装 wireguard-tools"
-        exit 1
-    fi
-
-    # 安装后再次确认
-    if ! command -v wg >/dev/null 2>&1 ||
-       ! command -v wg-quick >/dev/null 2>&1; then
-
-        echo
-        echo "WireGuard 安装失败"
-        echo "请检查系统软件源"
-        exit 1
-    fi
-
-    echo
-    echo "WireGuard 已就绪"
-    echo "wg       : $(command -v wg)"
-    echo "wg-quick : $(command -v wg-quick)"
+if command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1; then
+return 0
+fi
+echo "正在检查 WireGuard..."
+if command -v apt-get >/dev/null 2>&1; then
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y wireguard-tools
+elif command -v dnf >/dev/null 2>&1; then
+dnf install -y wireguard-tools
+elif command -v yum >/dev/null 2>&1; then
+yum install -y wireguard-tools
+elif command -v apk >/dev/null 2>&1; then
+apk add wireguard-tools
+else
+echo "无法自动安装 WireGuard"
+echo "请手动安装 wireguard-tools"
+exit 1
+fi
+if ! command -v wg >/dev/null 2>&1 || ! command -v wg-quick >/dev/null 2>&1; then
+echo "WireGuard 安装失败"
+echo "请检查系统软件源"
+exit 1
+fi
+echo "WireGuard 已就绪"
+echo "wg       : $(command -v wg)"
+echo "wg-quick : $(command -v wg-quick)"
 }
 init_wireguard() {
 install_wireguard
@@ -113,8 +89,8 @@ with open(config_file,"a") as f:
    f.write("AllowedIPs = "+ip.split("/")[0]+"/32\n")
 PY
 chmod 600 "$WG_CONFIG"
-systemctl enable wg-quick@$WG_INTERFACE >/dev/null 2>&1 || true
-systemctl restart wg-quick@$WG_INTERFACE
+systemctl enable "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
+systemctl restart "wg-quick@$WG_INTERFACE.service"
 }
 allocate_wg_ip() {
 python3 - "$VPS_FILE" <<'PY'
@@ -158,7 +134,7 @@ with open(config_file,"a") as f:
    f.write("AllowedIPs = "+ip.split("/")[0]+"/32\n")
 PY
 chmod 600 "$WG_CONFIG"
-systemctl restart wg-quick@$WG_INTERFACE
+systemctl restart "wg-quick@$WG_INTERFACE.service"
 }
 server() {
 init_wireguard
@@ -285,7 +261,6 @@ read -rp "请输入 VPS 名称: " name
 [ -n "$name" ] || return
 central_ip=$(get_ipv4)
 if [ -z "$central_ip" ]; then
-echo
 echo "获取中央 VPS 公网 IP 失败"
 read -rp "按 Enter 返回..." _
 return
@@ -314,16 +289,13 @@ with open(p,"w") as f:
  json.dump(d,f,ensure_ascii=False,indent=2)
 PY
 init_wireguard
-echo
 echo "========================================"
 echo "中央 VPS IPv4: $central_ip"
 echo "========================================"
 echo "请在目标 VPS 执行："
 echo
 printf 'curl -fsSL %s | bash -s -- "%s" "%s"\n' "$AGENT_URL" "$central_ip" "$token"
-echo
 echo "========================================"
-echo
 read -rp "按 Enter 返回..." _
 }
 manage_vps() {
@@ -396,12 +368,10 @@ print(json.loads(sys.argv[1]).get("wg_address",""))
 PY
 )
 if [ -z "$wg_ip" ]; then
-echo
 echo "该 VPS 尚未建立 WG 通信"
 read -rp "按 Enter 返回..." _
 continue
 fi
-echo
 echo "WG 地址: $wg_ip"
 echo "当前正在建立命令控制通道，重启功能下一步接入"
 read -rp "按 Enter 返回..." _
@@ -425,7 +395,6 @@ with open(p,"w") as f:
  json.dump(d,f,ensure_ascii=False,indent=2)
 PY
 rebuild_wg_config
-echo
 echo "VPS 已删除"
 sleep 1
 break
@@ -436,166 +405,137 @@ esac
 done
 done
 }
-
 delete_script() {
-    echo
-    echo "========================================"
-    echo "          删除中央 VPS 管理系统"
-    echo "========================================"
-    echo
-    echo "只删除本管理系统创建的内容："
-    echo
-    echo "  - central-vps.service"
-    echo "  - wg0"
-    echo "  - wg0.conf"
-    echo "  - /etc/central-vps"
-    echo "  - /usr/local/bin/central-vps.sh"
-    echo
-    echo "不会删除："
-    echo "  - route64"
-    echo "  - central0"
-    echo "  - 其他 WireGuard 配置"
-    echo "  - WireGuard 软件包"
-    echo
-    read -rp "确认删除？输入 yes: " confirm
-
-    [ "$confirm" = "yes" ] || return
-
-    echo
-    echo "开始删除..."
-
-    #
-    # 1. 停止中央 VPS 服务
-    #
-    echo
-    echo "[1/6] 停止 central-vps.service..."
-
-    systemctl stop central-vps.service >/dev/null 2>&1 || true
-    systemctl disable central-vps.service >/dev/null 2>&1 || true
-
-    #
-    # 2. 停止 wg0
-    #
-    echo
-    echo "[2/6] 停止 wg0..."
-
-    systemctl stop wg-quick@wg0.service >/dev/null 2>&1 || true
-    systemctl disable wg-quick@wg0.service >/dev/null 2>&1 || true
-
-    #
-    # 3. 删除 wg0 接口
-    #
-    echo
-    echo "[3/6] 删除 wg0..."
-
-    ip link set wg0 down >/dev/null 2>&1 || true
-    ip link del wg0 >/dev/null 2>&1 || true
-
-    #
-    # 4. 删除本系统自己的 systemd 文件
-    #
-    echo
-    echo "[4/6] 删除 systemd 文件..."
-
-    rm -f /etc/systemd/system/central-vps.service
-
-    # 只删除 wg0 自己的自定义 unit
-    rm -f /etc/systemd/system/wg-quick@wg0.service
-
-    # 删除 wg0 的 systemd enable 链接
-    find /etc/systemd/system \
-        -type l \
-        -name 'wg-quick@wg0.service' \
-        -delete 2>/dev/null || true
-
-    systemctl daemon-reload
-
-    systemctl reset-failed central-vps.service >/dev/null 2>&1 || true
-    systemctl reset-failed wg-quick@wg0.service >/dev/null 2>&1 || true
-
-    #
-    # 5. 只删除 wg0 配置
-    #
-    echo
-    echo "[5/6] 删除 wg0 配置..."
-
-    rm -f /etc/wireguard/wg0.conf
-
-    #
-    # 删除本系统自己的数据和脚本
-    #
-    rm -rf /etc/central-vps
-    rm -f /usr/local/bin/central-vps.sh
-
-    #
-    # 6. 最终检查
-    #
-    echo
-    echo "[6/6] 检查..."
-
-    echo
-    echo "===== 当前 WireGuard ====="
-
-    if command -v wg >/dev/null 2>&1; then
-        wg show
-    fi
-
-    echo
-    echo "===== 检查 wg0 ====="
-
-    if ip link show wg0 >/dev/null 2>&1; then
-        echo "⚠ wg0 仍然存在"
-    else
-        echo "✓ wg0 已删除"
-    fi
-
-    echo
-    echo "===== 检查配置 ====="
-
-    if [ -e /etc/wireguard/wg0.conf ]; then
-        echo "⚠ /etc/wireguard/wg0.conf 仍然存在"
-    else
-        echo "✓ wg0.conf 已删除"
-    fi
-
-    echo
-    echo "===== 检查管理文件 ====="
-
-    if [ -e /etc/central-vps ]; then
-        echo "⚠ /etc/central-vps 仍然存在"
-    else
-        echo "✓ /etc/central-vps 已删除"
-    fi
-
-    if [ -e /usr/local/bin/central-vps.sh ]; then
-        echo "⚠ central-vps.sh 仍然存在"
-    else
-        echo "✓ central-vps.sh 已删除"
-    fi
-
-    echo
-    echo "========================================"
-    echo "       中央 VPS 管理系统已删除"
-    echo "========================================"
-    echo
-    echo "保留："
-    echo "  ✓ route64"
-    echo "  ✓ central0"
-    echo "  ✓ 其他 WireGuard"
-    echo "  ✓ WireGuard 软件包"
-    echo
-    echo "删除："
-    echo "  ✓ wg0"
-    echo "  ✓ wg0.conf"
-    echo "  ✓ central-vps.service"
-    echo "  ✓ /etc/central-vps"
-    echo "  ✓ /usr/local/bin/central-vps.sh"
-    echo
-
-    exit 0
+echo
+echo "========================================"
+echo "          删除中央 VPS 管理系统"
+echo "========================================"
+echo
+echo "只删除本管理系统创建的内容："
+echo
+echo "  - central-vps.service"
+echo "  - $WG_INTERFACE"
+echo "  - $WG_CONFIG"
+echo "  - $WG_PRIVATE_KEY"
+echo "  - $WG_PUBLIC_KEY"
+echo "  - /etc/central-vps"
+echo "  - /usr/local/bin/central-vps.sh"
+echo
+echo "不会删除："
+echo "  - route64"
+echo "  - central0"
+echo "  - 其他 WireGuard 配置"
+echo "  - WireGuard 软件包"
+echo
+read -rp "确认删除？输入 yes: " confirm
+[ "$confirm" = "yes" ] || return
+echo
+echo "开始删除..."
+echo
+echo "[1/6] 停止 central-vps.service..."
+systemctl stop central-vps.service >/dev/null 2>&1 || true
+systemctl disable central-vps.service >/dev/null 2>&1 || true
+echo
+echo "[2/6] 停止 $WG_INTERFACE..."
+systemctl stop "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
+systemctl disable "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
+echo
+echo "[3/6] 删除 $WG_INTERFACE..."
+if ip link show "$WG_INTERFACE" >/dev/null 2>&1; then
+ip link set "$WG_INTERFACE" down >/dev/null 2>&1 || true
+ip link del "$WG_INTERFACE" >/dev/null 2>&1 || true
+fi
+echo
+echo "[4/6] 删除 systemd 文件..."
+rm -f /etc/systemd/system/central-vps.service
+systemctl daemon-reload
+systemctl reset-failed central-vps.service >/dev/null 2>&1 || true
+echo
+echo "[5/6] 删除中央管理系统文件..."
+rm -f "$WG_CONFIG"
+rm -f "$WG_PRIVATE_KEY"
+rm -f "$WG_PUBLIC_KEY"
+rm -rf /etc/central-vps
+rm -f /usr/local/bin/central-vps.sh
+echo
+echo "[6/6] 检查..."
+echo
+echo "===== 当前 WireGuard ====="
+if command -v wg >/dev/null 2>&1; then
+wg show
+fi
+echo
+echo "===== 检查 $WG_INTERFACE ====="
+if ip link show "$WG_INTERFACE" >/dev/null 2>&1; then
+echo "⚠ $WG_INTERFACE 仍然存在"
+else
+echo "✓ $WG_INTERFACE 已删除"
+fi
+echo
+echo "===== 检查配置 ====="
+if [ -e "$WG_CONFIG" ]; then
+echo "⚠ $WG_CONFIG 仍然存在"
+else
+echo "✓ $WG_CONFIG 已删除"
+fi
+if [ -e "$WG_PRIVATE_KEY" ]; then
+echo "⚠ $WG_PRIVATE_KEY 仍然存在"
+else
+echo "✓ $WG_PRIVATE_KEY 已删除"
+fi
+if [ -e "$WG_PUBLIC_KEY" ]; then
+echo "⚠ $WG_PUBLIC_KEY 仍然存在"
+else
+echo "✓ $WG_PUBLIC_KEY 已删除"
+fi
+echo
+echo "===== 检查管理文件 ====="
+if [ -e /etc/central-vps ]; then
+echo "⚠ /etc/central-vps 仍然存在"
+else
+echo "✓ /etc/central-vps 已删除"
+fi
+if [ -e /usr/local/bin/central-vps.sh ]; then
+echo "⚠ central-vps.sh 仍然存在"
+else
+echo "✓ central-vps.sh 已删除"
+fi
+echo
+echo "===== WireGuard 软件 ====="
+if command -v wg >/dev/null 2>&1; then
+echo "✓ wg 保留: $(command -v wg)"
+else
+echo "⚠ wg 不存在"
+fi
+if command -v wg-quick >/dev/null 2>&1; then
+echo "✓ wg-quick 保留: $(command -v wg-quick)"
+else
+echo "⚠ wg-quick 不存在"
+fi
+echo
+echo "========================================"
+echo "       中央 VPS 管理系统已删除"
+echo "========================================"
+echo
+echo "保留："
+echo "  ✓ route64"
+echo "  ✓ central0"
+echo "  ✓ 其他 WireGuard"
+echo "  ✓ WireGuard 软件包"
+echo "  ✓ wg"
+echo "  ✓ wg-quick"
+echo
+echo "删除："
+echo "  ✓ $WG_INTERFACE"
+echo "  ✓ $WG_CONFIG"
+echo "  ✓ $WG_PRIVATE_KEY"
+echo "  ✓ $WG_PUBLIC_KEY"
+echo "  ✓ central-vps.service"
+echo "  ✓ /etc/central-vps"
+echo "  ✓ /usr/local/bin/central-vps.sh"
+echo
+exit 0
 }
-
-
 main() {
 mkdir -p "$(dirname "$LOCAL_SCRIPT")"
 curl -fsSL "$SCRIPT_URL" -o "$LOCAL_SCRIPT"
