@@ -1,7 +1,9 @@
 #!/bin/bash
 set -e
-TOKEN="${1:-}"
-CENTRAL_URL="http://你的中央VPS公网IP:18089/api/register"
+CENTRAL_IP="${1:-}"
+TOKEN="${2:-}"
+CENTRAL_URL="http://${CENTRAL_IP}:18089/api/register"
+[ -n "$CENTRAL_IP" ] || { echo "缺少中央 VPS IP"; exit 1; }
 [ -n "$TOKEN" ] || { echo "缺少注册码"; exit 1; }
 get_ipv4() {
 curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true
