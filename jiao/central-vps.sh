@@ -757,14 +757,32 @@ restart_vps() {
     echo
     read -r -p "确定重启此 VPS？输入 yes 确认: " confirm
     [ "$confirm" = "yes" ] || return
-    result=$(agent_request "$address" "$token" POST "/api/command" "systemctl reboot") || {
+    result=$(agent_request "$address" "$token" POST "/api/command" \
+        'nohup sh -c "sleep 2; /sbin/reboot" >/dev/null 2>&1 & echo "REBOOT_SCHEDULED"') || {
+        echo
         echo "Agent 连接失败"
         return
     }
     echo
-    printf '%s' "$result"
-    echo
-    echo "重启命令已发送"
+    if printf '%s' "$result" | python3 -c '
+import json
+import sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("Agent 返回数据格式错误")
+    raise SystemExit(1)
+if not d.get("ok"):
+    print("重启失败：" + str(d.get("error", "unknown error")))
+    raise SystemExit(1)
+print(d.get("stdout", ""), end="")
+' ; then
+        echo
+        echo "VPS 重启已安排，约 2 秒后重启。"
+    else
+        echo
+        echo "重启命令执行失败"
+    fi
     sleep 2
 }
 manage_single_vps() {
