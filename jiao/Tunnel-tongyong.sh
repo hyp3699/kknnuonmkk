@@ -1,817 +1,873 @@
 #!/bin/bash
-set -e
-BASE_DIR=/etc/central-vps
-DATA_DIR=$BASE_DIR/data
-VPS_FILE=$DATA_DIR/vps.json
-LOCAL_SCRIPT=/usr/local/bin/central-vps.sh
-SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/central-vps.sh"
-PORT=18089
-AGENT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/agent.sh"
-WG_INTERFACE=central-mgmt
-WG_PORT=51821
-WG_NETWORK=10.231.47
-WG_ADDRESS=10.231.47.1/24
-WG_DIR=/etc/wireguard
-WG_CONFIG=$WG_DIR/central-mgmt.conf
-WG_PRIVATE_KEY=$WG_DIR/central-mgmt-privatekey
-WG_PUBLIC_KEY=$WG_DIR/central-mgmt-publickey
-mkdir -p "$DATA_DIR"
-chmod 700 "$BASE_DIR" "$DATA_DIR"
-[ -f "$VPS_FILE" ] || echo '{"vps":[]}' > "$VPS_FILE"
-get_ipv4() {
-    curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true
+# ==========================================
+# Tunnel64 多出口策略路由网关系统 (生产加固版)
+# ==========================================
+
+CONFIG_DIR="/etc/tunnel64"
+T64_RESTORE_BIN="/usr/local/bin/tunnel64-restore"
+T64_RESTORE_SERVICE="/etc/systemd/system/tunnel64-restore.service"
+LOCK_FILE="/var/lock/tunnel64.lock"
+
+umask 077
+mkdir -p "$CONFIG_DIR"
+
+[ "$(id -u)" != "0" ] && echo "[错误] 请使用 root 权限运行此脚本！" && exit 1
+
+# ================= 工具与环境 =================
+
+install_dep() {
+    local cmds=("curl" "ip" "awk" "sed" "tr" "wg" "ping" "flock" "modprobe")
+    local missing=0
+    for cmd in "${cmds[@]}"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then missing=1; break; fi
+    done
+
+    if [ "$missing" -eq 1 ]; then
+        echo "[INFO] 检测到缺少必要依赖，正在自动安装..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -y && apt-get install -y curl iproute2 gawk wireguard-tools iputils-ping util-linux kmod
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y curl iproute gawk wireguard-tools iputils util-linux kmod
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y curl iproute gawk wireguard-tools iputils util-linux kmod
+        elif command -v apk >/dev/null 2>&1; then
+            apk add curl iproute2 gawk wireguard-tools iputils util-linux kmod
+        fi
+    fi
+    
+    # 确保 wireguard 模块已加载
+    modprobe wireguard >/dev/null 2>&1 || true
 }
-get_ipv6() {
-    curl -6 -fsS --max-time 5 https://api64.ipify.org 2>/dev/null || true
-}
-generate_token() {
-    python3 -c 'import secrets; print(secrets.token_hex(16))'
-}
-install_wireguard() {
-    if command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1; then
-        return 0
+
+# 自动开启并持久化内核转发与关闭 rp_filter（解决多出口反向路径过滤丢包）
+enable_forwarding() {
+    local sysctl_file="/etc/sysctl.d/99-tunnel64-forwarding.conf"
+    local changed=0
+
+    if [ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" != "1" ]; then
+        sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+        changed=1
     fi
-    echo "正在检查 WireGuard..."
-    if command -v apt-get >/dev/null 2>&1; then
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -y
-        apt-get install -y wireguard-tools
-    elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y wireguard-tools
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y wireguard-tools
-    elif command -v apk >/dev/null 2>&1; then
-        apk add wireguard-tools
-    else
-        echo "无法自动安装 WireGuard"
-        echo "请手动安装 wireguard-tools"
-        exit 1
+    if [ "$(sysctl -n net.ipv6.conf.all.forwarding 2>/dev/null)" != "1" ]; then
+        sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+        sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null 2>&1
+        changed=1
     fi
-    if ! command -v wg >/dev/null 2>&1 || ! command -v wg-quick >/dev/null 2>&1; then
-        echo "WireGuard 安装失败"
-        echo "请检查系统软件源"
-        exit 1
+    if [ "$(sysctl -n net.ipv4.conf.all.rp_filter 2>/dev/null)" != "0" ]; then
+        sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1
+        sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null 2>&1
+        changed=1
     fi
-    echo "WireGuard 已就绪"
-    echo "wg       : $(command -v wg)"
-    echo "wg-quick : $(command -v wg-quick)"
-}
-init_wireguard() {
-    install_wireguard
-    mkdir -p "$WG_DIR"
-    chmod 700 "$WG_DIR"
-    if [ ! -s "$WG_PRIVATE_KEY" ]; then
-        wg genkey > "$WG_PRIVATE_KEY"
-        chmod 600 "$WG_PRIVATE_KEY"
-    fi
-    if [ ! -s "$WG_PUBLIC_KEY" ]; then
-        cat "$WG_PRIVATE_KEY" | wg pubkey > "$WG_PUBLIC_KEY"
-        chmod 644 "$WG_PUBLIC_KEY"
-    fi
-    cat > "$WG_CONFIG" <<EOF
-[Interface]
-Address = $WG_ADDRESS
-ListenPort = $WG_PORT
-PrivateKey = $(cat "$WG_PRIVATE_KEY")
+
+    if [ "$changed" -eq 1 ] || [ ! -f "$sysctl_file" ]; then
+        mkdir -p /etc/sysctl.d
+        cat > "$sysctl_file" <<EOF
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+net.ipv6.conf.default.forwarding=1
+net.ipv4.conf.all.rp_filter=0
+net.ipv4.conf.default.rp_filter=0
 EOF
-    python3 - "$VPS_FILE" "$WG_CONFIG" <<'PY'
-import json, sys
-vps_file, config_file = sys.argv[1:]
-with open(vps_file, encoding="utf-8") as f:
-    data = json.load(f)
-with open(config_file, "a", encoding="utf-8") as f:
-    for item in data.get("vps", []):
-        key = item.get("wg_public_key", "")
-        ip = item.get("wg_address", "")
-        if key and ip:
-            f.write("\n[Peer]\n")
-            f.write("PublicKey = " + key + "\n")
-            f.write("AllowedIPs = " + ip.split("/")[0] + "/32\n")
-PY
-    chmod 600 "$WG_CONFIG"
-    systemctl enable "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
-    if ip link show "$WG_INTERFACE" >/dev/null 2>&1; then
-        wg syncconf "$WG_INTERFACE" <(wg-quick strip "$WG_INTERFACE")
-    else
-        systemctl start "wg-quick@$WG_INTERFACE.service"
+        sysctl -p "$sysctl_file" >/dev/null 2>&1 || sysctl --system >/dev/null 2>&1
     fi
 }
-allocate_wg_ip() {
-    python3 - "$VPS_FILE" "$WG_NETWORK" <<'PY'
-import json, sys
-p, network = sys.argv[1:]
-with open(p, encoding="utf-8") as f:
-    data = json.load(f)
-used = set()
-for item in data.get("vps", []):
-    address = item.get("wg_address", "")
-    if address:
-        try:
-            used.add(int(address.split(".")[-1].split("/")[0]))
-        except Exception:
-            pass
-for i in range(2, 255):
-    if i not in used:
-        print(f"{network}.{i}")
+
+load_tunnel_conf() {
+    local conf="$1"
+    [ -f "$conf" ] || return 1
+    TYPE=$(awk -F'"' '/^TYPE=/{print $2}' "$conf")
+    IFACE=$(awk -F'"' '/^IFACE=/{print $2}' "$conf")
+    LOCAL_V4=$(awk -F'"' '/^LOCAL_V4=/{print $2}' "$conf")
+    REMOTE_V4=$(awk -F'"' '/^REMOTE_V4=/{print $2}' "$conf")
+    SERVER_IPV6=$(awk -F'"' '/^SERVER_IPV6=/{print $2}' "$conf")
+    TUNNEL_IPV6=$(awk -F'"' '/^TUNNEL_IPV6=/{print $2}' "$conf")
+    WG_IPV4=$(awk -F'"' '/^WG_IPV4=/{print $2}' "$conf")
+    WG_IPV6=$(awk -F'"' '/^WG_IPV6=/{print $2}' "$conf")
+    WG_ENDPOINT=$(awk -F'"' '/^WG_ENDPOINT=/{print $2}' "$conf")
+    WG_ALLOWEDIPS=$(awk -F'"' '/^WG_ALLOWEDIPS=/{print $2}' "$conf")
+    WG_DNS=$(awk -F'"' '/^WG_DNS=/{print $2}' "$conf")
+    ROUTED_PREFIX=$(awk -F'"' '/^ROUTED_PREFIX=/{print $2}' "$conf")
+    TABLE=$(awk -F'"' '/^TABLE=/{print $2}' "$conf")
+    RULE_PREF=$(awk -F'"' '/^RULE_PREF=/{print $2}' "$conf")
+    RULE_PREF_PREFIX=$(awk -F'"' '/^RULE_PREF_PREFIX=/{print $2}' "$conf")
+    RULE_PREF_V4=$(awk -F'"' '/^RULE_PREF_V4=/{print $2}' "$conf")
+    MTU=$(awk -F'"' '/^MTU=/{print $2}' "$conf")
+    
+    [ -z "$RULE_PREF_PREFIX" ] && RULE_PREF_PREFIX="$RULE_PREF"
+}
+
+sanitize() { echo "$1" | tr -d '"'\''\\;`$<>|' ; }
+
+is_valid_iface() {
+    [[ "$1" =~ ^[a-zA-Z0-9_]{3,15}$ ]] || return 1
+}
+
+generate_ipv6() {
+    local prefix_str="$1"
+    local network="${prefix_str%/*}"
+    local cidr="${prefix_str#*/}"
+    [[ "$network" == "$cidr" || -z "$cidr" ]] && cidr=64
+    local prefix_blocks=$(( cidr / 16 ))
+    local random_blocks=$(( (128 - cidr) / 16 ))
+    local clean_net=$(echo "$network" | sed -E 's/::/:/g; s/:$//')
+    local current_blocks=$(echo "$clean_net" | awk -F':' '{print NF}')
+    while [ "$current_blocks" -lt "$prefix_blocks" ]; do
+        clean_net="${clean_net}:0"
+        current_blocks=$((current_blocks + 1))
+    done
+    local hex=$(tr -d '-' < /proc/sys/kernel/random/uuid)
+    local suffix=""
+    for ((i=0; i<random_blocks; i++)); do
+        suffix="${suffix}:${hex:$((i*4)):4}"
+    done
+    echo "${clean_net}${suffix}"
+}
+
+
+get_new_table_pref() {
+    local max_table=200
+    local min_pref=32765
+    for f in "$CONFIG_DIR"/*.conf; do
+        [ -f "$f" ] || continue
+        local t_table=$(awk -F'"' '/^TABLE=/{print $2}' "$f")
+        local t_pref=$(awk -F'"' '/^RULE_PREF=/{print $2}' "$f")
+        local t_pref_prefix=$(awk -F'"' '/^RULE_PREF_PREFIX=/{print $2}' "$f")
+        local t_pref_v4=$(awk -F'"' '/^RULE_PREF_V4=/{print $2}' "$f")
+        
+        [[ "$t_table" =~ ^[0-9]+$ ]] && [ "$t_table" -gt "$max_table" ] && max_table="$t_table"
+        [[ "$t_pref" =~ ^[0-9]+$ ]] && [ "$t_pref" -lt "$min_pref" ] && min_pref="$t_pref"
+        [[ "$t_pref_prefix" =~ ^[0-9]+$ ]] && [ "$t_pref_prefix" -lt "$min_pref" ] && min_pref="$t_pref_prefix"
+        [[ "$t_pref_v4" =~ ^[0-9]+$ ]] && [ "$t_pref_v4" -lt "$min_pref" ] && min_pref="$t_pref_v4"
+    done
+    NEW_TABLE=$((max_table + 1))
+    NEW_PREF=$((min_pref - 1))
+    NEW_PREF_PREFIX=$((min_pref - 2))
+    NEW_PREF_V4=$((min_pref - 3))
+}
+
+cleanup_tunnel_runtime() {
+    local iface="$1" type="$2"
+    ip link set "$iface" down 2>/dev/null || true
+    if [ "$type" = "wg" ]; then
+        ip link del "$iface" 2>/dev/null || true
+    else
+        ip tunnel del "$iface" 2>/dev/null || true
+    fi
+}
+
+# ================= 核心网络逻辑 =================
+
+setup_tunnel_runtime() {
+    enable_forwarding
+    modprobe wireguard >/dev/null 2>&1 || true
+    
+    # 防误删逻辑：如果接口存在且不属于 Tunnel64 配置文件记录，拒绝覆盖删除
+    if ip link show "$IFACE" >/dev/null 2>&1 && [ ! -f "$CONFIG_DIR/$IFACE.conf" ]; then
+        echo "[错误] 系统已存在网卡接口 $IFACE 且不属于 Tunnel64 管理，阻止删除！"
+        return 1
+    fi
+
+    ip link del "$IFACE" 2>/dev/null || true
+    ip tunnel del "$IFACE" 2>/dev/null || true
+
+    if [ "$TYPE" = "wg" ]; then
+        ip link add dev "$IFACE" type wireguard || return 1
+        wg setconf "$IFACE" "$CONFIG_DIR/$IFACE.wg" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
+        ip link set mtu "${MTU:-1420}" dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
+        ip link set up dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
+
+        if [ -n "$WG_IPV6" ]; then
+            ip -6 addr replace "$WG_IPV6" dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
+            ip -6 route replace "$WG_IPV6" dev "$IFACE" 2>/dev/null || true
+            ip -6 route replace "$WG_IPV6" dev "$IFACE" table "$TABLE" 2>/dev/null || true
+            
+            ip -6 route replace default dev "$IFACE" table "$TABLE"
+            
+            local tun_ip6="${WG_IPV6%%/*}"
+            while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
+            while ip -6 rule del from "$tun_ip6" 2>/dev/null; do :; done
+            ip -6 rule add pref "$RULE_PREF" from "$tun_ip6" lookup "$TABLE" || return 1
+            
+            if [ -n "$ROUTED_PREFIX" ]; then
+                ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" 2>/dev/null || true
+                ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" table "$TABLE" 2>/dev/null || true
+                while ip -6 rule del pref "$RULE_PREF_PREFIX" 2>/dev/null; do :; done
+                while ip -6 rule del from "$ROUTED_PREFIX" 2>/dev/null; do :; done
+                ip -6 rule add pref "$RULE_PREF_PREFIX" from "$ROUTED_PREFIX" lookup "$TABLE"
+            fi
+        fi
+
+        if [ -n "$WG_IPV4" ]; then
+            ip -4 addr replace "$WG_IPV4" dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "wg"; return 1; }
+            ip -4 route replace "$WG_IPV4" dev "$IFACE" 2>/dev/null || true
+            ip -4 route replace "$WG_IPV4" dev "$IFACE" table "$TABLE" 2>/dev/null || true
+            
+            ip -4 route replace default dev "$IFACE" table "$TABLE"
+            local tun_ip4="${WG_IPV4%%/*}"
+            if [ -n "$RULE_PREF_V4" ]; then
+                while ip -4 rule del pref "$RULE_PREF_V4" 2>/dev/null; do :; done
+                while ip -4 rule del from "$tun_ip4" 2>/dev/null; do :; done
+                ip -4 rule add pref "$RULE_PREF_V4" from "$tun_ip4" lookup "$TABLE" || return 1
+            fi
+        fi
+    else
+        ip tunnel add "$IFACE" mode sit remote "$REMOTE_V4" local "$LOCAL_V4" ttl 255 || return 1
+        ip link set "$IFACE" up mtu "${MTU:-1400}"
+
+        ip -6 addr replace "$TUNNEL_IPV6" dev "$IFACE" || { cleanup_tunnel_runtime "$IFACE" "sit"; return 1; }
+        
+        ip -6 route replace "$TUNNEL_IPV6" dev "$IFACE" 2>/dev/null || true
+        ip -6 route replace "$TUNNEL_IPV6" dev "$IFACE" table "$TABLE" 2>/dev/null || true
+        
+        ip -6 route replace default dev "$IFACE" table "$TABLE"
+        local tun_ip="${TUNNEL_IPV6%%/*}"
+        while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
+        while ip -6 rule del from "$tun_ip" 2>/dev/null; do :; done
+        ip -6 rule add pref "$RULE_PREF" from "$tun_ip" lookup "$TABLE" || return 1
+
+        if [ -n "$ROUTED_PREFIX" ]; then
+            ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" 2>/dev/null || true
+            ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" table "$TABLE" 2>/dev/null || true
+            while ip -6 rule del pref "$RULE_PREF_PREFIX" 2>/dev/null; do :; done
+            while ip -6 rule del from "$ROUTED_PREFIX" 2>/dev/null; do :; done
+            ip -6 rule add pref "$RULE_PREF_PREFIX" from "$ROUTED_PREFIX" lookup "$TABLE"
+        fi
+    fi
+    return 0
+}
+
+# ================= 自启与持久化 =================
+
+update_systemd_restore() {
+    cat > "$T64_RESTORE_BIN" << 'EOF'
+#!/bin/bash
+
+CONFIG_DIR="/etc/tunnel64"
+[ -d "$CONFIG_DIR" ] || exit 0
+
+# 等待网络连接与协议栈准备就绪（防开机启动过早问题）
+retry=0
+while [ $retry -lt 15 ]; do
+    if ip route show default >/dev/null 2>&1 || ip -4 addr show scope global | grep -q "inet "; then
         break
-PY
+    fi
+    sleep 1
+    retry=$((retry + 1))
+done
+
+# 确保加载 wireguard 模块
+modprobe wireguard >/dev/null 2>&1 || true
+
+# 1. 优先恢复内核转发与 rp_filter
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
+sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+sysctl -w net.ipv6.conf.default.forwarding=1 >/dev/null 2>&1
+sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1
+sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null 2>&1
+
+load_conf() {
+    TYPE=$(awk -F'"' '/^TYPE=/{print $2}' "$1")
+    IFACE=$(awk -F'"' '/^IFACE=/{print $2}' "$1")
+    LOCAL_V4=$(awk -F'"' '/^LOCAL_V4=/{print $2}' "$1")
+    REMOTE_V4=$(awk -F'"' '/^REMOTE_V4=/{print $2}' "$1")
+    SERVER_IPV6=$(awk -F'"' '/^SERVER_IPV6=/{print $2}' "$1")
+    TUNNEL_IPV6=$(awk -F'"' '/^TUNNEL_IPV6=/{print $2}' "$1")
+    WG_IPV4=$(awk -F'"' '/^WG_IPV4=/{print $2}' "$1")
+    WG_IPV6=$(awk -F'"' '/^WG_IPV6=/{print $2}' "$1")
+    ROUTED_PREFIX=$(awk -F'"' '/^ROUTED_PREFIX=/{print $2}' "$1")
+    TABLE=$(awk -F'"' '/^TABLE=/{print $2}' "$1")
+    RULE_PREF=$(awk -F'"' '/^RULE_PREF=/{print $2}' "$1")
+    RULE_PREF_PREFIX=$(awk -F'"' '/^RULE_PREF_PREFIX=/{print $2}' "$1")
+    RULE_PREF_V4=$(awk -F'"' '/^RULE_PREF_V4=/{print $2}' "$1")
+    MTU=$(awk -F'"' '/^MTU=/{print $2}' "$1")
+    [ -z "$RULE_PREF_PREFIX" ] && RULE_PREF_PREFIX="$RULE_PREF"
 }
-rebuild_wg_config() {
-    cat > "$WG_CONFIG" <<EOF
-[Interface]
-Address = $WG_ADDRESS
-ListenPort = $WG_PORT
-PrivateKey = $(cat "$WG_PRIVATE_KEY")
-EOF
-    python3 - "$VPS_FILE" "$WG_CONFIG" <<'PY'
-import json, sys
-vps_file, config_file = sys.argv[1:]
-with open(vps_file, encoding="utf-8") as f:
-    data = json.load(f)
-with open(config_file, "a", encoding="utf-8") as f:
-    for item in data.get("vps", []):
-        key = item.get("wg_public_key", "")
-        ip = item.get("wg_address", "")
-        if key and ip:
-            f.write("\n[Peer]\n")
-            f.write("PublicKey = " + key + "\n")
-            f.write("AllowedIPs = " + ip.split("/")[0] + "/32\n")
-PY
-    chmod 600 "$WG_CONFIG"
-    systemctl enable "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
-    if ip link show "$WG_INTERFACE" >/dev/null 2>&1; then
-        wg syncconf "$WG_INTERFACE" <(wg-quick strip "$WG_INTERFACE")
+
+for conf in "$CONFIG_DIR"/*.conf; do
+    [ -f "$conf" ] || continue
+
+    load_conf "$conf"
+    [ -z "$TYPE" ] && TYPE="sit"
+    [ -n "$IFACE" ] || continue
+
+    # 完整清理残留策略规则
+    while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
+    [ -n "$RULE_PREF_PREFIX" ] && while ip -6 rule del pref "$RULE_PREF_PREFIX" 2>/dev/null; do :; done
+    [ -n "$RULE_PREF_V4" ] && while ip -4 rule del pref "$RULE_PREF_V4" 2>/dev/null; do :; done
+    [ -n "$WG_IPV6" ] && while ip -6 rule del from "${WG_IPV6%%/*}" 2>/dev/null; do :; done
+    [ -n "$TUNNEL_IPV6" ] && while ip -6 rule del from "${TUNNEL_IPV6%%/*}" 2>/dev/null; do :; done
+    [ -n "$WG_IPV4" ] && while ip -4 rule del from "${WG_IPV4%%/*}" 2>/dev/null; do :; done
+    [ -n "$ROUTED_PREFIX" ] && while ip -6 rule del from "$ROUTED_PREFIX" 2>/dev/null; do :; done
+    [ -n "$TABLE" ] && { while ip -6 rule del table "$TABLE" 2>/dev/null; do :; done; while ip -4 rule del table "$TABLE" 2>/dev/null; do :; done; }
+
+    if [ "$TYPE" = "wg" ]; then
+        [ -r "$CONFIG_DIR/$IFACE.wg" ] || continue
+
+        ip link set "$IFACE" down 2>/dev/null || true
+        ip link del "$IFACE" 2>/dev/null || true
+
+        ip link add dev "$IFACE" type wireguard 2>/dev/null || continue
+
+        wg setconf "$IFACE" "$CONFIG_DIR/$IFACE.wg" 2>/dev/null || {
+            ip link del "$IFACE" 2>/dev/null
+            continue
+        }
+
+        ip link set mtu "${MTU:-1420}" dev "$IFACE"
+        ip link set up dev "$IFACE"
+
+        if [ -n "$WG_IPV6" ]; then
+            ip -6 addr replace "$WG_IPV6" dev "$IFACE"
+            ip -6 route replace "$WG_IPV6" dev "$IFACE" 2>/dev/null
+            ip -6 route replace "$WG_IPV6" dev "$IFACE" table "$TABLE" 2>/dev/null
+            ip -6 route replace default dev "$IFACE" table "$TABLE"
+            
+            ip -6 rule add pref "$RULE_PREF" from "${WG_IPV6%%/*}" lookup "$TABLE" 2>/dev/null || true
+            
+            if [ -n "$ROUTED_PREFIX" ]; then
+                ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" 2>/dev/null
+                ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" table "$TABLE" 2>/dev/null
+                ip -6 rule add pref "$RULE_PREF_PREFIX" from "$ROUTED_PREFIX" lookup "$TABLE" 2>/dev/null || true
+            fi
+        fi
+
+        if [ -n "$WG_IPV4" ]; then
+            ip -4 addr replace "$WG_IPV4" dev "$IFACE"
+            ip -4 route replace "$WG_IPV4" dev "$IFACE" 2>/dev/null
+            ip -4 route replace "$WG_IPV4" dev "$IFACE" table "$TABLE" 2>/dev/null
+            ip -4 route replace default dev "$IFACE" table "$TABLE"
+            
+            if [ -n "$RULE_PREF_V4" ]; then
+                ip -4 rule add pref "$RULE_PREF_V4" from "${WG_IPV4%%/*}" lookup "$TABLE" 2>/dev/null || true
+            fi
+        fi
     else
-        systemctl start "wg-quick@$WG_INTERFACE.service"
+        ip link set "$IFACE" down 2>/dev/null || true
+        ip tunnel del "$IFACE" 2>/dev/null || true
+        ip tunnel add "$IFACE" mode sit remote "$REMOTE_V4" local "$LOCAL_V4" ttl 255 2>/dev/null || continue
+        ip link set "$IFACE" up mtu "${MTU:-1400}"
+        ip -6 addr replace "$TUNNEL_IPV6" dev "$IFACE"
+        ip -6 route replace "$TUNNEL_IPV6" dev "$IFACE" 2>/dev/null
+        ip -6 route replace "$TUNNEL_IPV6" dev "$IFACE" table "$TABLE" 2>/dev/null
+        ip -6 route replace default dev "$IFACE" table "$TABLE"
+        
+        ip -6 rule add pref "$RULE_PREF" from "${TUNNEL_IPV6%%/*}" lookup "$TABLE" 2>/dev/null || true
+        
+        if [ -n "$ROUTED_PREFIX" ]; then
+            ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" 2>/dev/null
+            ip -6 route replace "$ROUTED_PREFIX" dev "$IFACE" table "$TABLE" 2>/dev/null
+            ip -6 rule add pref "$RULE_PREF_PREFIX" from "$ROUTED_PREFIX" lookup "$TABLE" 2>/dev/null || true
+        fi
     fi
-}
-server() {
-    exec 9>/run/central-vps-server.lock
-    if ! flock -n 9; then
-        echo "central-vps API 已经在运行"
-        exit 0
+
+    # 恢复附加 IP
+    LIST_FILE="${CONFIG_DIR}/${IFACE}-ips.list"
+    if [ -f "$LIST_FILE" ]; then
+        while IFS= read -r ip; do
+            [ -n "$ip" ] && ip -6 addr replace "$ip/128" dev lo 2>/dev/null || true
+        done < "$LIST_FILE"
     fi
-    python3 - "$VPS_FILE" "$PORT" "$WG_PUBLIC_KEY" "$WG_PORT" "$WG_INTERFACE" "$WG_NETWORK" <<'PY'
-import json
-import os
-import sys
-import subprocess
-import urllib.request
-from http.server import HTTPServer, BaseHTTPRequestHandler
-FILE = sys.argv[1]
-PORT = int(sys.argv[2])
-WG_PUBLIC_FILE = sys.argv[3]
-WG_PORT = int(sys.argv[4])
-WG_INTERFACE = sys.argv[5]
-WG_NETWORK = sys.argv[6]
-WG_CONFIG = "/etc/wireguard/" + WG_INTERFACE + ".conf"
-_cached_ip = ""
-def load():
-    with open(FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-def save(data):
-    tmp = FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, FILE)
-def public_ip():
-    global _cached_ip
+done
+exit 0
+EOF
+    chmod +x "$T64_RESTORE_BIN"
 
-    if _cached_ip:
-        return _cached_ip
-    try:
-        req = urllib.request.Request(
-            "https://api.ipify.org",
-            headers={"User-Agent": "curl/7.68.0"}
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            _cached_ip = resp.read().decode("utf-8").strip()
-            return _cached_ip
-
-    except Exception:
-        return ""
-def persist_peer(public_key, wg_address):
-    if not public_key or not wg_address:
-        return False
-    try:
-        if os.path.exists(WG_CONFIG):
-            with open(WG_CONFIG, "r", encoding="utf-8") as f:
-                config = f.read()
-        else:
-            config = ""
-        blocks = config.split("[Peer]")
-        for block in blocks[1:]:
-            for line in block.splitlines():
-                line = line.strip()
-                if line.startswith("PublicKey"):
-                    parts = line.split("=", 1)
-                    if len(parts) == 2:
-                        existing_key = parts[1].strip()
-                        if existing_key == public_key:
-                            return True
-                    break
-        config = config.rstrip() + "\n\n"
-        config += "[Peer]\n"
-        config += "PublicKey = " + public_key + "\n"
-        config += "AllowedIPs = " + wg_address.split("/")[0] + "/32\n"
-        tmp = WG_CONFIG + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(config)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, WG_CONFIG)
-        return True
-    except Exception:
-        try:
-            if os.path.exists(WG_CONFIG + ".tmp"):
-                os.remove(WG_CONFIG + ".tmp")
-        except Exception:
-            pass
-        return False
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
-    def send_json(self, code, data):
-        raw = json.dumps(
-            data,
-            ensure_ascii=False
-        ).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        self.wfile.write(raw)
-    def do_POST(self):
-        if self.path != "/api/register":
-            self.send_json(
-                404,
-                {
-                    "ok": False,
-                    "error": "not found"
-                }
-            )
-            return
-        try:
-            length = int(
-                self.headers.get(
-                    "Content-Length",
-                    "0"
-                )
-            )
-            if length <= 0 or length > 10240:
-                self.send_json(
-                    400,
-                    {
-                        "ok": False,
-                        "error": "invalid request size"
-                    }
-                )
-                return
-            body = self.rfile.read(length)
-            data = json.loads(body)
-            token = data.get("token", "")
-            wg_key = data.get("wg_public_key", "")
-            if not token or not wg_key:
-                self.send_json(
-                    400,
-                    {
-                        "ok": False,
-                        "error": "missing token or wg_public_key"
-                    }
-                )
-                return
-            db = load()
-            item = None
-            for x in db.get("vps", []):
-                if x.get("token") == token:
-                    item = x
-                    break
-            if item is None:
-                self.send_json(
-                    403,
-                    {
-                        "ok": False,
-                        "error": "invalid token"
-                    }
-                )
-                return
-            old_key = item.get(
-                "wg_public_key",
-                ""
-            )
-           if old_key and old_key != wg_key:
-                self.send_json(
-                    403,
-                    {
-                        "ok": False,
-                        "error": "wireguard key mismatch"
-                    }
-                )
-                return
-            if not item.get("wg_address"):
-                used = set()
-                for x in db.get("vps", []):
-                    address = x.get(
-                        "wg_address",
-                        ""
-                    )
-                    if address:
-                        try:
-                            last_octet = int(
-                                address
-                                .split(".")[-1]
-                                .split("/")[0]
-                            )
-                            used.add(last_octet)
-                        except Exception:
-                            pass
-                address = ""
-                for i in range(2, 255):
-                    if i not in used:
-                        address = f"{WG_NETWORK}.{i}"
-                        break
-                if not address:
-                    self.send_json(
-                        500,
-                        {
-                            "ok": False,
-                            "error": "no wg address available"
-                        }
-                    )
-                    return
-                item["wg_address"] = address
-            item["wg_public_key"] = wg_key
-            item["online"] = True
-            item["ipv4"] = data.get(
-                "ipv4",
-                ""
-            )
-            item["ipv6"] = data.get(
-                "ipv6",
-                ""
-            )
-            item["country"] = data.get(
-                "country",
-                ""
-            )
-            item["hostname"] = data.get(
-                "hostname",
-                ""
-            )
-            item["os"] = data.get(
-                "os",
-                ""
-            )
-            item["arch"] = data.get(
-                "arch",
-                ""
-            )
-            save(db)
-            wg_result = subprocess.run(
-                [
-                    "wg",
-                    "set",
-                    WG_INTERFACE,
-                    "peer",
-                    wg_key,
-                    "allowed-ips",
-                    item["wg_address"] + "/32"
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False
-            )
-            if wg_result.returncode != 0:
-                self.send_json(
-                    500,
-                    {
-                        "ok": False,
-                        "error": "failed to configure wireguard peer"
-                    }
-                )
-                return
-            if not persist_peer(
-                wg_key,
-                item["wg_address"]
-            ):
-                self.send_json(
-                    500,
-                    {
-                        "ok": False,
-                        "error": "failed to save wireguard peer"
-                    }
-                )
-                return
-            endpoint = public_ip()
-            if not endpoint:
-                self.send_json(
-                    500,
-                    {
-                        "ok": False,
-                        "error": "failed to get central public IPv4"
-                    }
-                )
-                return
-            try:
-               with open(
-                    WG_PUBLIC_FILE,
-                    "r",
-                    encoding="utf-8"
-                ) as f:
-                    server_key = f.read().strip()
-            except Exception:
-                self.send_json(
-                    500,
-                    {
-                        "ok": False,
-                        "error": "failed to read server public key"
-                    }
-                )
-                return
-            self.send_json(
-                200,
-                {
-                    "ok": True,
-                    "wg_address": item["wg_address"],
-                    "wg_server_public_key": server_key,
-                    "wg_endpoint": endpoint + ":" + str(WG_PORT)
-                }
-            )
-        except Exception as e:
-            self.send_json(
-                500,
-                {
-                    "ok": False,
-                    "error": str(e)
-                }
-            )
-server = HTTPServer(
-    ("0.0.0.0", PORT),
-    Handler
-)
-server.serve_forever()
-PY
-}
-
-start_server() {
-    cat > /etc/systemd/system/central-vps.service <<EOF
+    if pidof systemd >/dev/null 2>&1 || [ -d "/run/systemd/system" ]; then
+        cat > "$T64_RESTORE_SERVICE" << EOF
 [Unit]
-Description=Central VPS Management API
-After=network-online.target
+Description=Tunnel64 Multi-Tunnel Restore
+After=network-online.target network.target
 Wants=network-online.target
 
 [Service]
-Type=simple
-ExecStart=/bin/bash $LOCAL_SCRIPT --server
+Type=oneshot
+ExecStart=$T64_RESTORE_BIN
+RemainAfterExit=yes
 Restart=on-failure
 RestartSec=5
-KillMode=control-group
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl daemon-reload
-    systemctl enable central-vps.service >/dev/null 2>&1 || true
-    systemctl restart central-vps.service
-}
-add_vps() {
-    local name token central_ip
-    read -rp "请输入 VPS 名称: " name
-    [ -n "$name" ] || return
-    central_ip=$(get_ipv4)
-    if [ -z "$central_ip" ]; then
-        echo "获取中央 VPS 公网 IP 失败"
-        read -rp "按 Enter 返回..." _
-        return
+        systemctl daemon-reload
+        systemctl enable tunnel64-restore.service >/dev/null 2>&1
     fi
-    token=$(generate_token)
-    python3 - "$VPS_FILE" "$name" "$token" <<'PY'
-import json, sys
-p, name, token = sys.argv[1:]
-with open(p, encoding="utf-8") as f:
-    data = json.load(f)
-data["vps"] = [x for x in data["vps"] if x.get("name") != name]
-data["vps"].append({
-    "name": name, "token": token, "online": False,
-    "ipv4": "", "ipv6": "", "country": "", "hostname": "",
-    "os": "", "arch": "", "wg_address": "", "wg_public_key": ""
-})
-with open(p, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-PY
-    init_wireguard
-    echo "========================================"
-    echo "中央 VPS IPv4: $central_ip"
-    echo "========================================"
-    echo "请在目标 VPS 执行："
-    echo
-    printf 'curl -fsSL %s | bash -s -- "%s" "%s"\n' "$AGENT_URL" "$central_ip" "$token"
-    echo
-    echo "========================================"
-    read -rp "按 Enter 返回..." _
 }
-manage_vps() {
-    while true; do
-        clear
-        echo "================================"
-        echo "             管理 VPS"
-        echo "================================"
-        echo
-        python3 - "$VPS_FILE" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    data = json.load(f)
-if not data["vps"]:
-    print("暂无 VPS")
-else:
-    for i, x in enumerate(data["vps"], 1):
-        status = "在线" if x.get("online") else "离线"
-        print(f"{i}. {x.get('name','')} | {x.get('country','')} | {x.get('ipv4','')} | {status}")
-PY
-        echo
-        echo "0. 返回"
-        echo
-        read -rp "请选择 VPS: " choice
-        [ "$choice" = "0" ] && return
-        selected=$(python3 - "$VPS_FILE" "$choice" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    data = json.load(f)
-try:
-    i = int(sys.argv[2]) - 1
-    if 0 <= i < len(data["vps"]):
-        print(json.dumps(data["vps"][i], ensure_ascii=False))
-except Exception:
-    pass
-PY
-)
-        [ -n "$selected" ] || continue
-        while true; do
-            clear
-            echo "================================"
-            echo "             VPS 管理"
-            echo "================================"
-            echo
-            python3 - "$selected" <<'PY'
-import json, sys
-x = json.loads(sys.argv[1])
-print("名称      :", x.get("name", ""))
-print("国家/地区 :", x.get("country", ""))
-print("IPv4      :", x.get("ipv4", ""))
-print("IPv6      :", x.get("ipv6", ""))
-print("主机名    :", x.get("hostname", ""))
-print("系统      :", x.get("os", ""))
-print("架构      :", x.get("arch", ""))
-print("WG 地址   :", x.get("wg_address", ""))
-print("状态      :", "在线" if x.get("online") else "离线")
-PY
-            echo
-            echo "--------------------------------"
-            echo "1. 重启 VPS"
-            echo "2. 删除 VPS"
-            echo "0. 返回"
-            echo
-            read -rp "请选择: " action
-            case "$action" in
-            1)
-                wg_ip=$(python3 - "$selected" <<'PY'
-import json, sys
-print(json.loads(sys.argv[1]).get("wg_address", ""))
-PY
-)
-                if [ -z "$wg_ip" ]; then
-                    echo "该 VPS 尚未建立 WG 通信"
-                    read -rp "按 Enter 返回..." _
-                    continue
-                fi
-                echo "WG 地址: $wg_ip"
-                echo "当前正在建立命令控制通道，重启功能下一步接入"
-                read -rp "按 Enter 返回..." _
-                ;;
-            2)
-                name=$(python3 - "$selected" <<'PY'
-import json, sys
-print(json.loads(sys.argv[1]).get("name", ""))
-PY
-)
-                echo
-                read -rp "确认删除 VPS [$name]？输入 yes: " confirm
-                if [ "$confirm" = "yes" ]; then
-                    python3 - "$VPS_FILE" "$name" <<'PY'
-import json, sys
-p, name = sys.argv[1:]
-with open(p, encoding="utf-8") as f:
-    data = json.load(f)
-data["vps"] = [x for x in data["vps"] if x.get("name") != name]
-with open(p, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
-PY
-                    rebuild_wg_config
-                    echo "VPS 已删除"
-                    sleep 1
-                    break
-                fi
-                ;;
-            0)
-                break
-                ;;
-            esac
-        done
+
+remove_systemd_restore_if_empty() {
+    if [ -z "$(ls -A "$CONFIG_DIR"/*.conf 2>/dev/null)" ]; then
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl disable tunnel64-restore.service >/dev/null 2>&1 || true
+            systemctl stop tunnel64-restore.service >/dev/null 2>&1 || true
+        fi
+        rm -f "$T64_RESTORE_SERVICE" "$T64_RESTORE_BIN"
+        command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload
+    fi
+}
+
+# ================= 业务功能 =================
+
+add_sit_tunnel() {
+    echo "========== 添加 SIT 隧道 =========="
+    read -p "请输入隧道名称 (直接回车随机): " IFACE
+    [ -z "$IFACE" ] && IFACE="sit$(tr -dc 'a-z0-9' < /dev/urandom | head -c 4)"
+    
+    if ! is_valid_iface "$IFACE"; then echo "[错误] 接口名不合法"; return 1; fi
+    if [ -f "$CONFIG_DIR/$IFACE.conf" ]; then echo "[错误] 接口配置已存在"; return 1; fi
+
+    echo
+    read -p "请输入服务端 IPv4 地址: " REMOTE_V4
+    local default_local_v4=$(ip -4 route get 8.8.8.8 2>/dev/null | awk '/src/ {for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -n1)
+    [ -z "$default_local_v4" ] && default_local_v4=$(curl -4 -s ifconfig.me 2>/dev/null)
+    read -p "请输入客户端 IPv4 地址 (本机) [$default_local_v4]: " LOCAL_V4
+    [ -z "$LOCAL_V4" ] && LOCAL_V4="$default_local_v4"
+
+    echo
+    read -p "请输入服务端 IPv6 地址: " SERVER_IPV6
+    read -p "请输入客户端 IPv6 地址: " TUNNEL_IPV6
+    read -p "请输入 IPv6 路由前缀 (可选，如 2001:470:abcd::/48 或 /64): " ROUTED_PREFIX
+
+    IFACE=$(sanitize "$IFACE"); LOCAL_V4=$(sanitize "$LOCAL_V4"); REMOTE_V4=$(sanitize "$REMOTE_V4")
+    SERVER_IPV6=$(sanitize "$SERVER_IPV6"); TUNNEL_IPV6=$(sanitize "$TUNNEL_IPV6"); ROUTED_PREFIX=$(sanitize "$ROUTED_PREFIX")
+
+    if [ -z "$LOCAL_V4" ] || [ -z "$REMOTE_V4" ] || [ -z "$TUNNEL_IPV6" ]; then
+        echo "[错误] 核心 IP 参数不能为空" && return 1
+    fi
+
+    exec 9> "$LOCK_FILE"
+    flock -x 9
+    get_new_table_pref
+    local TABLE="$NEW_TABLE" RULE_PREF="$NEW_PREF" RULE_PREF_PREFIX="$NEW_PREF_PREFIX"
+    flock -u 9
+
+    # 修复：设置全局 TYPE 变量供 setup_tunnel_runtime 调用
+    TYPE="sit"
+    MTU="1400"
+    if ! setup_tunnel_runtime; then
+        echo "[错误] 隧道配置下发失败！" && return 1
+    fi
+
+    cat > "$CONFIG_DIR/$IFACE.conf" <<EOF
+TYPE="sit"
+IFACE="$IFACE"
+LOCAL_V4="$LOCAL_V4"
+REMOTE_V4="$REMOTE_V4"
+SERVER_IPV6="$SERVER_IPV6"
+TUNNEL_IPV6="$TUNNEL_IPV6"
+ROUTED_PREFIX="$ROUTED_PREFIX"
+MTU="$MTU"
+TABLE="$TABLE"
+RULE_PREF="$RULE_PREF"
+RULE_PREF_PREFIX="$RULE_PREF_PREFIX"
+EOF
+
+    update_systemd_restore
+    echo "✓ 隧道 $IFACE 添加成功并生效！"
+
+    local server_gw="${SERVER_IPV6%%/*}"
+    if [ -n "$server_gw" ]; then
+        echo "=========================================="
+        echo "正在测试与上游网关 ($server_gw) 的连通性 (Ping 5次)..."
+        ping -6 -c 5 "$server_gw"
+        echo "=========================================="
+    fi
+}
+
+add_wg_tunnel() {
+    echo "========== 添加 WireGuard 隧道 =========="
+    read -p "请输入隧道名称 (直接回车随机): " IFACE
+    [ -z "$IFACE" ] && IFACE="wg$(tr -dc 'a-z0-9' < /dev/urandom | head -c 4)"
+    
+    if ! is_valid_iface "$IFACE"; then echo "[错误] 接口名不合法"; return 1; fi
+    if [ -f "$CONFIG_DIR/$IFACE.conf" ]; then echo "[错误] 接口配置已存在"; return 1; fi
+
+    echo -e "请粘贴 WireGuard 客户端配置内容 (连续按两次回车确认):"
+    
+    local tmp_conf=$(mktemp)
+    trap 'rm -f "$tmp_conf"' EXIT INT TERM
+
+    local empty_count=0
+    while IFS= read -r line; do
+        if [ -z "$line" ]; then
+            empty_count=$((empty_count + 1))
+            [ "$empty_count" -ge 2 ] && break
+        else
+            empty_count=0
+        fi
+        echo "$line" >> "$tmp_conf"
     done
-}
-update_script() {
-    echo "正在更新脚本..."
-    curl -fsSL "$SCRIPT_URL" -o "$LOCAL_SCRIPT"
-    chmod 700 "$LOCAL_SCRIPT"
-    echo "脚本已成功更新！"
-    sleep 1
-    exec /bin/bash "$LOCAL_SCRIPT" --menu
-}
-delete_script() {
-    echo
-    echo "========================================"
-    echo "          删除中央 VPS 管理系统"
-    echo "========================================"
-    echo
-    echo "只删除本管理系统创建的内容："
-    echo
-    echo "  - central-vps.service"
-    echo "  - $WG_INTERFACE"
-    echo "  - $WG_CONFIG"
-    echo "  - $WG_PRIVATE_KEY"
-    echo "  - $WG_PUBLIC_KEY"
-    echo "  - /etc/central-vps"
-    echo "  - /usr/local/bin/central-vps.sh"
-    echo
-    echo "不会删除："
-    echo "  - route64"
-    echo "  - central0"
-    echo "  - 其他 WireGuard 配置"
-    echo "  - WireGuard 软件包"
-    echo
-    read -rp "确认删除？输入 yes: " confirm
-    [ "$confirm" = "yes" ] || return
-    echo
-    echo "开始删除..."
-    echo
-    echo "[1/6] 停止 central-vps.service..."
-    systemctl stop central-vps.service >/dev/null 2>&1 || true
-    systemctl disable central-vps.service >/dev/null 2>&1 || true
-    echo
-    echo "[2/6] 停止 $WG_INTERFACE..."
-    systemctl stop "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
-    systemctl disable "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
-    echo
-    echo "[3/6] 删除 $WG_INTERFACE..."
-    if ip link show "$WG_INTERFACE" >/dev/null 2>&1; then
-        ip link set "$WG_INTERFACE" down >/dev/null 2>&1 || true
-        ip link del "$WG_INTERFACE" >/dev/null 2>&1 || true
+
+    local WG_PRIVKEY=$(sed -n 's/^[[:space:]]*[Pp][Rr][Ii][Vv][Aa][Tt][Ee][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_PUBKEY=$(sed -n 's/^[[:space:]]*[Pp][Uu][Bb][Ll][Ii][Cc][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_ENDPOINT=$(sed -n 's/^[[:space:]]*[Ee][Nn][Dd][Pp][Oo][Ii][Nn][Tt][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_MTU=$(sed -n 's/^[[:space:]]*[Mm][Tt][Uu][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_PSK=$(sed -n 's/^[[:space:]]*[Pp][Rr][Ee][Ss][Hh][Aa][Rr][Ee][Dd][Kk][Ee][Yy][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_KEEPALIVE=$(sed -n 's/^[[:space:]]*[Pp][Ee][Rr][Ss][Ii][Ss][Tt][Ee][Nn][Tt][Kk][Ee][Ee][Pp][Aa][Ll][Ii][Vv][Ee][[:space:]]*=[[:space:]]*//p' "$tmp_conf" | head -n 1 | tr -d '\r')
+    local WG_ADDRESS=$(awk -F'=' 'tolower($1) ~ /^[[:space:]]*address[[:space:]]*/ {sub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
+    local WG_ALLOWEDIPS=$(awk -F'=' 'tolower($1) ~ /^[[:space:]]*allowedips[[:space:]]*/ {sub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
+    local WG_DNS=$(awk -F'=' 'tolower($1) ~ /^[[:space:]]*dns[[:space:]]*/ {sub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}' "$tmp_conf" | tr '\n' ',' | sed 's/,$//' | tr -d '\r')
+
+    rm -f "$tmp_conf"; trap - EXIT INT TERM
+
+    # 验证 WireGuard PrivateKey 合法性
+    if [ -n "$WG_PRIVKEY" ]; then
+        if ! echo "$WG_PRIVKEY" | wg pubkey >/dev/null 2>&1; then
+            echo "[错误] 解析到的 WireGuard PrivateKey 格式无效！"
+            return 1
+        fi
     fi
-    echo
-    echo "[4/6] 删除 systemd 文件..."
-    rm -f /etc/systemd/system/central-vps.service
-    systemctl daemon-reload
-    systemctl reset-failed central-vps.service >/dev/null 2>&1 || true
-    echo
-    echo "[5/6] 删除中央管理系统文件..."
-    rm -f "$WG_CONFIG" "$WG_PRIVATE_KEY" "$WG_PUBLIC_KEY"
-    rm -rf /etc/central-vps
-    rm -f /usr/local/bin/central-vps.sh
-    rm -f /run/central-vps-server.lock
-    echo
-    echo "[6/6] 检查..."
-    echo
-    echo "===== 当前 WireGuard ====="
-    if command -v wg >/dev/null 2>&1; then
-        wg show
+
+    local WG_IPV4=$(echo "$WG_ADDRESS" | awk -F',' '{for(i=1;i<=NF;i++) if($i~/\./ && $i!~/:/) {gsub(/^[ \t]+|[ \t]+$/,"",$i); print $i; exit}}')
+    local WG_IPV6=$(echo "$WG_ADDRESS" | awk -F',' '{for(i=1;i<=NF;i++) if($i~/:/) {gsub(/^[ \t]+|[ \t]+$/,"",$i); print $i; exit}}')
+
+    if [ -z "$WG_PRIVKEY" ] || { [ -z "$WG_IPV4" ] && [ -z "$WG_IPV6" ]; } || [ -z "$WG_PUBKEY" ] || [ -z "$WG_ENDPOINT" ]; then
+        echo "[错误] 无法解析配置，核心参数 (PrivateKey/Address/PublicKey/Endpoint) 缺失。"
+        return 1
     fi
+
     echo
-    echo "===== 检查 $WG_INTERFACE ====="
-    if ip link show "$WG_INTERFACE" >/dev/null 2>&1; then
-        echo "⚠ $WG_INTERFACE 仍然存在"
+    read -p "请输入该隧道附带的 IPv6 路由前缀 (可选): " ROUTED_PREFIX
+    ROUTED_PREFIX=$(sanitize "$ROUTED_PREFIX")
+
+    exec 9> "$LOCK_FILE"
+    flock -x 9
+    get_new_table_pref
+    local TABLE="$NEW_TABLE" RULE_PREF="$NEW_PREF" RULE_PREF_PREFIX="$NEW_PREF_PREFIX" RULE_PREF_V4="$NEW_PREF_V4"
+    flock -u 9
+
+    # 修复：设置全局 TYPE 变量
+    TYPE="wg"
+    MTU="${WG_MTU:-1420}"
+    
+    # 保持 AllowedIPs 原有格式，仅在为空时安全默认
+    [ -z "$WG_ALLOWEDIPS" ] && WG_ALLOWEDIPS="0.0.0.0/0, ::/0"
+    WG_ALLOWEDIPS=$(echo "$WG_ALLOWEDIPS" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    cat > "$CONFIG_DIR/$IFACE.wg" <<EOF
+[Interface]
+PrivateKey = $WG_PRIVKEY
+[Peer]
+PublicKey = $WG_PUBKEY
+Endpoint = $WG_ENDPOINT
+AllowedIPs = $WG_ALLOWEDIPS
+EOF
+    [ -n "$WG_PSK" ] && echo "PresharedKey = $WG_PSK" >> "$CONFIG_DIR/$IFACE.wg"
+    [ -n "$WG_KEEPALIVE" ] && echo "PersistentKeepalive = $WG_KEEPALIVE" >> "$CONFIG_DIR/$IFACE.wg"
+
+    chmod 600 "$CONFIG_DIR/$IFACE.wg"
+
+    if ! setup_tunnel_runtime; then
+        echo "[错误] WireGuard 隧道配置下发失败"
+        rm -f "$CONFIG_DIR/$IFACE.wg"
+        return 1
+    fi
+
+    cat > "$CONFIG_DIR/$IFACE.conf" <<EOF
+TYPE="wg"
+IFACE="$IFACE"
+WG_IPV4="$WG_IPV4"
+WG_IPV6="$WG_IPV6"
+WG_ENDPOINT="$(sanitize "$WG_ENDPOINT")"
+WG_ALLOWEDIPS="$WG_ALLOWEDIPS"
+WG_DNS="$WG_DNS"
+ROUTED_PREFIX="$ROUTED_PREFIX"
+MTU="$MTU"
+TABLE="$TABLE"
+RULE_PREF="$RULE_PREF"
+RULE_PREF_PREFIX="$RULE_PREF_PREFIX"
+RULE_PREF_V4="$RULE_PREF_V4"
+EOF
+    chmod 600 "$CONFIG_DIR/$IFACE.conf"
+
+    update_systemd_restore
+    echo "✓ WG 隧道 $IFACE 添加成功并生效！"
+}
+
+delete_tunnel() {
+    local conf="$1" list_file="$2"
+    load_tunnel_conf "$conf"
+    
+    echo "========== 删除隧道: $IFACE =========="
+    read -p "确认删除该隧道及其所有附加 IP 吗? [y/N]: " OK
+    [[ "$OK" != "y" && "$OK" != "Y" ]] && return
+
+    [ -f "$list_file" ] && while IFS= read -r ip; do
+        [ -n "$ip" ] && ip -6 addr del "$ip/128" dev lo 2>/dev/null || true
+    done < "$list_file"
+
+    # 彻底清理所有关联的策略路由规则 (按 pref、from 地址及 table)
+    [ -n "$RULE_PREF" ] && while ip -6 rule del pref "$RULE_PREF" 2>/dev/null; do :; done
+    [ -n "$RULE_PREF_PREFIX" ] && while ip -6 rule del pref "$RULE_PREF_PREFIX" 2>/dev/null; do :; done
+    [ -n "$RULE_PREF_V4" ] && while ip -4 rule del pref "$RULE_PREF_V4" 2>/dev/null; do :; done
+    [ -n "$WG_IPV6" ] && while ip -6 rule del from "${WG_IPV6%%/*}" 2>/dev/null; do :; done
+    [ -n "$TUNNEL_IPV6" ] && while ip -6 rule del from "${TUNNEL_IPV6%%/*}" 2>/dev/null; do :; done
+    [ -n "$WG_IPV4" ] && while ip -4 rule del from "${WG_IPV4%%/*}" 2>/dev/null; do :; done
+    [ -n "$ROUTED_PREFIX" ] && while ip -6 rule del from "$ROUTED_PREFIX" 2>/dev/null; do :; done
+    [ -n "$TABLE" ] && { while ip -6 rule del table "$TABLE" 2>/dev/null; do :; done; while ip -4 rule del table "$TABLE" 2>/dev/null; do :; done; }
+
+    ip -6 route flush table "$TABLE" 2>/dev/null || true
+    ip -4 route flush table "$TABLE" 2>/dev/null || true
+
+    # 兼容 CIDR 与单 IP 格式的路由删除
+    [ -n "$ROUTED_PREFIX" ] && ip -6 route del "$ROUTED_PREFIX" dev "$IFACE" 2>/dev/null || true
+    [ -n "$WG_IPV6" ] && { ip -6 route del "$WG_IPV6" dev "$IFACE" 2>/dev/null || ip -6 route del "${WG_IPV6%%/*}" dev "$IFACE" 2>/dev/null || true; }
+    [ -n "$WG_IPV4" ] && { ip -4 route del "$WG_IPV4" dev "$IFACE" 2>/dev/null || ip -4 route del "${WG_IPV4%%/*}" dev "$IFACE" 2>/dev/null || true; }
+    [ -n "$TUNNEL_IPV6" ] && { ip -6 route del "$TUNNEL_IPV6" dev "$IFACE" 2>/dev/null || ip -6 route del "${TUNNEL_IPV6%%/*}" dev "$IFACE" 2>/dev/null || true; }
+
+    cleanup_tunnel_runtime "$IFACE" "$TYPE"
+    rm -f "$conf" "$list_file" "$CONFIG_DIR/$IFACE.wg"
+    remove_systemd_restore_if_empty
+    
+    echo "✓ 隧道 $IFACE 已彻底删除"
+    read -p "按回车键返回..."
+}
+
+add_ipv6() {
+    local config_file="$1"
+    local list_file="$2"
+    load_tunnel_conf "$config_file"
+
+    if [ -z "$ROUTED_PREFIX" ]; then
+        echo "错误: 该隧道未配置路由前缀，无法生成附加 IPv6。"
+        read -p "按回车键继续..." && return
+    fi
+
+    if ! ip link show "$IFACE" >/dev/null 2>&1; then
+        echo "错误: 接口不存在"
+        read -p "按回车键继续..." && return
+    fi
+
+    local RETRY=0 MAX_RETRY=10 NEW_IPV6=""
+    while [ "$RETRY" -lt "$MAX_RETRY" ]; do
+        NEW_IPV6=$(generate_ipv6 "$ROUTED_PREFIX")
+        if grep -qsxF "$NEW_IPV6" "$list_file" 2>/dev/null || \
+           ip -6 addr show dev lo | grep -qsF "$NEW_IPV6" || \
+           ip -6 addr show dev "$IFACE" | grep -qsF "$NEW_IPV6"; then
+            RETRY=$((RETRY + 1))
+        else
+            break
+        fi
+    done
+
+    if [ "$RETRY" -ge "$MAX_RETRY" ]; then
+        echo "错误: 未能生成唯一 IPv6" && read -p "按回车键继续..." && return
+    fi
+
+    if ! ip -6 addr add "$NEW_IPV6/128" dev lo 2>/dev/null; then
+        echo "错误: IPv6 绑定到 lo 失败" && read -p "按回车键继续..." && return
+    fi
+
+    mkdir -p "$(dirname "$list_file")"
+    echo "$NEW_IPV6" >> "$list_file"
+    echo "✓ 附加 IPv6 添加成功: $NEW_IPV6"
+
+    if ip -6 route get 2606:4700:4700::1111 from "$NEW_IPV6" 2>/dev/null | grep -qs "$IFACE"; then
+        echo "✓ 路由校验通过: 成功匹配策略路由表 $TABLE"
     else
-        echo "✓ $WG_INTERFACE 已删除"
+        echo "⚠️ 警告: 策略路由匹配异常，该 IP 流量可能未走隧道"
     fi
-    echo
-    echo "===== 检查配置 ====="
-    if [ -e "$WG_CONFIG" ]; then echo "⚠ $WG_CONFIG 仍然存在"; else echo "✓ $WG_CONFIG 已删除"; fi
-    if [ -e "$WG_PRIVATE_KEY" ]; then echo "⚠ $WG_PRIVATE_KEY 仍然存在"; else echo "✓ $WG_PRIVATE_KEY 已删除"; fi
-    if [ -e "$WG_PUBLIC_KEY" ]; then echo "⚠ $WG_PUBLIC_KEY 仍然存在"; else echo "✓ $WG_PUBLIC_KEY 已删除"; fi
-    echo
-    echo "===== 检查管理文件 ====="
-    if [ -e /etc/central-vps ]; then echo "⚠ /etc/central-vps 仍然存在"; else echo "✓ /etc/central-vps 已删除"; fi
-    if [ -e /usr/local/bin/central-vps.sh ]; then echo "⚠ central-vps.sh 仍然存在"; else echo "✓ central-vps.sh 已删除"; fi
-    echo
-    echo "===== WireGuard 软件 ====="
-    if command -v wg >/dev/null 2>&1; then echo "✓ wg 保留: $(command -v wg)"; else echo "⚠ wg 不存在"; fi
-    if command -v wg-quick >/dev/null 2>&1; then echo "✓ wg-quick 保留: $(command -v wg-quick)"; else echo "⚠ wg-quick 不存在"; fi
-    echo
-    echo "========================================"
-    echo "       中央 VPS 管理系统已删除"
-    echo "========================================"
-    echo
-    echo "保留："
-    echo "  ✓ route64"
-    echo "  ✓ central0"
-    echo "  ✓ 其他 WireGuard"
-    echo "  ✓ WireGuard 软件包"
-    echo "  ✓ wg"
-    echo "  ✓ wg-quick"
-    echo
-    echo "删除："
-    echo "  ✓ $WG_INTERFACE"
-    echo "  ✓ $WG_CONFIG"
-    echo "  ✓ $WG_PRIVATE_KEY"
-    echo "  ✓ $WG_PUBLIC_KEY"
-    echo "  ✓ central-vps.service"
-    echo "  ✓ /etc/central-vps"
-    echo "  ✓ /usr/local/bin/central-vps.sh"
-    echo
-    exit 0
+    read -p "按回车键继续..."
 }
-main() {
-    mkdir -p "$(dirname "$LOCAL_SCRIPT")
-    if [ ! -f "$LOCAL_SCRIPT" ]; then
-        tmp="${LOCAL_SCRIPT}.tmp"
-        if ! curl -fsSL "$SCRIPT_URL" -o "$tmp"; then
-            rm -f "$tmp"
-            echo "脚本下载失败"
-            exit 1
-        fi
-        chmod 700 "$tmp"
-        if ! bash -n "$tmp"; then
-            rm -f "$tmp"
-            echo "下载的脚本语法错误"
-            exit 1
-        fi
-        mv -f "$tmp" "$LOCAL_SCRIPT"
-        echo "脚本下载成功"
+
+delete_ipv6() {
+    local config_file="$1"
+    local list_file="$2"
+    load_tunnel_conf "$config_file"
+
+    if [ ! -f "$list_file" ] || [ ! -s "$list_file" ]; then
+        echo "没有可删除的附加 IPv6" && read -p "按回车键继续..." && return
     fi
-    if [ ! -f /etc/systemd/system/central-vps.service ]; then
-        "$LOCAL_SCRIPT" --setup-server
-    elif ! systemctl is-active \
-        --quiet central-vps.service \
-        2>/dev/null; then
-        systemctl start central-vps.service
+
+    echo "========== 附加 IPv6 列表 ($IFACE) =========="
+    awk '{print NR". "$0}' "$list_file"
+    echo "============================================="
+    read -p "输入要删除的编号: " NUM
+    if ! [[ "$NUM" =~ ^[1-9][0-9]*$ ]]; then
+        echo "错误: 输入无效" && read -p "按回车键继续..." && return
     fi
-    exec /bin/bash "$LOCAL_SCRIPT" --menu
+
+    local DEL_IP=$(sed -n "${NUM}p" "$list_file")
+    if [ -z "$DEL_IP" ]; then
+        echo "错误: 编号不存在" && read -p "按回车键继续..." && return
+    fi
+
+    ip -6 addr del "$DEL_IP/128" dev lo 2>/dev/null || true
+    sed -i "${NUM}d" "$list_file"
+    echo "✓ IPv6 已删除: $DEL_IP"
+    read -p "按回车键继续..."
 }
-case "${1:-}" in
---server)
-    server
-    ;;
---setup-server)
-    init_wireguard
-    start_server
-    ;;
---menu)
+
+status_tunnel() {
+    local config_file="$1"
+    local list_file="$2"
+    load_tunnel_conf "$config_file"
+
+    clear
+    echo "========== 隧道状态: $IFACE =========="
+    echo "类型          : ${TYPE^^}"
+    ip link show "$IFACE" >/dev/null 2>&1 || echo "⚠️ 隧道设备未启动"
+    if [ "$TYPE" = "wg" ]; then
+        [ -n "$WG_IPV4" ] && echo "Client IPv4   : $WG_IPV4"
+        [ -n "$WG_IPV6" ] && echo "Client IPv6   : $WG_IPV6"
+        echo "Endpoint      : ${WG_ENDPOINT:-未配置}"
+        [ -n "$WG_DNS" ] && echo "DNS           : $WG_DNS"
+    else
+        echo "Client IPv6   : $(ip -6 addr show dev "$IFACE" 2>/dev/null | grep 'scope global' | awk '{print $2}' || echo '无')"
+        echo "Server IPv6   : ${SERVER_IPV6:-未配置}"
+    fi
+    echo "Routed Prefix : ${ROUTED_PREFIX:-未配置}"
+    echo "策略路由表 $TABLE : $(ip -6 route show table "$TABLE" 2>/dev/null | tr '\n' ' ; ' || echo '无')"
+    
+    echo
+    echo "========== lo 附加 IPv6 =========="
+    if [ -f "$list_file" ] && [ -s "$list_file" ]; then
+        while IFS= read -r ip; do
+            [ -z "$ip" ] && continue
+            ip -6 addr show dev lo | grep -qsF "$ip" && echo "✓ $ip" || echo "✗ $ip (未绑定)"
+        done < "$list_file"
+    else
+        echo "无附加记录"
+    fi
+    echo
+    read -p "按回车键返回..."
+}
+
+test_ipv6() {
+    local list_file="$1"
+    if [ ! -f "$list_file" ] || [ ! -s "$list_file" ]; then
+        echo "未找到附加 IPv6 列表" && read -p "按回车键继续..." && return
+    fi
+
+    echo "========== IPv6 出口测试 =========="
+    local total=0 success=0 failed=0
+    while IFS= read -r TEST_IP; do
+        [ -z "$TEST_IP" ] && continue
+        total=$((total + 1))
+        local RESULT=$(curl -6 --interface "$TEST_IP" --connect-timeout 5 --max-time 8 -sS https://ip.sb 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$RESULT" ]; then
+            success=$((success + 1))
+            echo "✓ [$TEST_IP] 成功 -> 出口: $RESULT"
+        else
+            failed=$((failed + 1))
+            echo "✗ [$TEST_IP] 失败"
+        fi
+    done < "$list_file"
+
+    echo "测试完成: 总计 $total | 成功 $success | 失败 $failed"
+    read -p "按回车键继续..."
+}
+
+test_route() {
+    local config_file="$1"
+    load_tunnel_conf "$config_file"
+    
+    read -p "请输入测试用的源 IP 地址 (IPv4 或 IPv6): " TEST_IP
+    [ -z "$TEST_IP" ] && return
+    
+    if [[ "$TEST_IP" =~ : ]]; then
+        echo "========== route get (检查 IPv6 策略) =========="
+        ip -6 route get 2606:4700:4700::1111 from "$TEST_IP"
+        ping -6 -I "$TEST_IP" -c 3 -W 3 2606:4700:4700::1111
+    else
+        echo "========== route get (检查 IPv4 策略) =========="
+        ip -4 route get 1.1.1.1 from "$TEST_IP"
+        ping -4 -I "$TEST_IP" -c 3 -W 3 1.1.1.1
+    fi
+    
+    read -p "按回车键继续..."
+}
+
+get_tunnel_file_by_index() {
+    local target_idx=$1
+    local i=1
+    for f in "$CONFIG_DIR"/*.conf; do
+        [ -f "$f" ] || continue
+        if [ "$i" -eq "$target_idx" ]; then
+            echo "$f" && return 0
+        fi
+        i=$((i + 1))
+    done
+    return 1
+}
+
+tunnel_submenu() {
+    local config_file="$1"
     while true; do
+        [ -f "$config_file" ] || return
+        load_tunnel_conf "$config_file"
+        local list_file="$CONFIG_DIR/$IFACE-ips.list"
+
         clear
-        echo "================================"
-        echo "       中央 VPS 管理脚本 1"
-        echo "================================"
-        echo
-        echo "1. 添加 VPS"
-        echo "2. 管理 VPS"
-        echo "3. 安装 sing-box"
-        echo "4. 卸载 sing-box"
-        echo "5. 更新脚本"
-        echo "6. 删除管理脚本"
-        echo
-        echo "0. 退出"
-        echo
-        read -rp "请选择: " choice
-        case "$choice" in
-        1)
-            add_vps
-            ;;
-        2)
-            manage_vps
-            ;;
-        3)
-            echo "暂未实现"
-            read -rp "按 Enter 返回..." _
-            ;;
-        4)
-            echo "暂未实现"
-            read -rp "按 Enter 返回..." _
-            ;;
-        5)
-            update_script
-            ;;
-        6)
-            delete_script
-            ;;
-        0)
-            exit 0
-            ;;
+        echo "========== 隧道管理: $IFACE [${TYPE^^}] (表: $TABLE) =========="
+        echo "1. 随机添加附加 IPv6 地址"
+        echo "2. 删除指定附加 IPv6 地址"
+        echo "3. 查看当前隧道与 IP 状态"
+        echo "4. 批量测试所有附加 IPv6 的出口"
+        echo "5. 测试单 IP 路由与外网连通性"
+        echo "6. 删除该隧道"
+        echo "0. 返回上级菜单"
+        echo "==========================================================="
+        read -p "选择 [0-6]: " SUB_CHOOSE
+        case "$SUB_CHOOSE" in
+            1) add_ipv6 "$config_file" "$list_file" ;;
+            2) delete_ipv6 "$config_file" "$list_file" ;;
+            3) status_tunnel "$config_file" "$list_file" ;;
+            4) test_ipv6 "$list_file" ;;
+            5) test_route "$config_file" ;;
+            6) delete_tunnel "$config_file" "$list_file"; return ;;
+            0) return ;;
+            *) echo "输入错误！"; sleep 1 ;;
         esac
     done
-    ;;
-*)
-    main
-    ;;
-esac
+}
+
+menu() {
+    install_dep
+    while true; do
+        clear
+        echo "========== 通用隧道管理网关 =========="
+        echo "0. 退出脚本"
+        echo "a. 添加 SIT 隧道"
+        echo "b. 添加 WG 隧道"
+        echo "----------------------------------------"
+        echo "已添加的隧道列表："
+        
+        local i=1
+        local has_tunnel=0
+        for f in "$CONFIG_DIR"/*.conf; do
+            [ -f "$f" ] || continue
+            has_tunnel=1
+            load_tunnel_conf "$f"
+            if [ "$TYPE" = "wg" ]; then
+                echo -e "   [\033[32m$i\033[0m] [WG]  接口: \033[32m$IFACE\033[0m | 节点: $WG_ENDPOINT | 路由前缀: ${ROUTED_PREFIX:-无}"
+            else
+                echo -e "   [\033[32m$i\033[0m] [SIT] 接口: \033[32m$IFACE\033[0m | 远端IPv4: $REMOTE_V4 | 路由前缀: ${ROUTED_PREFIX:-无}"
+            fi
+            i=$((i + 1))
+        done
+        [ "$has_tunnel" -eq 0 ] && echo "   (暂无隧道，请选择 a 或 b 添加)"
+
+        echo "----------------------------------------"
+        read -p "请输入选项 (a/b 添加, 0 退出, 或输入编号进入管理): " CHOOSE
+
+        case "$CHOOSE" in
+            0) exit 0 ;;
+            a|A) add_sit_tunnel; read -p "按回车键继续..." ;;
+            b|B) add_wg_tunnel; read -p "按回车键继续..." ;;
+            *)
+                if [[ "$CHOOSE" =~ ^[1-9][0-9]*$ ]]; then
+                    local selected_file=$(get_tunnel_file_by_index "$CHOOSE")
+                    if [ -n "$selected_file" ] && [ -f "$selected_file" ]; then
+                        tunnel_submenu "$selected_file"
+                    else
+                        echo "错误: 无效的隧道编号！"; sleep 1
+                    fi
+                else
+                    echo "输入错误！"; sleep 1
+                fi
+                ;;
+        esac
+    done
+}
+
+menu
