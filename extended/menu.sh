@@ -229,9 +229,10 @@ while true; do
    menu
    case "${choice}" in
         1)
-    if ! download_and_load_modules; then
-        red "安装失败！"
-        continue
+
+	if ! source "$MODULE_DIR/$file"; then
+    red "$file 加载失败"
+    return 1
     fi
     check_singbox &>/dev/null
     check_singbox=$?
