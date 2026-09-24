@@ -17,6 +17,20 @@ WG_PRIVATE_KEY=$WG_DIR/central-mgmt-privatekey
 WG_PUBLIC_KEY=$WG_DIR/central-mgmt-publickey
 mkdir -p "$BASE_DIR" "$DATA_DIR"
 chmod 700 "$BASE_DIR" "$DATA_DIR"
+# =========================
+export LANG=en_US.UTF-8
+re="\033[0m"
+red="\033[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+skyblue="\e[1;36m"
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+skyblue() { echo -e "\e[1;36m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
 [ -f "$VPS_FILE" ] || echo '{"vps":[]}' > "$VPS_FILE"
 get_ipv4() {
     curl -4 -fsS --connect-timeout 3 --max-time 5 https://api.ipify.org 2>/dev/null || true
@@ -495,6 +509,12 @@ with open(p, "w", encoding="utf-8") as f:
 PY
     chmod 600 "$VPS_FILE"
 }
+
+
+
+
+
+
 agent_request() {
     local address="$1"
     local token="$2"
@@ -502,53 +522,27 @@ agent_request() {
     local path="$4"
     local command="${5:-}"
     local url="http://${address}:18090${path}"
-
     if [ "$method" = "GET" ]; then
-        curl -sS \
-            --connect-timeout 3 \
-            --max-time 10 \
-            -H "Authorization: Bearer ${token}" \
-            "$url"
+        curl -sS --connect-timeout 3 --max-time 10 -H "Authorization: Bearer ${token}" "$url"
     else
         python3 - "$command" "$token" "$url" <<'PY'
 import json
 import sys
 import urllib.request
 import urllib.error
-
-command = sys.argv[1]
-token = sys.argv[2]
-url = sys.argv[3]
-
-payload = json.dumps({
-    "command": command
-}, ensure_ascii=False).encode("utf-8")
-
-req = urllib.request.Request(
-    url,
-    data=payload,
-    method="POST",
-    headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    },
-)
+command=sys.argv[1]
+token=sys.argv[2]
+url=sys.argv[3]
+payload=json.dumps({"command":command},ensure_ascii=False).encode("utf-8")
+req=urllib.request.Request(url,data=payload,method="POST",headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"})
 try:
-    with urllib.request.urlopen(req, timeout=35) as response:
+    with urllib.request.urlopen(req,timeout=35) as response:
         print(response.read().decode("utf-8"))
 except urllib.error.HTTPError as e:
-    body = e.read().decode("utf-8", errors="replace")
-    print(json.dumps({
-        "ok": False,
-        "error": f"HTTP {e.code}",
-        "detail": body
-    }, ensure_ascii=False))
-
+    body=e.read().decode("utf-8",errors="replace")
+    print(json.dumps({"ok":False,"error":f"HTTP {e.code}","detail":body},ensure_ascii=False))
 except Exception as e:
-    print(json.dumps({
-        "ok": False,
-        "error": str(e)
-    }, ensure_ascii=False))
+    print(json.dumps({"ok":False,"error":str(e)},ensure_ascii=False))
 PY
     fi
 }
@@ -566,137 +560,49 @@ except:
     sys.exit(1)
 '
 }
-show_vps_system() {
+get_vps_status() {
+    local address="$1"
+    local token="$2"
+    agent_request "$address" "$token" POST "/api/command" 'echo "CPU_CORES=$(nproc 2>/dev/null || echo 0)";echo "LOAD=$(awk "{print \$1,\$2,\$3}" /proc/loadavg 2>/dev/null)";echo "MEM=$(free -m 2>/dev/null | awk "/^Mem:/ {printf \"%d %d %d\", \$2, \$3, \$2>0?\$3*100/\$2:0}")";echo "DISK=$(df -P / 2>/dev/null | awk "NR==2 {gsub(/%/,"""",\$5); print \$3,\$4,\$5}")"'
+}
+show_vps_detail() {
     local name="$1"
     local address="$2"
     local token="$3"
     local result
-    result=$(agent_request "$address" "$token" GET "/api/info") || {
-        echo "Agent 连接失败"
-        return
+    result=$(agent_request "$address" "$token" POST "/api/command" 'echo "===== 系统信息 =====";echo "主机名: $(hostname 2>/dev/null)";echo "系统: $(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || uname -s)";echo "架构: $(uname -m 2>/dev/null)";echo "运行时间: $(uptime -p 2>/dev/null || uptime)";echo;echo "===== CPU =====";echo "CPU 核心: $(nproc 2>/dev/null || echo N/A)";echo "CPU 型号: $(lscpu 2>/dev/null | awk -F: "/Model name/ {gsub(/^[ \t]+/,"""",\$2);print \$2;exit}")";echo "CPU 负载: $(awk "{print \$1,\$2,\$3}" /proc/loadavg 2>/dev/null)";echo "CPU 使用率:";top -bn1 2>/dev/null | grep -E "Cpu\(s\)" | head -n 1 || true;echo;echo "===== 内存 =====";free -h 2>/dev/null || true;echo;echo "===== 磁盘 =====";df -hT 2>/dev/null || true;echo;echo "===== 网络 =====";ip -br addr 2>/dev/null || true;echo;echo "===== 路由 =====";ip route 2>/dev/null || true;echo;echo "===== DNS =====";if command -v resolvectl >/dev/null 2>&1;then resolvectl status 2>/dev/null | grep -E "DNS Servers|Current DNS Server" || true;else grep -v "^[[:space:]]*#" /etc/resolv.conf 2>/dev/null || true;fi;echo;echo "===== WireGuard =====";wg show central-mgmt 2>/dev/null || true') || {
+        red "Agent 连接失败"
+        return 1
     }
-    python3 - "$name" "$result" <<'PY'
+    printf '%s' "$result" | python3 - "$name" "$address" <<'PY'
 import json
 import sys
-name = sys.argv[1]
+name=sys.argv[1]
+address=sys.argv[2]
 try:
-    d = json.loads(sys.argv[2])
-except Exception:
-    print("Agent 返回数据格式错误")
-    sys.exit(0)
+    d=json.loads(sys.stdin.read())
+except:
+    red="Agent 返回数据格式错误"
+    print(red)
+    sys.exit(1)
 if not d.get("ok"):
-    print("获取系统信息失败：" + d.get("error", "unknown error"))
-    sys.exit(0)
+    print("执行失败："+str(d.get("error","未知错误")))
+    if d.get("stderr"):
+        print(d["stderr"],end="")
+    sys.exit(1)
 print("========================================")
-print("              系统信息")
+print("              VPS 详细信息")
 print("========================================")
-print("VPS 名称  :", name)
-print("主机名    :", d.get("hostname", ""))
-print("系统      :", d.get("os", ""))
-print("架构      :", d.get("arch", ""))
-print("WG 地址   :", d.get("wg_address", ""))
+print("VPS 名称 :",name)
+print("WG 地址  :",address)
 print("========================================")
+print()
+print(d.get("stdout",""),end="")
+if d.get("stderr"):
+    print()
+    print("stderr:")
+    print(d["stderr"],end="")
 PY
-}
-show_vps_cpu() {
-    local name="$1"
-    local address="$2"
-    local token="$3"
-    local result
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'echo "===== CPU ====="; lscpu | grep -E "^(CPU\(s\)|Model name|Architecture)" || true; echo; echo "===== LOAD ====="; uptime') || {
-        echo "Agent 连接失败"
-        return
-    }
-    printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-except:
-    print("Agent 返回数据格式错误")
-    raise SystemExit
-if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
-    raise SystemExit
-print(d.get("stdout",""),end="")
-if d.get("stderr"):
-    print(d["stderr"],end="")
-'
-}
-show_vps_memory() {
-    local name="$1"
-    local address="$2"
-    local token="$3"
-    local result
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'free -h; echo; echo "===== /proc/meminfo ====="; grep -E "^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree):" /proc/meminfo') || {
-        echo "Agent 连接失败"
-        return
-    }
-    printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-except:
-    print("Agent 返回数据格式错误")
-    raise SystemExit
-if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
-    raise SystemExit
-print(d.get("stdout",""),end="")
-if d.get("stderr"):
-    print(d["stderr"],end="")
-'
-}
-show_vps_disk() {
-    local name="$1"
-    local address="$2"
-    local token="$3"
-    local result
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'df -hT; echo; echo "===== BLOCK DEVICES ====="; lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT') || {
-        echo "Agent 连接失败"
-        return
-    }
-    printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-except:
-    print("Agent 返回数据格式错误")
-    raise SystemExit
-if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
-    raise SystemExit
-print(d.get("stdout",""),end="")
-if d.get("stderr"):
-    print(d["stderr"],end="")
-'
-}
-show_vps_network() {
-    local name="$1"
-    local address="$2"
-    local token="$3"
-    local result
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'echo "===== INTERFACES ====="; ip -br addr; echo; echo "===== ROUTES ====="; ip route; echo; echo "===== DNS ====="; resolvectl status 2>/dev/null | grep -E "DNS Servers|Current DNS Server" || cat /etc/resolv.conf') || {
-        echo "Agent 连接失败"
-        return
-    }
-    printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-except:
-    print("Agent 返回数据格式错误")
-    raise SystemExit
-if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
-    raise SystemExit
-print(d.get("stdout",""),end="")
-if d.get("stderr"):
-    print(d["stderr"],end="")
-'
 }
 execute_vps_command() {
     local name="$1"
@@ -705,42 +611,47 @@ execute_vps_command() {
     local command
     local result
     echo
-    echo "========================================"
-    echo "              执行命令"
-    echo "========================================"
-    echo "VPS: $name"
-    echo "WG : $address"
+    green "========================================"
+    green "              执行 VPS 命令"
+    green "========================================"
+    echo
+    green "VPS 名称 : $name"
+    green "WG 地址  : $address"
+    echo
+    yellow "请输入要执行的 Linux 命令："
     echo
     read -r -p "> " command
     [ -n "$command" ] || return
     result=$(agent_request "$address" "$token" POST "/api/command" "$command") || {
-        echo "Agent 连接失败"
-        return
+        red "Agent 连接失败"
+        return 1
     }
     echo
-    echo "========================================"
-    echo "              执行结果"
-    echo "========================================"
     printf '%s' "$result" | python3 -c '
 import json,sys
 try:
     d=json.load(sys.stdin)
 except:
     print("Agent 返回数据格式错误")
-    raise SystemExit
+    raise SystemExit(1)
+print("========================================")
+print("              执行结果")
+print("========================================")
 if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
+    print("执行失败："+str(d.get("error","未知错误")))
     if d.get("stdout"):
         print(d["stdout"],end="")
     if d.get("stderr"):
         print(d["stderr"],end="")
-    raise SystemExit
+    raise SystemExit(1)
 if d.get("stdout"):
     print(d["stdout"],end="")
 if d.get("stderr"):
-    print("\n----- stderr -----")
+    print()
+    print("stderr:")
     print(d["stderr"],end="")
-print("\n返回码:",d.get("returncode",-1))
+print()
+print("返回码:",d.get("returncode",-1))
 '
 }
 restart_vps() {
@@ -748,40 +659,37 @@ restart_vps() {
     local address="$2"
     local token="$3"
     local result
+    local confirm
     echo
-    echo "========================================"
-    echo "              重启 VPS"
-    echo "========================================"
-    echo "VPS: $name"
-    echo "WG : $address"
+    green "========================================"
+    green "              重启 VPS"
+    green "========================================"
+    echo
+    green "VPS 名称 : $name"
+    green "WG 地址  : $address"
     echo
     read -r -p "确定重启此 VPS？输入 yes 确认: " confirm
     [ "$confirm" = "yes" ] || return
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'nohup sh -c "sleep 2; /sbin/reboot" >/dev/null 2>&1 & echo "REBOOT_SCHEDULED"') || {
-        echo
-        echo "Agent 连接失败"
-        return
+    result=$(agent_request "$address" "$token" POST "/api/command" 'nohup sh -c "sleep 2; /sbin/reboot" >/dev/null 2>&1 & echo "REBOOT_SCHEDULED"') || {
+        red "Agent 连接失败"
+        return 1
     }
     echo
     if printf '%s' "$result" | python3 -c '
-import json
-import sys
+import json,sys
 try:
-    d = json.load(sys.stdin)
-except Exception:
-    print("Agent 返回数据格式错误")
+    d=json.load(sys.stdin)
+except:
     raise SystemExit(1)
 if not d.get("ok"):
-    print("重启失败：" + str(d.get("error", "unknown error")))
+    print("重启失败："+str(d.get("error","未知错误")))
     raise SystemExit(1)
-print(d.get("stdout", ""), end="")
-' ; then
+print(d.get("stdout",""),end="")
+'; then
         echo
-        echo "VPS 重启已安排，约 2 秒后重启。"
+        green "VPS 重启已安排，约 2 秒后重启。"
     else
-        echo
-        echo "重启命令执行失败"
+        red "重启命令执行失败"
     fi
     sleep 2
 }
@@ -791,87 +699,90 @@ manage_single_vps() {
     local address
     local token
     local agent_token
+    local action
     name=$(get_vps_field "$index" name)
     address=$(get_vps_field "$index" wg_address)
     token=$(get_vps_field "$index" token)
     agent_token=$(get_vps_field "$index" agent_token)
     if [ -z "$name" ] || [ -z "$address" ]; then
-        echo "VPS 数据不完整"
+        red "VPS 数据不完整"
         sleep 1
         return
     fi
     if [ -z "$agent_token" ]; then
         echo
-        echo "此 VPS 尚未保存 Agent Token"
-        echo "请重新运行 Agent 注册脚本"
+        red "此 VPS 尚未保存 Agent Token"
+        yellow "请重新运行 Agent 注册脚本"
         echo
         read -rp "按 Enter 返回..." _
         return
     fi
     while true; do
         clear
-        echo "========================================"
-        echo "              VPS 管理"
-        echo "========================================"
+        green "========================================"
+        green "              VPS 管理"
+        green "========================================"
         echo
-        echo "VPS 名称 : $name"
-        echo "WG 地址  : $address"
+        green "VPS 名称 : $name"
+        green "WG 地址  : $address"
         echo
-        echo "1. 查看系统信息"
-        echo "2. CPU"
-        echo "3. 内存"
-        echo "4. 磁盘"
-        echo "5. 网络"
-        echo "6. 执行命令"
-        echo "7. 重启 VPS"
-        echo "0. 返回"
+        green "1. 查看 VPS 详细信息"
+        green "2. 执行 VPS 命令"
+        green "3. 重启 VPS"
+        green "4. 删除 VPS"
+        echo
+        green "0. 返回"
         echo
         read -rp "请选择: " action
         case "$action" in
             1)
                 clear
-                show_vps_system "$name" "$address" "$agent_token"
+                if check_agent "$address" "$agent_token"; then
+                    show_vps_detail "$name" "$address" "$agent_token"
+                else
+                    red "Agent 连接失败，VPS 当前不可访问。"
+                fi
                 echo
                 read -rp "按 Enter 返回..." _
                 ;;
             2)
                 clear
-                show_vps_cpu "$name" "$address" "$agent_token"
+                if check_agent "$address" "$agent_token"; then
+                    execute_vps_command "$name" "$address" "$agent_token"
+                else
+                    red "Agent 连接失败，VPS 当前不可访问。"
+                fi
                 echo
                 read -rp "按 Enter 返回..." _
                 ;;
             3)
                 clear
-                show_vps_memory "$name" "$address" "$agent_token"
-                echo
-                read -rp "按 Enter 返回..." _
+                restart_vps "$name" "$address" "$agent_token"
                 ;;
             4)
                 clear
-                show_vps_disk "$name" "$address" "$agent_token"
+                red "========================================"
+                red "              删除 VPS"
+                red "========================================"
                 echo
-                read -rp "按 Enter 返回..." _
-                ;;
-            5)
-                clear
-                show_vps_network "$name" "$address" "$agent_token"
+                echo "VPS 名称 : $name"
+                echo "WG 地址  : $address"
                 echo
-                read -rp "按 Enter 返回..." _
-                ;;
-            6)
-                clear
-                execute_vps_command "$name" "$address" "$agent_token"
-                echo
-                read -rp "按 Enter 返回..." _
-                ;;
-            7)
-                restart_vps "$name" "$address" "$agent_token"
+                read -r -p "确认删除此 VPS？输入 yes: " confirm
+                if [ "$confirm" = "yes" ]; then
+                    delete_vps "$name"
+                    rebuild_wg_config
+                    echo
+                    green "VPS 已删除"
+                    sleep 1
+                    return
+                fi
                 ;;
             0)
                 return
                 ;;
             *)
-                echo "无效选择"
+                red "无效选择"
                 sleep 1
                 ;;
         esac
@@ -880,50 +791,105 @@ manage_single_vps() {
 manage_vps() {
     while true; do
         clear
-        echo "========================================"
-        echo "              管理 VPS"
-        echo "========================================"
+        green "========================================"
+        green "              管理 VPS"
+        green "========================================"
         echo
         local count
         count=$(get_vps_count)
         if [ "$count" -eq 0 ]; then
-            echo "暂无 VPS"
+            yellow "暂无 VPS"
             echo
             read -rp "按 Enter 返回..." _
             return
         fi
-        python3 - "$VPS_FILE" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    data = json.load(f)
-for i, x in enumerate(data.get("vps", []), 1):
-    name = x.get("name", "")
-    country = x.get("country", "")
-    ipv4 = x.get("ipv4", "")
-    address = x.get("wg_address", "")
-    online = x.get("online", False)
-    print(
-        f"{i}. {name:<18} "
-        f"{country:<15} "
-        f"{ipv4:<16} "
-        f"{address:<15} "
-        f"{'在线' if online else '离线'}"
-    )
-PY
+        printf "%-4s %-18s %-12s %-16s %-13s %-12s %-10s %-10s %-8s\n" "编号" "名称" "地区" "公网 IPv4" "WG 地址" "CPU" "内存" "磁盘" "状态"
+        echo "------------------------------------------------------------------------------------------------"
+        local i
+        for ((i=0;i<count;i++)); do
+            local name
+            local country
+            local ipv4
+            local address
+            local agent_token
+            local cpu="-"
+            local mem="-"
+            local disk="-"
+            local status="离线"
+            local result
+            name=$(get_vps_field "$i" name)
+            country=$(get_vps_field "$i" country)
+            ipv4=$(get_vps_field "$i" ipv4)
+            address=$(get_vps_field "$i" wg_address)
+            agent_token=$(get_vps_field "$i" agent_token)
+            country="${country:--}"
+            ipv4="${ipv4:--}"
+            address="${address:--}"
+            if [ -n "$agent_token" ] && [ "$address" != "-" ]; then
+                result=$(get_vps_status "$address" "$agent_token" 2>/dev/null || true)
+                if printf '%s' "$result" | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    raise SystemExit(0 if d.get("ok") else 1)
+except:
+    raise SystemExit(1)
+'; then
+                    status="在线"
+                    eval "$(
+                        printf '%s' "$result" | python3 -c '
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    out=d.get("stdout","")
+except:
+    raise SystemExit
+cpu="-"
+mem="-"
+disk="-"
+for line in out.splitlines():
+    if line.startswith("CPU_CORES="):
+        cpu=line.split("=",1)[1]+"核"
+    elif line.startswith("LOAD="):
+        load=line.split("=",1)[1].split()
+        if load:
+            cpu+="/"+load[0]
+    elif line.startswith("MEM="):
+        p=line.split("=",1)[1].split()
+        if len(p)>=3:
+            mem=p[2]+"%"
+    elif line.startswith("DISK="):
+        p=line.split("=",1)[1].split()
+        if len(p)>=3:
+            disk=p[2]+"%"
+print("CPU="+repr(cpu))
+print("MEM="+repr(mem))
+print("DISK="+repr(disk))
+'
+                    )"
+                fi
+            fi
+            printf "%-4s %-18.18s %-12.12s %-16.16s %-13.13s %-12.12s %-10.10s %-10.10s %-8s\n" "$((i+1))" "$name" "$country" "$ipv4" "$address" "$cpu" "$mem" "$disk" "$status"
+        done
         echo
-        echo "0. 返回"
+        green "1～$count 选择 VPS"
+        green "0. 返回"
         echo
         read -rp "请选择 VPS: " choice
         [ "$choice" = "0" ] && return
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
-            manage_single_vps "$((choice - 1))"
+            manage_single_vps "$((choice-1))"
         else
-            echo "无效选择"
+            red "无效选择"
             sleep 1
         fi
     done
 }
+
+
+
+
+
 delete_vps() {
     local name="$1"
     python3 - "$VPS_FILE" "$name" <<'PY'
