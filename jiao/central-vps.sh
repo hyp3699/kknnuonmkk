@@ -278,7 +278,7 @@ d["vps"].append({
 with open(p,"w") as f:
  json.dump(d,f,ensure_ascii=False,indent=2)
 PY
-rebuild_wg_config
+init_wireguard
 echo
 echo "========================================"
 echo "中央 VPS IPv4: $central_ip"
