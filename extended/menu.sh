@@ -31,6 +31,15 @@ purple() { echo -e "\e[1;35m$1\033[0m"; }
 skyblue() { echo -e "\e[1;36m$1\033[0m"; }
 reading() { read -p "$(red "$1")" "$2"; }
 
+# 检查sing-box状态
+check_singbox() {
+    check_service "sing-box" "${work_dir}/${server_name}"
+}
+# 检查nginx状态
+check_nginx() {
+    command_exists nginx || { red "not installed"; return 2; }
+    check_service "nginx" "$(command -v nginx)"
+}
 
 menu() {
     local singbox_status
