@@ -6,41 +6,32 @@
 MODULE_DIR="/etc/sing-box"
 GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended"
 MODULES=(
+    menu.sh
     install.sh
 )
-load_modules() {
-    local file
-    for file in "${MODULES[@]}"; do
-        [ -f "$MODULE_DIR/$file" ] || return 1
-    done
-    for file in "${MODULES[@]}"; do
-        source "$MODULE_DIR/$file"
-    done
-    return 0
-}
-download_modules() {
+download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
     for file in "${MODULES[@]}"; do
-        echo "正在下载 $file ..."
+        green "正在下载: $file"
         if ! curl -fsSL "$GITHUB_RAW/$file" -o "$MODULE_DIR/$file"; then
             red "下载失败: $file"
-            rm -f "$MODULE_DIR/$file"
             return 1
         fi
         chmod 700 "$MODULE_DIR/$file"
+        if [ "$file" = "menu.sh" ]; then
+            green "已保存: $file"
+            continue
+        fi
+        if ! source "$MODULE_DIR/$file"; then
+            red "加载失败: $file"
+            return 1
+        fi
+        green "已加载: $file"
     done
     return 0
 }
-
 # 定义常量
-server_name="sing-box"
-work_dir="/etc/sing-box"
-conf_dir="${work_dir}/conf"
-config_dir="${conf_dir}/config.json"
-client_dir="${work_dir}/url.txt"
-export CFIP=${CFIP:-'cf.877774.xyz'} 
-export CFPORT=${CFPORT:-'443'} 
 uuid=$(cat /proc/sys/kernel/random/uuid)
 uuid99=$(cat /proc/sys/kernel/random/uuid)
 nginx_port=$(get_available_port)
@@ -261,23 +252,23 @@ trap 'red "已取消操作"; exit' INT
 while true; do
    menu
    case "${choice}" in
-        1)  if ! load_modules >/dev/null 2>&1; then
-            if ! download_modules; then
-            red "安装失败！"
-            continue
-            fi
-            if ! load_modules >/dev/null 2>&1; then
-            red "安装失败"
-            continue
-            fi
-            fi
-            check_singbox &>/dev/null; check_singbox=$?
-            if [ ${check_singbox} -eq 0 ]; then
-                yellow "sing-box 已经安装！\n"
-            else
-			    optimize_dns
-                manage_packages install nginx jq tar openssl lsof coreutils
-                install_singbox
+ 1)
+    if ! download_and_load_modules; then
+        red "安装失败！"
+        continue
+    fi
+
+    check_singbox &>/dev/null
+    check_singbox=$?
+
+    if [ ${check_singbox} -eq 0 ]; then
+        yellow "sing-box 已经安装！\n"
+    else
+        optimize_dns
+        manage_packages install nginx jq tar openssl lsof coreutils
+        install_singbox
+    fi
+    ;;
 				TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
 TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
 curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
