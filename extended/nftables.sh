@@ -1,3 +1,26 @@
+# 批量关闭端口 (完全适配原生 nftables)
+close_port() {
+    local has_nft=0
+    command_exists nft && has_nft=1
+    
+    for rule in "$@"; do
+        local port=${rule%/*}
+        
+        if [ "$has_nft" -eq 1 ]; then
+            # 在原生 nftables 中，删除规则最安全的方式是获取 handle 句柄并删除
+            # 通过 awk 提取匹配该端口规则的 handle 值
+            for handle in $(nft -a list chain inet filter input 2>/dev/null | awk -v p="$port" '$0~"dport "p {print $NF}'); do
+                nft delete rule inet filter input handle $handle 2>/dev/null
+            done
+        fi
+    done
+    
+    # 删除完毕后，将新的规则状态持久化到文件
+    if [ "$has_nft" -eq 1 ]; then
+        nft list ruleset > /etc/nftables.conf 2>/dev/null
+    fi
+}
+
 # 自动检测并安装 nftables
 check_and_install_nftables() {
     if ! command -v nft &> /dev/null; then
