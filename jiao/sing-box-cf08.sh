@@ -11648,7 +11648,7 @@ menu() {
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "6. 配置文件查看" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. token"    "$re"
-   printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. vps"     "$re"
+   printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box"                   "$re"
    printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点"                     "$re"
    echo
    printf "%b%-32s%b%s%b\n" "$green" "99. 查看错误信息" "$red" "0. 退出脚步" "$re"
@@ -11719,10 +11719,7 @@ chmod 700 "$TRAFFIC_SCRIPT"
 		15)  warp_manage ;;
 		
 		16)  token_manage ;;
-	    17) 
-           clear
-		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/central-vps.sh)
-		   ;;
+	    
 		99) 
            clear
 		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-boxjc.sh)
