@@ -1009,7 +1009,6 @@ modify_inbound_port() {
         sleep 1
         return 1
         }
-	delete_inbound
     mv -f "${config_file}.tmp" "$config_file"
     if ! /etc/sing-box/sing-box check -C /etc/sing-box/conf >/dev/null 2>&1; then
         red "配置检查失败，正在恢复原端口"
