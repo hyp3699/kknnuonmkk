@@ -93,9 +93,9 @@ systemctl enable "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
 systemctl restart "wg-quick@$WG_INTERFACE.service"
 }
 allocate_wg_ip() {
-python3 - "$VPS_FILE" <<'PY'
+python3 - "$VPS_FILE" "$WG_NETWORK" <<'PY'
 import json,sys
-p=sys.argv[1]
+p,network=sys.argv[1:]
 with open(p) as f:
  d=json.load(f)
 used=set()
@@ -108,7 +108,7 @@ for x in d.get("vps",[]):
    pass
 for i in range(2,255):
  if i not in used:
-  print(f"10.88.0.{i}")
+  print(f"{network}.{i}")
   break
 PY
 }
@@ -137,8 +137,7 @@ chmod 600 "$WG_CONFIG"
 systemctl restart "wg-quick@$WG_INTERFACE.service"
 }
 server() {
-init_wireguard
-python3 - "$VPS_FILE" "$PORT" "$WG_PUBLIC_KEY" "$WG_PORT" "$WG_INTERFACE" <<'PY'
+python3 - "$VPS_FILE" "$PORT" "$WG_PUBLIC_KEY" "$WG_PORT" "$WG_INTERFACE" "$WG_NETWORK" <<'PY'
 import json,sys,threading
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
 FILE=sys.argv[1]
@@ -146,6 +145,7 @@ PORT=int(sys.argv[2])
 WG_PUBLIC_FILE=sys.argv[3]
 WG_PORT=int(sys.argv[4])
 WG_INTERFACE=sys.argv[5]
+WG_NETWORK=sys.argv[6]
 LOCK=threading.Lock()
 def load():
  with open(FILE) as f:
@@ -209,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
      address=""
      for i in range(2,255):
       if i not in used:
-       address=f"10.88.0.{i}"
+       address=f"{WG_NETWORK}.{i}"
        break
      if not address:
       self.send_json(500,{"ok":False,"error":"no wg address available"})
@@ -540,11 +540,16 @@ main() {
 mkdir -p "$(dirname "$LOCAL_SCRIPT")"
 curl -fsSL "$SCRIPT_URL" -o "$LOCAL_SCRIPT"
 chmod 700 "$LOCAL_SCRIPT"
+"$LOCAL_SCRIPT" --setup-server
 exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
 case "${1:-}" in
 --server)
 server
+;;
+--setup-server)
+init_wireguard
+start_server
 ;;
 --menu)
 while true; do
