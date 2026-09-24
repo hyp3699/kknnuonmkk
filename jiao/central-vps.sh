@@ -93,7 +93,7 @@ echo "========================================"
 echo "请在目标 VPS 执行："
 echo "========================================"
 echo
-printf 'curl -fsSL %s | bash -s -- "%s" "%s"\n' "$AGENT_URL" "$CENTRAL_IP" "$token"
+printf 'curl -fsSL %s | bash -s -- "%s"\n' "$AGENT_URL" "$token"
 echo
 echo "========================================"
 echo
