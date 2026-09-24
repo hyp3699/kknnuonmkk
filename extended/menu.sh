@@ -223,7 +223,7 @@ trap 'red "已取消操作"; exit' INT
 while true; do
    menu
    case "${choice}" in
- 1)
+        1)
     if ! download_and_load_modules; then
         red "安装失败！"
         continue
@@ -236,33 +236,31 @@ while true; do
         optimize_dns
         manage_packages install nginx jq tar openssl lsof coreutils
         install_singbox
+        TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
+        TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
+        curl -fsSL "$TRAFFIC_SCRIPT_URL" \
+            -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
+        if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
+            mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
+        fi
+        chmod 700 "$TRAFFIC_SCRIPT"
+        "$TRAFFIC_SCRIPT" --init >/dev/null 2>&1 || true
+        if command_exists systemctl; then
+            main_systemd_services
+        elif command_exists rc-update; then
+            alpine_openrc_services
+            change_hosts
+            rc-service sing-box restart
+        else
+            echo "Unsupported init system"
+            exit 1
+        fi
+        sleep 5
+        add_nginx_conf
+        create_shortcut
+        setup_vps_traffic_stats
     fi
-				TRAFFIC_SCRIPT_URL="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
-TRAFFIC_SCRIPT="/etc/sing-box/sing-box-name.sh"
-curl -fsSL "$TRAFFIC_SCRIPT_URL" -o "${TRAFFIC_SCRIPT}.new" 2>/dev/null
-if [ -s "${TRAFFIC_SCRIPT}.new" ]; then
-    mv -f "${TRAFFIC_SCRIPT}.new" "$TRAFFIC_SCRIPT"
-fi
-chmod 700 "$TRAFFIC_SCRIPT"
-"$TRAFFIC_SCRIPT" --init >/dev/null 2>&1 || true
-                if command_exists systemctl; then
-                    main_systemd_services
-                elif command_exists rc-update; then
-                    alpine_openrc_services
-                    change_hosts
-                    rc-service sing-box restart
-                else
-                    echo "Unsupported init system"
-                    exit 1 
-                fi
-
-                sleep 5
-                
-                add_nginx_conf
-				create_shortcut
-				setup_vps_traffic_stats
-            fi
-           ;;
+    ;;    
         2) uninstall_singbox ;;
         3) manage_singbox ;;
         4) manage_cf ;;
