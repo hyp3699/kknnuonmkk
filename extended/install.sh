@@ -1,31 +1,13 @@
+#!/usr/bin/env bash
+
 server_name="sing-box"
 work_dir="/etc/sing-box"
 conf_dir="${work_dir}/conf"
 config_dir="${conf_dir}/config.json"
 client_dir="${work_dir}/url.txt"
-export CFIP=${CFIP:-'cf.877774.xyz'} 
-export CFPORT=${CFPORT:-'443'} 
-uuid=$(cat /proc/sys/kernel/random/uuid)
-uuid99=$(cat /proc/sys/kernel/random/uuid)
-nginx_port=$(get_available_port)
-tuic_port=$(get_available_port)
-socks_port=$(get_available_port)
-http_port=$(get_available_port)
-anytls_port=$(get_available_port)
-xtls_reality=$(get_available_port)
-vless_tcp_tls=$(get_available_port)
-anytls_reality=$(get_available_port)
-naive_port=$(get_available_port)
-h2_reality=$(get_available_port)
-hy2_port=$(get_available_port)
-grpc_reality=$(get_available_port)
-xhttp_port=$(get_available_port)
-xray_xhttp_reality=$(get_available_port)
-vless_ws_port=$(get_available_port)
-vmess_ws_port=$(get_available_port)
-trojan_ws_port=$(get_available_port)
-username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
-password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
+
+export CFIP=${CFIP:-'cf.877774.xyz'}
+export CFPORT=${CFPORT:-'443'}
 
 BASE_DIR="/etc/sing-box"
 DATA_DIR="$BASE_DIR/user_manager"
@@ -33,47 +15,62 @@ LIMIT_DIR="$DATA_DIR/limits"
 TRAFFIC_DIR="$DATA_DIR/traffic"
 TRAFFIC_STATE="$TRAFFIC_DIR/state.json"
 PYTHON="$(command -v python3 2>/dev/null || true)"
+log_dir="${work_dir}/logs"
 
+get_available_port() {
+    local port
+    while true; do
+        port=$(shuf -i 10000-59999 -n 1)
+        if command_exists ss; then
+            if ! ss -lntup 2>/dev/null | awk '{print $5}' | grep -Eq "[:.]${port}$"; then
+                echo "$port"
+                return 0
+            fi
+        elif command_exists netstat; then
+            if ! netstat -lntup 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"; then
+                echo "$port"
+                return 0
+            fi
+        else
+            if ! (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1; then
+                echo "$port"
+                return 0
+            fi
+        fi
+    done
+}
 
-# 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-cf08.sh"
-    local local_file="$work_dir/sb.sh"
-    if [ ! -s "$local_file" ]; then
-        mkdir -p "$work_dir"
-        curl -Lss "$remote_url" -o "$local_file"
-    fi
+    local local_file="$work_dir/menu.sh"
     if [ -s "$local_file" ]; then
-        chmod +x "$local_file"
+        chmod 700 "$local_file"
         ln -sf "$local_file" /usr/bin/sb
-		ln -sf "$local_file" /usr/bin/b
-        if [ -x /usr/bin/sb ]; then
-            green "\n快捷指令 sb 已创建\n"
-        fi
-		if [ -x /usr/bin/b ]; then
-            green "\n快捷指令 b 已创建\n"
-        fi
+        ln -sf "$local_file" /usr/bin/b
+    fi
+    if [ -x /usr/bin/sb ] && [ -x /usr/bin/b ]; then
+        green "\n快捷命令 sb 和 b 已创建\n"
     else
-        red "\n本地化保存失败，请检查网络后重新运行\n"
-        rm -f "$local_file" 
+        red "\n快捷命令创建失败\n"
+        return 1
     fi
 }
 
-# 根据系统类型安装、卸载依赖
 manage_packages() {
     if [ $# -lt 2 ]; then
         red "Unspecified package name or action"
         return 1
     fi
 
-    action=$1
+    local action=$1
     shift
+    local package
 
-    # 首次安装更新系统
     if [ "$action" == "install" ] && [ ! -d "$work_dir" ]; then
         yellow "正在更新系统软件包...\n"
+
         if command_exists apt; then
-            DEBIAN_FRONTEND=noninteractive apt update -y && DEBIAN_FRONTEND=noninteractive apt upgrade -y
+            DEBIAN_FRONTEND=noninteractive apt update -y &&
+            DEBIAN_FRONTEND=noninteractive apt upgrade -y
         elif command_exists dnf; then
             dnf update -y
         elif command_exists yum; then
@@ -83,6 +80,7 @@ manage_packages() {
         else
             yellow "Unknown system!\n"
         fi
+
         green "finished updated system\n"
     fi
 
@@ -92,7 +90,9 @@ manage_packages() {
                 green "${package} already installed"
                 continue
             fi
+
             yellow "正在安装 ${package}..."
+
             if command_exists apt; then
                 DEBIAN_FRONTEND=noninteractive apt install -y "$package"
             elif command_exists dnf; then
@@ -105,12 +105,15 @@ manage_packages() {
                 red "Unknown system!"
                 return 1
             fi
+
         elif [ "$action" == "uninstall" ]; then
             if ! command_exists "$package"; then
                 yellow "${package} is not installed"
                 continue
             fi
+
             yellow "正在卸载 ${package}..."
+
             if command_exists apt; then
                 apt remove -y "$package" && apt autoremove -y
             elif command_exists dnf; then
@@ -132,103 +135,202 @@ manage_packages() {
     return 0
 }
 
-# 处理防火墙
 allow_port() {
     local has_ufw=0
     local has_firewalld=0
     local has_nft=0
+
     command_exists ufw && has_ufw=1
     command_exists firewall-cmd && systemctl is-active firewalld >/dev/null 2>&1 && has_firewalld=1
     command_exists nft && has_nft=1
+
     [ "$has_ufw" -eq 1 ] && ufw --force default allow outgoing >/dev/null 2>&1
     [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --zone=public --set-target=ACCEPT >/dev/null 2>&1
+
     if [ "$has_nft" -eq 1 ]; then
         if ! nft list table inet filter &>/dev/null; then
             nft add table inet filter
         fi
+
         if ! nft list chain inet filter input &>/dev/null; then
             nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }'
         fi
+
         if ! nft list chain inet filter forward &>/dev/null; then
             nft add chain inet filter forward '{ type filter hook forward priority 0; policy accept; }'
         fi
+
         if ! nft list chain inet filter output &>/dev/null; then
             nft add chain inet filter output '{ type filter hook output priority 0; policy accept; }'
         fi
+
         if ! nft list chain inet filter script_input &>/dev/null; then
             nft add chain inet filter script_input
         fi
+
         if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_input'; then
             nft insert rule inet filter input jump script_input comment "Jump-to-Script" 2>/dev/null
         fi
+
         nft add rule inet filter input iif "lo" accept 2>/dev/null
         nft add rule inet filter input ip protocol icmp accept 2>/dev/null
         nft add rule inet filter input ip6 nexthdr icmpv6 accept 2>/dev/null
     fi
+
+    local rule
     for rule in "$@"; do
         local port=${rule%/*}
-        local proto=${rule#*/}
-        [ "$port" == "$proto" ] && proto="tcp"
-        [ "$has_ufw" -eq 1 ] && ufw allow in ${port}/${proto} >/dev/null 2>&1
-        [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --add-port=${port}/${proto} >/dev/null 2>&1
+        local proto=${rule#/*}
+
+        [ "$port" == "$rule" ] && proto="tcp"
+
+        [ "$has_ufw" -eq 1 ] && ufw allow in "${port}/${proto}" >/dev/null 2>&1
+        [ "$has_firewalld" -eq 1 ] && firewall-cmd --permanent --add-port="${port}/${proto}" >/dev/null 2>&1
+
         if [ "$has_nft" -eq 1 ]; then
             if ! nft list chain inet filter script_input 2>/dev/null | grep -qw "$proto dport $port"; then
-                nft add rule inet filter script_input $proto dport $port accept comment "ScriptManaged" 2>/dev/null
+                nft add rule inet filter script_input "$proto" dport "$port" accept comment "ScriptManaged" 2>/dev/null
             fi
         fi
     done
+
     [ "$has_firewalld" -eq 1 ] && firewall-cmd --reload >/dev/null 2>&1
+
     if [ "$has_nft" -eq 1 ]; then
         nft list ruleset > /etc/nftables.conf 2>/dev/null
     fi
 }
 
-# 下载并安装 sing-box,cloudflared
 install_singbox() {
     clear
     purple "正在安装sing-box中，请稍后..."
-    # 判断系统架构
+
+    local ARCH_RAW
+    local ARCH
+    local latest_tag
+    local TAR
+    local URL
+    local nginx_port
+    local tuic_port
+    local uuid
+    local uuid99
+    local username
+    local password
+    local fingerprint
+    local dns_strategy
+
     ARCH_RAW=$(uname -m)
+
     case "${ARCH_RAW}" in
-        'x86_64') ARCH='amd64' ;;
-        'x86' | 'i686' | 'i386') ARCH='386' ;;
-        'aarch64' | 'arm64') ARCH='arm64' ;;
-        'armv7l') ARCH='armv7' ;;
-        's390x') ARCH='s390x' ;;
-        *) red "不支持的架构: ${ARCH_RAW}"; exit 1 ;;
+        x86_64)
+            ARCH='amd64'
+            ;;
+        x86|i686|i386)
+            ARCH='386'
+            ;;
+        aarch64|arm64)
+            ARCH='arm64'
+            ;;
+        armv7l)
+            ARCH='armv7'
+            ;;
+        s390x)
+            ARCH='s390x'
+            ;;
+        *)
+            red "不支持的架构: ${ARCH_RAW}"
+            return 1
+            ;;
     esac
-    [ ! -d "${work_dir}" ] && mkdir -p "${work_dir}" && chmod 777 "${work_dir}" && mkdir -p "${conf_dir}"
-    # 下载sing-box,cloudflared
+
+    mkdir -p "${work_dir}"
+    chmod 755 "${work_dir}"
+
+    mkdir -p "${conf_dir}"
+    chmod 755 "${conf_dir}"
+
+    mkdir -p "${log_dir}"
+
+    nginx_port=$(get_available_port)
+    tuic_port=$(get_available_port)
+
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+    uuid99=$(cat /proc/sys/kernel/random/uuid)
+    username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
+    password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
+
     latest_tag=$(curl -fsSL \
-    "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" |
-    jq -r '[.[] |
-        select(.prerelease==false) |
-        select(.draft==false) |
-        select(.tag_name | endswith("-xhttp"))
-    ][0].tag_name')
+        "https://api.github.com/repos/hyp3699/sssssssssssiiii/releases" |
+        jq -r '[.[] |
+            select(.prerelease==false) |
+            select(.draft==false) |
+            select(.tag_name | endswith("-xhttp"))
+        ][0].tag_name')
 
-[ -n "$latest_tag" ] || {
-    red "获取 sing-box 最新版本失败"
-    exit 1
-}
+    if [ -z "$latest_tag" ] || [ "$latest_tag" = "null" ]; then
+        red "获取 sing-box 最新版本失败"
+        return 1
+    fi
 
-TAR="sing-box-linux-${ARCH}.tar.gz"
-URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
-curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && chmod +x "${work_dir}/sing-box-linux-${ARCH}" && mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box" && rm -f "${work_dir}/${TAR}"
+    TAR="sing-box-linux-${ARCH}.tar.gz"
+    URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
 
-    chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
+    if ! curl -fSL -o "${work_dir}/${TAR}" "$URL"; then
+        red "sing-box 下载失败"
+        rm -f "${work_dir}/${TAR}"
+        return 1
+    fi
 
-    # 放行端口
-    allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
-    openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
-    openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
-    fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
+    if ! tar -xzf "${work_dir}/${TAR}" -C "${work_dir}"; then
+        red "sing-box 解压失败"
+        rm -f "${work_dir}/${TAR}"
+        return 1
+    fi
 
-    dns_strategy=$(ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 && echo "prefer_ipv4" || \
-        (ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 && echo "prefer_ipv6" || echo "prefer_ipv4"))
-    
-   # 生成配置文件
-cat > "${config_dir}" << EOF
+    if [ ! -f "${work_dir}/sing-box-linux-${ARCH}" ]; then
+        red "解压后没有找到 sing-box-linux-${ARCH}"
+        rm -f "${work_dir}/${TAR}"
+        return 1
+    fi
+
+    chmod +x "${work_dir}/sing-box-linux-${ARCH}"
+    mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box"
+    rm -f "${work_dir}/${TAR}"
+
+    chown root:root "${work_dir}/sing-box"
+    chmod 755 "${work_dir}/sing-box"
+
+    allow_port "${nginx_port}/tcp" "${tuic_port}/udp" >/dev/null 2>&1
+
+    if ! openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"; then
+        red "生成私钥失败"
+        return 1
+    fi
+
+    if ! openssl req -new -x509 -days 3650 \
+        -key "${work_dir}/private.key" \
+        -out "${work_dir}/cert.pem" \
+        -subj "/CN=bing.com"; then
+        red "生成证书失败"
+        return 1
+    fi
+
+    fingerprint=$(openssl x509 -noout -fingerprint -sha256 \
+        -in "${work_dir}/cert.pem" |
+        cut -d'=' -f2 |
+        sed 's/:/%3A/g')
+
+    dns_strategy=$(
+        ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1 &&
+        echo "prefer_ipv4" ||
+        (
+            ping -c 1 -W 3 2001:4860:4860::8888 >/dev/null 2>&1 &&
+            echo "prefer_ipv6" ||
+            echo "prefer_ipv4"
+        )
+    )
+
+    cat > "${config_dir}" << EOF
 {
    "http_clients": [
   {
@@ -249,7 +351,7 @@ cat > "${config_dir}" << EOF
          "type": "local"
        }
       ],
-      "strategy": "prefer_ipv4",
+      "strategy": "$dns_strategy",
       "final": "local",
       "cache_capacity": 8192,
       "optimistic": {
@@ -279,22 +381,22 @@ cat > "${config_dir}" << EOF
       "listen": "127.0.0.1:9094",
       "stats": {
         "enabled": true,
-        "users": [
-          
-        ]
+        "users": []
+        }
       }
     }
   }
 }
 EOF
-cat > "${conf_dir}/outbounds.json" << EOF
+
+    cat > "${conf_dir}/outbounds.json" << EOF
 {
   "outbounds": [
     {
       "type": "direct",
       "tag": "direct"
     },
-	{
+    {
       "type": "socks",
       "tag": "warp-40000",
       "server": "127.0.0.1",
@@ -303,7 +405,8 @@ cat > "${conf_dir}/outbounds.json" << EOF
   ]
 }
 EOF
-cat > "${conf_dir}/endpoints.json" << EOF
+
+    cat > "${conf_dir}/endpoints.json" << EOF
 {
   "endpoints": [
     {
@@ -328,6 +431,7 @@ cat > "${conf_dir}/endpoints.json" << EOF
   ]
 }
 EOF
+
     cat > "${conf_dir}/route.json" << EOF
 {
   "route": {
@@ -344,8 +448,10 @@ EOF
   }
 }
 EOF
+
+    return 0
 }
-# debian/ubuntu/centos 守护进程
+
 main_systemd_services() {
     cat > /etc/systemd/system/sing-box.service << EOF
 [Unit]
@@ -376,11 +482,12 @@ EOF
         yum update -y ca-certificates
         bash -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
     fi
-    systemctl daemon-reload 
+
+    systemctl daemon-reload
     systemctl enable sing-box
     systemctl start sing-box
 }
-# 适配alpine 守护进程
+
 alpine_openrc_services() {
     cat > /etc/init.d/sing-box << 'EOF'
 #!/sbin/openrc-run
@@ -393,31 +500,29 @@ pidfile="/var/run/sing-box.pid"
 EOF
 
     chmod +x /etc/init.d/sing-box
-    rc-update add sing-box default > /dev/null 2>&1
+    rc-update add sing-box default >/dev/null 2>&1
 }
 
-# nginx订阅配置
 add_nginx_conf() {
     if ! command_exists nginx; then
         red "nginx未安装,无法配置订阅服务"
         return 1
     else
-        manage_service "nginx" "stop" > /dev/null 2>&1
-        pkill nginx  > /dev/null 2>&1
+        manage_service "nginx" "stop" >/dev/null 2>&1
+        pkill nginx >/dev/null 2>&1
     fi
 
     mkdir -p /etc/nginx/conf.d
 
-    [[ -f "/etc/nginx/conf.d/sing-box.conf" ]] && cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
+    [ -f "/etc/nginx/conf.d/sing-box.conf" ] &&
+        cp /etc/nginx/conf.d/sing-box.conf /etc/nginx/conf.d/sing-box.conf.bak.sb
 
     cat > /etc/nginx/conf.d/sing-box.conf << EOF
-# sing-box 订阅配置
 server {
     listen $nginx_port;
     listen [::]:$nginx_port;
     server_name _;
 
-    # 安全设置
     add_header X-Frame-Options DENY;
     add_header X-Content-Type-Options nosniff;
     add_header X-XSS-Protection "1; mode=block";
@@ -433,7 +538,7 @@ server {
     location / {
         return 404;
     }
-	    # 禁止访问隐藏文件
+
     location ~ /\. {
         deny all;
         access_log off;
@@ -442,18 +547,24 @@ server {
 }
 EOF
 
-    # 检查主配置文件是否存在
     if [ -f "/etc/nginx/nginx.conf" ]; then
-        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.sb > /dev/null 2>&1
-        sed -i -e '15{/include \/etc\/nginx\/modules\/\*\.conf/d;}' -e '18{/include \/etc\/nginx\/conf\.d\/\*\.conf/d;}' /etc/nginx/nginx.conf > /dev/null 2>&1
-        # 检查是否已包含配置目录
+        cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.sb >/dev/null 2>&1
+
+        sed -i \
+            -e '15{/include \/etc\/nginx\/modules\/\*\.conf/d;}' \
+            -e '18{/include \/etc\/nginx\/conf\.d\/\*\.conf/d;}' \
+            /etc/nginx/nginx.conf >/dev/null 2>&1
+
         if ! grep -q "include.*conf.d" /etc/nginx/nginx.conf; then
+            local http_end_line
             http_end_line=$(grep -n "^}" /etc/nginx/nginx.conf | tail -1 | cut -d: -f1)
+
             if [ -n "$http_end_line" ]; then
-                sed -i "${http_end_line}i \    include /etc/nginx/conf.d/*.conf;" /etc/nginx/nginx.conf > /dev/null 2>&1
+                sed -i "${http_end_line}i \    include /etc/nginx/conf.d/*.conf;" \
+                    /etc/nginx/nginx.conf >/dev/null 2>&1
             fi
         fi
-    else 
+    else
         cat > /etc/nginx/nginx.conf << EOF
 user nginx;
 worker_processes auto;
@@ -467,99 +578,98 @@ events {
 http {
     include       /etc/nginx/mime.types;
     default_type  application/octet-stream;
-    
-    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
-                      '$status $body_bytes_sent "$http_referer" '
-                      '"$http_user_agent" "$http_x_forwarded_for"';
-    
-    access_log  /var/log/nginx/access.log  main;
-    sendfile        on;
-    keepalive_timeout  65;
-    
+
+    log_format main '\$remote_addr - \$remote_user [\$time_local] "\$request" '
+                    '\$status \$body_bytes_sent "\$http_referer" '
+                    '"\$http_user_agent" "\$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+    sendfile on;
+    keepalive_timeout 65;
+
     include /etc/nginx/conf.d/*.conf;
 }
 EOF
     fi
 
-    # 检查nginx配置语法
-    if nginx -t > /dev/null 2>&1; then
-    
-        if nginx -s reload > /dev/null 2>&1; then
+    if nginx -t >/dev/null 2>&1; then
+        if nginx -s reload >/dev/null 2>&1; then
             green "nginx订阅配置已加载"
         else
-            start_nginx  > /dev/null 2>&1
+            start_nginx >/dev/null 2>&1
         fi
     else
-        yellow "nginx配置失败,订阅不可应,但不影响节点使用, issues反馈: https://github.com/eooce/Sing-box/issues"
-        restart_nginx  > /dev/null 2>&1
+        yellow "nginx配置失败,订阅不可用,但不影响节点使用, issues反馈: https://github.com/eooce/Sing-box/issues"
+        restart_nginx >/dev/null 2>&1
+
         if [ $? -eq 0 ]; then
             green "nginx订阅配置已生效"
         else
-            [[ -f "/etc/nginx/nginx.conf.bak.sb" ]] && cp "/etc/nginx/nginx.conf.bak.sb" /etc/nginx/nginx.conf > /dev/null 2>&1
-            restart_nginx  > /dev/null 2>&1
+            [ -f "/etc/nginx/nginx.conf.bak.sb" ] &&
+                cp "/etc/nginx/nginx.conf.bak.sb" /etc/nginx/nginx.conf >/dev/null 2>&1
+
+            restart_nginx >/dev/null 2>&1
         fi
     fi
 }
 
-# 启动 sing-box
 start_singbox() {
     manage_service "sing-box" "start"
 }
 
-# 停止 sing-box
 stop_singbox() {
     manage_service "sing-box" "stop"
 }
 
-# 重启 sing-box
 restart_singbox() {
     manage_service "sing-box" "restart"
 }
 
-# 启动 nginx
 start_nginx() {
     manage_service "nginx" "start"
 }
 
-# 停止 nginx
 stop_nginx() {
     manage_service "nginx" "stop"
 }
 
-# 重启 nginx
 restart_nginx() {
     manage_service "nginx" "restart"
 }
 
-# 卸载 sing-box
 uninstall_singbox() {
-   reading "确定要卸载 sing-box 吗? (y/n): " choice
-   case "${choice}" in
-       y|Y)
-           yellow "正在卸载 sing-box"
-           if command_exists rc-service; then
+    reading "确定要卸载 sing-box 吗? (y/n): " choice
+
+    case "${choice}" in
+        y|Y)
+            yellow "正在卸载 sing-box"
+
+            if command_exists rc-service; then
                 rc-service sing-box stop
-                rm /etc/init.d/sing-box
                 rc-update del sing-box default
-           else
-                
-                systemctl stop "${server_name}"
-                systemctl disable "${server_name}"
-                
+                rm -f /etc/init.d/sing-box
+            else
+                systemctl stop "${server_name}" 2>/dev/null || true
+                systemctl disable "${server_name}" 2>/dev/null || true
+
                 systemctl stop singbox-traffic.service 2>/dev/null || true
                 systemctl disable singbox-traffic.service 2>/dev/null || true
+
                 rm -f /etc/systemd/system/singbox-traffic.service
-            
+
                 systemctl daemon-reload || true
             fi
-           rm -rf "${work_dir}" || true
-           rm -rf "${log_dir}" || true
-           rm -rf /etc/systemd/system/sing-box.service > /dev/null 2>&1
-           rm -rf /etc/systemd/system/singbox-traffic.service > /dev/null 2>&1
-           rm -rf /etc/nginx/conf.d/sing-box.conf > /dev/null 2>&1
-           rm -f /etc/sing-box/sing-box-name.sh
-           rm -rf /etc/sing-box/user_manager
-           reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
+
+            rm -rf "${work_dir}" || true
+            rm -rf "${log_dir}" || true
+            rm -f /etc/systemd/system/sing-box.service
+            rm -f /etc/systemd/system/singbox-traffic.service
+            rm -f /etc/nginx/conf.d/sing-box.conf
+            rm -f /etc/sing-box/sing-box-name.sh
+            rm -rf /etc/sing-box/user_manager
+
+            reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}回车将跳过卸载Nginx) (y/n): ${re}" choice
+
             case "${choice}" in
                 y|Y)
                     stop_nginx
@@ -567,19 +677,20 @@ uninstall_singbox() {
                     rm -f /etc/nginx/conf.d/sing-box.conf
                     rm -f /etc/nginx/conf.d/sing-box.conf.bak*
                     ;;
-                 *)
+                *)
                     yellow "取消卸载Nginx\n\n"
                     ;;
             esac
-            green "\nsing-box 卸载成功\n\n" && exit 0
-           ;;
-       *)
-           purple "已取消卸载操作\n\n"
-           ;;
-   esac
+
+            green "\nsing-box 卸载成功\n\n"
+            exit 0
+            ;;
+        *)
+            purple "已取消卸载操作\n\n"
+            ;;
+    esac
 }
 
-# 适配alpine运行argo报错用户组和dns的问题
 change_hosts() {
     sh -c 'echo "0 0" > /proc/sys/net/ipv4/ping_group_range'
     sed -i '1s/.*/127.0.0.1   localhost/' /etc/hosts
