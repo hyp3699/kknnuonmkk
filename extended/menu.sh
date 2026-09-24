@@ -7,31 +7,28 @@ MODULE_DIR="/etc/sing-box"
 GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended"
 MODULES=(
     menu.sh
-    install.sh
 	tls.sh
 	nginx.sh
 	name.sh
 	cf.sh
+	install.sh
 )
 download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
     for file in "${MODULES[@]}"; do
-        green "正在下载: $file"
-        if ! curl -fsSL "$GITHUB_RAW/$file" -o "$MODULE_DIR/$file"; then
-            red "下载失败: $file"
+        if ! curl -fsSL "$GITHUB_RAW/$file" -o "$MODULE_DIR/$file" >/dev/null 2>&1; then
+            red "$file 下载失败"
             return 1
         fi
         chmod 700 "$MODULE_DIR/$file"
         if [ "$file" = "menu.sh" ]; then
-            green "已保存: $file"
             continue
         fi
-        if ! source "$MODULE_DIR/$file"; then
-            red "加载失败: $file"
+        if ! source "$MODULE_DIR/$file" >/dev/null 2>&1; then
+            red "$file 加载失败"
             return 1
         fi
-        green "已加载: $file"
     done
     return 0
 }
