@@ -49,11 +49,11 @@ init_wireguard() {
 install_wireguard
 mkdir -p "$WG_DIR"
 chmod 700 "$WG_DIR"
-if [ ! -f "$WG_PRIVATE_KEY" ]; then
+if [ ! -s "$WG_PRIVATE_KEY" ]; then
 wg genkey > "$WG_PRIVATE_KEY"
 chmod 600 "$WG_PRIVATE_KEY"
 fi
-if [ ! -f "$WG_PUBLIC_KEY" ]; then
+if [ ! -s "$WG_PUBLIC_KEY" ]; then
 cat "$WG_PRIVATE_KEY" | wg pubkey > "$WG_PUBLIC_KEY"
 chmod 644 "$WG_PUBLIC_KEY"
 fi
@@ -68,16 +68,11 @@ import json,sys
 vps_file,config_file=sys.argv[1:]
 with open(vps_file) as f:
  d=json.load(f)
-used=set()
-for x in d.get("vps",[]):
- a=x.get("wg_address","")
- if a:
-  used.add(a.split("/")[0])
 with open(config_file,"a") as f:
  for x in d.get("vps",[]):
-  ip=x.get("wg_address","")
   key=x.get("wg_public_key","")
-  if ip and key:
+  ip=x.get("wg_address","")
+  if key and ip:
    f.write("\n[Peer]\n")
    f.write("PublicKey = "+key+"\n")
    f.write("AllowedIPs = "+ip.split("/")[0]+"/32\n")
