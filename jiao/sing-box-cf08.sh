@@ -7733,7 +7733,9 @@ PY
             systemctl reload nginx >/dev/null 2>&1
         fi
     fi
-    update_sub_file
+	if [[ "${SB_LOAD_ONLY:-0}" != "1" ]]; then
+        update_sub_file
+    fi
     if [[ "$force_delete" != "1" ]]; then
     green "==============================================="
     green " 用户已删除：${username}"
@@ -7741,7 +7743,7 @@ PY
     echo
     sleep 1
     fi
-	return 2
+	return 0
 }
 
 #更新脚本
