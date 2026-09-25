@@ -1347,7 +1347,7 @@ PY
         green "2. 周期设置"
         green "3. 更新用户"
         green "4. 查看链接"
-        green "5. 删除用户"
+        red "s. 删除用户"
         green "0. 返回"
         echo
         read -rp "请输入数字: " choice
@@ -1365,7 +1365,7 @@ PY
             4)
                 show_namess_url "$username"
                 ;;
-            5)
+            s|S)
                 if delete_central_user "$username"; then
                  return
                 fi
@@ -1603,56 +1603,6 @@ except Exception:
     echo
     sleep 1
     return 0
-}
-
-manage_central_delete_user() {
-    local users_dir="$DATA_DIR/users"
-    local count=0
-    local i=0
-    local selected=""
-    local username=""
-    local -a users=()
-
-    mkdir -p "$users_dir"
-
-    while IFS= read -r username; do
-        [ -n "$username" ] || continue
-        users+=("$username")
-    done < <(find "$users_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
-
-    count=${#users[@]}
-
-    clear
-    green "========================================"
-    green "              删除用户"
-    green "========================================"
-    echo
-
-    if [ "$count" -eq 0 ]; then
-        yellow "当前没有用户"
-        echo
-        read -rp "按回车返回..." _
-        return
-    fi
-
-    for ((i=0; i<count; i++)); do
-        green "$((i+1)). ${users[$i]}"
-    done
-
-    echo
-    green "0. 返回"
-    echo
-    read -rp "请输入数字: " selected
-
-    if [ "$selected" = "0" ]; then
-        return
-    fi
-    if ! [[ "$selected" =~ ^[0-9]+$ ]] || [ "$selected" -lt 1 ] || [ "$selected" -gt "$count" ]; then
-        red "输入无效"
-        sleep 1
-        return
-    fi
-    delete_central_user "${users[$((selected-1))]}"
 }
 
 manage_singbox() {
@@ -1913,10 +1863,10 @@ case "${1:-}" in
             green "2. 管理 VPS"
             green "3. Sing-box"
             green "4. 更新脚本"
-            red "5. 删除脚本"
+            red "s. 删除脚本"
             echo
-            green "6. 添加用户"
-            green "7. 管理用户"
+            green "5. 添加用户"
+            green "6. 管理用户"
             echo
             green "0. 退出"
             echo
@@ -1933,13 +1883,13 @@ case "${1:-}" in
                 4)
                     update_script
                     ;;
-                5)
+                s|S)
                     delete_script
                     ;;
-                6)
+                5)
                     add_central_user
                    ;;
-                7)
+                6)
                    show_central_users
                    ;;
                 0)
