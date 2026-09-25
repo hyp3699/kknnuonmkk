@@ -205,6 +205,8 @@ import json
 import os
 import sys
 import subprocess
+import urllib.request
+import urllib.error
 from http.server import HTTPServer,BaseHTTPRequestHandler
 FILE=sys.argv[1]
 PORT=int(sys.argv[2])
@@ -213,9 +215,11 @@ WG_PORT=int(sys.argv[4])
 WG_INTERFACE=sys.argv[5]
 WG_NETWORK=sys.argv[6]
 WG_CONFIG=sys.argv[7]
+
 def load():
     with open(FILE,"r",encoding="utf-8") as f:
         return json.load(f)
+
 def save(data):
     tmp=FILE+".tmp"
     with open(tmp,"w",encoding="utf-8") as f:
@@ -224,11 +228,13 @@ def save(data):
         os.fsync(f.fileno())
     os.chmod(tmp,0o600)
     os.replace(tmp,FILE)
+
 def public_ip():
     try:
         return subprocess.check_output(["curl","-4","-fsS","--max-time","5","https://api.ipify.org"],text=True).strip()
     except Exception:
         return ""
+
 def persist_peer(public_key,wg_address):
     try:
         with open(WG_CONFIG,"r",encoding="utf-8") as f:
@@ -271,11 +277,124 @@ def persist_peer(public_key,wg_address):
     os.chmod(tmp,0o600)
     os.replace(tmp,WG_CONFIG)
     return True
+
+def agent_command(address,token,command):
+    if not address or not token:
+        return False
+    url="http://{}:18090/api/command".format(address)
+    payload=json.dumps({"command":command},ensure_ascii=False).encode("utf-8")
+    req=urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization":"Bearer "+token,
+            "Content-Type":"application/json"
+        }
+    )
+    try:
+        with urllib.request.urlopen(req,timeout=35) as response:
+            result=json.loads(response.read().decode("utf-8"))
+        return int(result.get("returncode",1))==0
+    except Exception:
+        return False
+
+def delete_user_from_all_vps(username):
+    db=load()
+    vps_list=db.get("vps",[])
+    if not isinstance(vps_list,list):
+        return False
+
+    if not username or not all(c.isalnum() or c in "._-" for c in username):
+        return False
+
+    failed=False
+
+    command="export SB_LOAD_ONLY=1; source /etc/sing-box/sb.sh; delete_user \"{}\" 1 0".format(username)
+
+    for item in vps_list:
+        if not isinstance(item,dict):
+            failed=True
+            continue
+
+        address=item.get("wg_address","")
+        token=item.get("agent_token","")
+
+        if address:
+            address=address.split("/")[0]
+
+        if not address or not token:
+            failed=True
+            continue
+
+        if not agent_command(address,token,command):
+            failed=True
+
+    return not failed
+
+def check_user_limit(username,traffic):
+    if not isinstance(traffic,dict):
+        return
+
+    limit=traffic.get("limit",{})
+    if not isinstance(limit,dict):
+        return
+
+    if not bool(limit.get("enabled",False)):
+        return
+
+    try:
+        limit_bytes=int(limit.get("limit_bytes",0) or 0)
+    except Exception:
+        limit_bytes=0
+
+    if limit_bytes<=0:
+        return
+
+    try:
+        period_total=int(traffic.get("period_total",0) or 0)
+    except Exception:
+        period_total=0
+
+    disabled=bool(traffic.get("disabled_by_limit",False))
+
+    if period_total<limit_bytes or disabled:
+        return
+
+    if not delete_user_from_all_vps(username):
+        return
+
+    traffic["disabled_by_limit"]=True
+
+    traffic_file=os.path.join(
+        os.path.dirname(FILE),
+        "users",
+        username,
+        "traffic.json"
+    )
+
+    tmp=traffic_file+".tmp"
+
+    try:
+        with open(tmp,"w",encoding="utf-8") as f:
+            json.dump(traffic,f,ensure_ascii=False,indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp,0o600)
+        os.replace(tmp,traffic_file)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+
 def save_traffic_report(source_address,traffic_data):
     if not isinstance(traffic_data,dict):
         return False,"invalid traffic data"
+
     db=load()
     vps_item=None
+
     for x in db.get("vps",[]):
         address=x.get("wg_address","")
         if address:
@@ -283,28 +402,41 @@ def save_traffic_report(source_address,traffic_data):
         if address==source_address:
             vps_item=x
             break
+
     if vps_item is None:
         return False,"unknown vps"
+
     vps_name=vps_item.get("name","")
+
     if not vps_name:
         return False,"vps name missing"
+
     users_dir=os.path.join(os.path.dirname(FILE),"users")
     os.makedirs(users_dir,mode=0o700,exist_ok=True)
+
     for username,data in traffic_data.items():
         if not isinstance(username,str) or not username:
             continue
+
         if not isinstance(data,dict):
             continue
+
         user_dir=os.path.join(users_dir,username)
+
         if not os.path.isdir(user_dir):
             continue
+
         username_file=os.path.join(user_dir,"username")
         uuid_file=os.path.join(user_dir,"uuid")
+
         if not os.path.isfile(username_file):
             continue
+
         if not os.path.isfile(uuid_file):
             continue
+
         traffic_file=os.path.join(user_dir,"traffic.json")
+
         try:
             if os.path.isfile(traffic_file):
                 with open(traffic_file,"r",encoding="utf-8") as f:
@@ -313,9 +445,12 @@ def save_traffic_report(source_address,traffic_data):
                 traffic={}
         except Exception:
             traffic={}
+
         if not isinstance(traffic,dict):
             traffic={}
+
         traffic.setdefault("vps",{})
+
         traffic["vps"][vps_name]={
             "wg_address":source_address,
             "upload":int(data.get("upload",0) or 0),
@@ -325,38 +460,50 @@ def save_traffic_report(source_address,traffic_data):
             "period_download":int(data.get("period_download",0) or 0),
             "period_total":int(data.get("period_total",0) or 0)
         }
+
         total_upload=0
         total_download=0
         total=0
         period_upload=0
         period_download=0
         period_total=0
+
         for vps_data in traffic["vps"].values():
             if not isinstance(vps_data,dict):
                 continue
+
             total_upload+=int(vps_data.get("upload",0) or 0)
             total_download+=int(vps_data.get("download",0) or 0)
             total+=int(vps_data.get("total",0) or 0)
             period_upload+=int(vps_data.get("period_upload",0) or 0)
             period_download+=int(vps_data.get("period_download",0) or 0)
             period_total+=int(vps_data.get("period_total",0) or 0)
+
         traffic["upload"]=total_upload
         traffic["download"]=total_download
         traffic["total"]=total
         traffic["period_upload"]=period_upload
         traffic["period_download"]=period_download
         traffic["period_total"]=period_total
+
         tmp=traffic_file+".tmp"
+
         with open(tmp,"w",encoding="utf-8") as f:
             json.dump(traffic,f,ensure_ascii=False,indent=2)
             f.flush()
             os.fsync(f.fileno())
+
         os.chmod(tmp,0o600)
         os.replace(tmp,traffic_file)
+
+        check_user_limit(username,traffic)
+
     return True,"ok"
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,format,*args):
         pass
+
     def send_json(self,code,data):
         raw=json.dumps(data,ensure_ascii=False).encode("utf-8")
         self.send_response(code)
@@ -364,76 +511,107 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
     def do_POST(self):
         if self.path=="/api/traffic/report":
             try:
                 length=int(self.headers.get("Content-Length","0"))
+
                 if length<=0 or length>1048576:
                     self.send_json(400,{"ok":False,"error":"invalid request size"})
                     return
+
                 data=json.loads(self.rfile.read(length))
+
                 if not isinstance(data,dict):
                     self.send_json(400,{"ok":False,"error":"invalid json"})
                     return
+
                 users=data.get("users",{})
+
                 if not isinstance(users,dict):
                     self.send_json(400,{"ok":False,"error":"invalid users"})
                     return
+
                 source_address=self.client_address[0]
+
                 ok,message=save_traffic_report(source_address,users)
+
                 if not ok:
                     self.send_json(403,{"ok":False,"error":message})
                     return
+
                 self.send_json(200,{"ok":True})
+
             except Exception as e:
                 self.send_json(500,{"ok":False,"error":str(e)})
+
             return
+
         if self.path!="/api/register":
             self.send_json(404,{"ok":False,"error":"not found"})
             return
+
         try:
             length=int(self.headers.get("Content-Length","0"))
+
             if length<=0 or length>10240:
                 self.send_json(400,{"ok":False,"error":"invalid request size"})
                 return
+
             data=json.loads(self.rfile.read(length))
+
             token=data.get("token","")
             wg_key=data.get("wg_public_key","")
             agent_token=data.get("agent_token","")
+
             if not token or not wg_key:
                 self.send_json(400,{"ok":False,"error":"missing token or wg_public_key"})
                 return
+
             db=load()
             item=None
+
             for x in db.get("vps",[]):
                 if x.get("token")==token:
                     item=x
                     break
+
             if item is None:
                 self.send_json(403,{"ok":False,"error":"invalid token"})
                 return
+
             old_key=item.get("wg_public_key","")
+
             if old_key and old_key!=wg_key:
                 self.send_json(403,{"ok":False,"error":"wireguard key mismatch"})
                 return
+
             if not item.get("wg_address"):
                 used=set()
+
                 for x in db.get("vps",[]):
                     address=x.get("wg_address","")
+
                     if address:
                         try:
                             used.add(int(address.split(".")[-1].split("/")[0]))
                         except Exception:
                             pass
+
                 address=""
+
                 for i in range(2,255):
                     if i not in used:
                         address=f"{WG_NETWORK}.{i}"
                         break
+
                 if not address:
                     self.send_json(500,{"ok":False,"error":"no wg address available"})
                     return
+
                 item["wg_address"]=address
+
             item["wg_public_key"]=wg_key
             item["agent_token"]=agent_token
             item["online"]=True
@@ -443,22 +621,52 @@ class Handler(BaseHTTPRequestHandler):
             item["hostname"]=data.get("hostname","")
             item["os"]=data.get("os","")
             item["arch"]=data.get("arch","")
+
             save(db)
-            subprocess.run(["wg","set",WG_INTERFACE,"peer",wg_key,"allowed-ips",item["wg_address"]+"/32"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+
+            subprocess.run(
+                [
+                    "wg",
+                    "set",
+                    WG_INTERFACE,
+                    "peer",
+                    wg_key,
+                    "allowed-ips",
+                    item["wg_address"]+"/32"
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False
+            )
+
             persist_peer(wg_key,item["wg_address"])
+
             endpoint=public_ip()
+
             if not endpoint:
                 self.send_json(500,{"ok":False,"error":"failed to get central public IPv4"})
                 return
+
             try:
                 with open(WG_PUBLIC_FILE,"r",encoding="utf-8") as f:
                     server_key=f.read().strip()
             except Exception:
                 self.send_json(500,{"ok":False,"error":"failed to read server public key"})
                 return
-            self.send_json(200,{"ok":True,"wg_address":item["wg_address"],"wg_server_public_key":server_key,"wg_endpoint":endpoint+":"+str(WG_PORT)})
+
+            self.send_json(
+                200,
+                {
+                    "ok":True,
+                    "wg_address":item["wg_address"],
+                    "wg_server_public_key":server_key,
+                    "wg_endpoint":endpoint+":"+str(WG_PORT)
+                }
+            )
+
         except Exception as e:
             self.send_json(500,{"ok":False,"error":str(e)})
+
 server=HTTPServer(("0.0.0.0",PORT),Handler)
 server.serve_forever()
 PY
