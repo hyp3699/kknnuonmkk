@@ -1353,13 +1353,7 @@ add_central_user() {
     local failed=0
     local user_dir="$DATA_DIR/users"
     local user_path=""
-    local user_file=""
     mkdir -p "$user_dir"
-    if [ -d "$user_dir/$username" ]; then
-        red "用户已存在"
-        sleep 1
-        return
-    fi
     echo
     green "================ 添加用户 ================"
     echo
@@ -1449,7 +1443,6 @@ except Exception:
     chmod 600 "$temp_dir/username" "$temp_dir/uuid" "$temp_dir/path" "$temp_dir/traffic.json"
     chmod 700 "$temp_dir/nodes"
     mv "$temp_dir" "$user_dir/$username"
-    rmdir "$temp_dir" 2>/dev/null || true
     echo
     green "用户添加成功"
     green "用户名：$username"
@@ -1458,7 +1451,6 @@ except Exception:
     echo
     read -rp "按回车返回..." _
 }
-
 manage_singbox() {
     local choice
     local count
