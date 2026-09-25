@@ -179,6 +179,7 @@ os.chmod(tmp, 0o600)
 os.replace(tmp, config)
 PY
 }
+
 server() {
     exec 9>/run/central-vps-server.lock
     if ! flock -n 9; then
@@ -370,6 +371,7 @@ server = HTTPServer(("0.0.0.0", PORT), Handler)
 server.serve_forever()
 PY
 }
+
 start_server() {
     cat > /etc/systemd/system/central-vps.service <<EOF
 [Unit]
@@ -389,6 +391,7 @@ EOF
     systemctl enable central-vps.service >/dev/null 2>&1 || true
     systemctl restart central-vps.service
 }
+
 add_vps() {
     local name
     local token
@@ -453,6 +456,7 @@ PY
     echo "========================================"
     read -rp "按 Enter 返回..." _
 }
+
 get_vps_count() {
     python3 - "$VPS_FILE" <<'PY'
 import json
@@ -461,6 +465,7 @@ with open(sys.argv[1], encoding="utf-8") as f:
     print(len(json.load(f).get("vps", [])))
 PY
 }
+
 get_vps_field() {
     local index="$1"
     local field="$2"
@@ -479,6 +484,7 @@ except Exception:
     print("")
 PY
 }
+
 set_vps_offline() {
     local name="$1"
     python3 - "$VPS_FILE" "$name" <<'PY'
@@ -495,34 +501,52 @@ with open(p, "w", encoding="utf-8") as f:
 PY
     chmod 600 "$VPS_FILE"
 }
-agent_request() {
-    local address="$1"
-    local token="$2"
-    local method="$3"
-    local path="$4"
-    local command="${5:-}"
-    local url="http://${address}:18090${path}"
-    if [ "$method" = "GET" ]; then
-        curl -sS \
-            --connect-timeout 3 \
-            --max-time 10 \
-            -H "Authorization: Bearer $token" \
-            "$url" 2>/dev/null
-    else
-        python3 - "$command" <<'PY' | curl -sS \
-            --connect-timeout 3 \
-            --max-time 35 \
-            -X POST \
-            -H "Authorization: Bearer '"$token"'" \
-            -H "Content-Type: application/json" \
-            -d @- \
-            "$url" 2>/dev/null
-import json
+
+agent_command() {
+    local wg_ip="$1"
+    local agent_token="$2"
+    local command="$3"
+    python3 - "$wg_ip" "$agent_token" "$command" <<'PY'
 import sys
-print(json.dumps({"command": sys.argv[1]}, ensure_ascii=False))
+import json
+import urllib.request
+import urllib.error
+wg_ip = sys.argv[1]
+token = sys.argv[2]
+command = sys.argv[3]
+url = f"http://{wg_ip}:18090/api/command"
+payload = json.dumps({
+    "command": command
+}).encode()
+req = urllib.request.Request(
+    url,
+    data=payload,
+    method="POST",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+)
+try:
+    with urllib.request.urlopen(req, timeout=35) as response:
+        body = response.read().decode()
+        print(body)
+except urllib.error.HTTPError as e:
+    body = e.read().decode(errors="replace")
+    print(json.dumps({
+        "ok": False,
+        "error": f"HTTP {e.code}",
+        "detail": body
+    }, ensure_ascii=False))
+except Exception as e:
+    print(json.dumps({
+        "ok": False,
+        "error": str(e)
+    }, ensure_ascii=False))
 PY
-    fi
 }
+
+
 check_agent() {
     local address="$1"
     local token="$2"
@@ -537,6 +561,7 @@ except:
     sys.exit(1)
 '
 }
+
 show_vps_system() {
     local name="$1"
     local address="$2"
@@ -569,6 +594,7 @@ print("WG 地址   :", d.get("wg_address", ""))
 print("========================================")
 PY
 }
+
 show_vps_cpu() {
     local name="$1"
     local address="$2"
@@ -719,6 +745,7 @@ restart_vps() {
     local address="$2"
     local token="$3"
     local result
+
     echo
     echo "========================================"
     echo "              重启 VPS"
@@ -726,16 +753,41 @@ restart_vps() {
     echo "VPS: $name"
     echo "WG : $address"
     echo
+
     read -r -p "确定重启此 VPS？输入 yes 确认: " confirm
     [ "$confirm" = "yes" ] || return
-    result=$(agent_request "$address" "$token" POST "/api/command" "systemctl reboot") || {
+
+    result=$(agent_request "$address" "$token" POST "/api/command" \
+        'nohup sh -c "sleep 2; /sbin/reboot" >/dev/null 2>&1 & echo "REBOOT_SCHEDULED"') || {
+        echo
         echo "Agent 连接失败"
         return
     }
+
     echo
-    printf '%s' "$result"
-    echo
-    echo "重启命令已发送"
+    if printf '%s' "$result" | python3 -c '
+import json
+import sys
+
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("Agent 返回数据格式错误")
+    raise SystemExit(1)
+
+if not d.get("ok"):
+    print("重启失败：" + str(d.get("error", "unknown error")))
+    raise SystemExit(1)
+
+print(d.get("stdout", ""), end="")
+' ; then
+        echo
+        echo "VPS 重启已安排，约 2 秒后重启。"
+    else
+        echo
+        echo "重启命令执行失败"
+    fi
+
     sleep 2
 }
 manage_single_vps() {
