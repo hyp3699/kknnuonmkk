@@ -1155,8 +1155,6 @@ singbox_show_status() {
     green "1. 安装 Sing-box"
     green "2. 卸载 Sing-box"
     green "3. 更新 Sing-box"
-    green "4. 添加用户"
-    green "5. 管理用户"
     green "0. 返回"
     echo
 }
@@ -1624,12 +1622,6 @@ manage_singbox() {
                 esac
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
-            4)
-            add_central_user
-            ;;
-            5)
-            show_central_users
-            ;;
             0)
                 return
                 ;;
@@ -1668,8 +1660,9 @@ update_script() {
         return
     fi
     mv -f "$tmp" "$LOCAL_SCRIPT"
+    chmod 700 "$LOCAL_SCRIPT"
     green "脚本更新成功"
-    echo
+    green "正在加载新版本..."
     exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
 delete_script() {
@@ -1745,14 +1738,17 @@ case "${1:-}" in
         while true; do
             clear
             green "========================================"
-            green "          中央 VPS 管理脚本"
+            green "          VPS 管理脚本"
             green "========================================"
             echo
             green "1. 添加 VPS"
             green "2. 管理 VPS"
-            green "3. Sing-box 管理"
-            green "5. 更新脚本"
-            green "6. 删除管理脚本"
+            green "3. Sing-box"
+            green "4. 更新脚本"
+            red "5. 删除脚本"
+            echo
+            green "6. 添加用户"
+            green "7. 管理用户"
             echo
             green "0. 退出"
             echo
@@ -1766,12 +1762,18 @@ case "${1:-}" in
                     ;;
                 3)
                     manage_singbox ;;
-                5)
+                4)
                     update_script
                     ;;
-                6)
+                5)
                     delete_script
                     ;;
+                6)
+                    add_central_user
+                   ;;
+                7)
+                   show_central_users
+                   ;;
                 0)
                     exit 0
                     ;;
