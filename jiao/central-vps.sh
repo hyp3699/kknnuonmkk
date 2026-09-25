@@ -1964,7 +1964,6 @@ manage_central_user() {
     local username="$1"
     local user_dir="$DATA_DIR/users/$username"
     local traffic_file="$user_dir/traffic.json"
-    local username_file="$user_dir/username"
     local uuid_file="$user_dir/uuid"
     local path_file="$user_dir/path"
     local uuid=""
@@ -1979,10 +1978,11 @@ manage_central_user() {
     local period=""
     local period_start=""
     local period_end=""
-    local limit_enabled=""
+    local limit_enabled="false"
     local limit_bytes=0
     local limit_value=0
     local limit_unit="GB"
+    local remaining=0
 
     if [ ! -d "$user_dir" ]; then
         red "用户不存在"
@@ -2007,16 +2007,15 @@ manage_central_user() {
         limit_bytes=0
         limit_value=0
         limit_unit="GB"
+        remaining=0
 
         if [ -f "$traffic_file" ]; then
             eval "$(
-                python3 - "$traffic_file" "$user_dir" <<'PY'
+                python3 - "$traffic_file" <<'PY'
 import json
-import os
 import sys
 
 traffic_file=sys.argv[1]
-user_dir=sys.argv[2]
 
 try:
     with open(traffic_file,"r",encoding="utf-8") as f:
@@ -2040,18 +2039,14 @@ print("period=%r" % str(d.get("period","")))
 print("period_start=%r" % str(d.get("period_start","")))
 print("period_end=%r" % str(d.get("period_end","")))
 
-limit_file=os.path.join(user_dir,"limit.json")
+limit=d.get("limit",{})
+if not isinstance(limit,dict):
+    limit={}
 
-try:
-    with open(limit_file,"r",encoding="utf-8") as f:
-        l=json.load(f)
-except Exception:
-    l={}
-
-print("limit_enabled=%r" % bool(l.get("enabled",False)))
-print("limit_bytes=%d" % n(l.get("limit_bytes")))
-print("limit_value=%r" % str(l.get("limit_value",0)))
-print("limit_unit=%r" % str(l.get("limit_unit","GB")))
+print("limit_enabled=%r" % bool(limit.get("enabled",False)))
+print("limit_bytes=%d" % n(limit.get("limit_bytes")))
+print("limit_value=%r" % str(limit.get("limit_value",0)))
+print("limit_unit=%r" % str(limit.get("limit_unit","GB")))
 PY
 )" 2>/dev/null
         fi
@@ -2065,30 +2060,40 @@ PY
         green "UUID：$uuid"
         green "订阅路径：$path"
         echo
-        green "总上传：$(format_bytes "$upload")"
-        green "总下载：$(format_bytes "$download")"
-        green "总流量：$(format_bytes "$total")"
+        green "-------------- 流量统计 ----------------"
+        printf "%-16s %s\n" "上传流量" "$(format_bytes "$upload")"
+        printf "%-16s %s\n" "下载流量" "$(format_bytes "$download")"
+        printf "%-16s %s\n" "总计流量" "$(format_bytes "$total")"
+        printf "%-16s %s\n" "周期流量" "$(format_bytes "$period_total")"
         echo
-        green "当前周期：${period:-未设置}"
-        green "周期开始：${period_start:-无}"
-        green "周期结束：${period_end:-无}"
-        green "周期上传：$(format_bytes "$period_upload")"
-        green "周期下载：$(format_bytes "$period_download")"
-        green "周期流量：$(format_bytes "$period_total")"
-        echo
+        green "-------------- 流量限制 ----------------"
 
         if [ "$limit_enabled" = "True" ]; then
-            green "流量限制：${limit_value}${limit_unit}"
-            green "限制流量：$(format_bytes "$limit_bytes")"
-            if [ "$limit_bytes" -gt 0 ]; then
-                local remaining=$((limit_bytes-period_total))
-                [ "$remaining" -lt 0 ] && remaining=0
-                green "剩余流量：$(format_bytes "$remaining")"
-            fi
+            remaining=$((limit_bytes-period_total))
+            [ "$remaining" -lt 0 ] && remaining=0
+            printf "%-16s %s\n" "限制流量" "$(format_bytes "$limit_bytes")"
+            printf "%-16s %s\n" "已用流量" "$(format_bytes "$period_total")"
+            printf "%-16s %s\n" "剩余流量" "$(format_bytes "$remaining")"
         else
-            green "流量限制：无限制"
+            printf "%-16s %s\n" "限制流量" "无限制"
+            printf "%-16s %s\n" "已用流量" "$(format_bytes "$period_total")"
         fi
 
+        echo
+        green "-------------- 周期限制 ----------------"
+        case "$period" in
+            day)
+                printf "%-16s %s\n" "周期限制" "每天"
+                ;;
+            month)
+                printf "%-16s %s\n" "周期限制" "每月"
+                ;;
+            *)
+                printf "%-16s %s\n" "周期限制" "未设置"
+                ;;
+        esac
+        printf "%-16s %s\n" "周期开始" "${period_start:-无}"
+        printf "%-16s %s\n" "周期结束" "${period_end:-无}"
         echo
         green "----------------------------------------"
         green "1. 设置流量"
@@ -2115,7 +2120,7 @@ PY
                 ;;
             s|S)
                 if delete_central_user "$username"; then
-                 return
+                    return
                 fi
                 ;;
             0)
@@ -2128,6 +2133,7 @@ PY
         esac
     done
 }
+
 add_central_user() {
     local username=""
     local uuid=""
