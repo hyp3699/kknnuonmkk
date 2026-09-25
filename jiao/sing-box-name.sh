@@ -165,6 +165,7 @@ import time
 import signal
 import tempfile
 import sys
+import urllib.request
 from pathlib import Path
 from datetime import datetime, timedelta
 BASE_DIR = Path("/etc/sing-box")
@@ -186,6 +187,10 @@ CONFIG_FILE = CONF_DIR / "config.json"
 SAVE_INTERVAL = 5
 POLL_INTERVAL = 5
 RECONNECT_INTERVAL = 3
+CENTRAL_CHECK_INTERVAL = 30
+CENTRAL_WG_INTERFACE = "central-mgmt"
+CENTRAL_WG_ADDRESS = "10.231.47.1"
+CENTRAL_TRAFFIC_URL = "http://10.231.47.1:18089/api/traffic/report"
 running = True
 def log(msg):
     try:
@@ -888,6 +893,75 @@ def initialize_periods(state):
             data["period_end"] = end_iso
             update_limit_file(lf, data)
     return changed
+
+def central_vps_available():
+    try:
+        result = subprocess.run(
+            ["ip", "link", "show", CENTRAL_WG_INTERFACE],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=3
+        )
+        if result.returncode != 0:
+            return False
+
+        result = subprocess.run(
+            [
+                "ping",
+                "-c", "1",
+                "-W", "2",
+                "-I", CENTRAL_WG_INTERFACE,
+                CENTRAL_WG_ADDRESS
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=4
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+def get_central_traffic_snapshot(state):
+    result = {}
+    users = state.get("users", {})
+    if not isinstance(users, dict):
+        return result
+    for username, data in users.items():
+        if not isinstance(data, dict):
+            continue
+        result[username] = {
+            "upload": int(data.get("uplink", 0) or 0),
+            "download": int(data.get("downlink", 0) or 0),
+            "total": int(data.get("total", 0) or 0),
+            "period_upload": int(data.get("period_uplink", 0) or 0),
+            "period_download": int(data.get("period_downlink", 0) or 0),
+            "period_total": int(data.get("period_total", 0) or 0)
+        }
+    return result
+def upload_central_traffic(snapshot):
+    try:
+        payload = {
+            "users": snapshot
+        }
+        body = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":")
+        ).encode("utf-8")
+        req = urllib.request.Request(
+            CENTRAL_TRAFFIC_URL,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            response.read()
+        return True
+    except Exception as e:
+        log(f"流量上传失败: {e}")
+        return False
+        
 def signal_handler(signum, frame):
     global running
     running = False
