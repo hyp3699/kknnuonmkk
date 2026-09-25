@@ -17,6 +17,49 @@ MODULES=(
 	cf.sh
 	install.sh
 )
+
+# 检查命令是否存在
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+export LANG=en_US.UTF-8
+re="\033[0m"
+red="\033[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+skyblue="\e[1;36m"
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+skyblue() { echo -e "\e[1;36m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
+
+check_service() {
+    local service_name=$1
+    local service_file=$2
+    [[ -n "${service_file}" && ! -f "${service_file}" ]] && { red "not installed"; return 2; }
+    if command_exists rc-service; then
+        rc-service "${service_name}" status 2>&1 | grep -qE "started|running" && { green "running"; return 0; } || { yellow "not running"; return 1; }
+    elif command_exists systemctl; then
+        systemctl is-active --quiet "${service_name}" && { green "running"; return 0; } || { yellow "not running"; return 1; }
+    else
+        yellow "service manager not found"
+        return 2
+    fi
+}
+# 检查sing-box状态
+check_singbox() {
+    check_service "sing-box" "/etc/sing-box/sing-box"
+}
+# 检查nginx状态
+check_nginx() {
+    command_exists nginx || { red "not installed"; return 2; }
+    check_service "nginx" "$(command -v nginx)"
+}
+
 load_local_modules() {
     local file
     local module_file
@@ -67,47 +110,6 @@ to_chinese() {
 # 检查是否为root下运行
 [[ $EUID -ne 0 ]] && red "请在root用户下运行脚本" && exit 1
 
-# 检查命令是否存在
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-export LANG=en_US.UTF-8
-re="\033[0m"
-red="\033[1;91m"
-green="\e[1;32m"
-yellow="\e[1;33m"
-purple="\e[1;35m"
-skyblue="\e[1;36m"
-red() { echo -e "\e[1;91m$1\033[0m"; }
-green() { echo -e "\e[1;32m$1\033[0m"; }
-yellow() { echo -e "\e[1;33m$1\033[0m"; }
-purple() { echo -e "\e[1;35m$1\033[0m"; }
-skyblue() { echo -e "\e[1;36m$1\033[0m"; }
-reading() { read -p "$(red "$1")" "$2"; }
-
-# 检查sing-box状态
-check_singbox() {
-    check_service "sing-box" "${work_dir}/${server_name}"
-}
-# 检查nginx状态
-check_nginx() {
-    command_exists nginx || { red "not installed"; return 2; }
-    check_service "nginx" "$(command -v nginx)"
-}
-check_service() {
-    local service_name=$1
-    local service_file=$2
-    [[ -n "${service_file}" && ! -f "${service_file}" ]] && { red "not installed"; return 2; }
-    if command_exists rc-service; then
-        rc-service "${service_name}" status 2>&1 | grep -qE "started|running" && { green "running"; return 0; } || { yellow "not running"; return 1; }
-    elif command_exists systemctl; then
-        systemctl is-active --quiet "${service_name}" && { green "running"; return 0; } || { yellow "not running"; return 1; }
-    else
-        yellow "service manager not found"
-        return 2
-    fi
-}
 
 manage_service() {
     local service_name="$1"
@@ -245,17 +247,17 @@ while true; do
    menu
    case "${choice}" in
         1)
-    if ! download_and_load_modules; then
+        if ! download_and_load_modules; then
         red "安装失败！"
         continue
-    fi
+        fi
 
-    check_singbox &>/dev/null
-    check_singbox=$?
+        check_singbox &>/dev/null
+        check_singbox=$?
 
-    if [ ${check_singbox} -eq 0 ]; then
+        if [ ${check_singbox} -eq 0 ]; then
         yellow "sing-box 已经安装！\n"
-    else
+        else
         optimize_dns
         manage_packages install nginx jq tar openssl lsof coreutils
         install_singbox
