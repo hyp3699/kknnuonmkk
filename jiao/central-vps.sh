@@ -2341,32 +2341,32 @@ PY
         green "UUID：$uuid"
         green "订阅路径：$path"
         green "-------------- 流量统计 ----------------"
-        printf "%-6s %-22s %-6s %s\n" "上传流量" "$(format_bytes "$upload")" "总计流量" "$(format_bytes "$total")"
-        printf "%-6s %-22s %-6s %s\n" "下载流量" "$(format_bytes "$download")" "周期流量" "$(format_bytes "$period_total")"
+        printf "%-6s %-16s %-6s %s\n" "上传流量" "$(format_bytes "$upload")" "总计流量" "$(format_bytes "$total")"
+        printf "%-6s %-16s %-6s %s\n" "下载流量" "$(format_bytes "$download")" "周期流量" "$(format_bytes "$period_total")"
         green "-------------- 流量限制 ----------------"
         if [ "$limit_enabled" = "True" ]; then
-            printf "%-6s %-22s %-6s %s\n" "限制流量" "$(format_bytes "$limit_bytes")" "限制周期" "$(
+            printf "%-6s %-16s %-6s %s\n" "限制流量" "$(format_bytes "$limit_bytes")" "限制周期" "$(
                 case "$period" in
                     day) echo "每天" ;;
                     month) echo "每月" ;;
                     *) echo "未设置" ;;
                 esac
             )"
-            printf "%-6s %-22s %-6s " "剩余流量" "$(format_bytes "$remaining")" "流量状态"
+            printf "%-6s %-16s %-6s " "剩余流量" "$(format_bytes "$remaining")" "流量状态"
             if [ "$traffic_status" = "正常" ]; then
                 green "正常"
             else
                 red "已停用"
             fi
         else
-            printf "%-6s %-22s %-6s %s\n" "限制流量" "无限制" "限制周期" "$(
+            printf "%-6s %-16s %-6s %s\n" "限制流量" "无限制" "限制周期" "$(
                 case "$period" in
                     day) echo "每天" ;;
                     month) echo "每月" ;;
                     *) echo "未设置" ;;
                 esac
             )"
-            printf "%-6s %-22s %-6s " "剩余流量" "无限制" "流量状态"
+            printf "%-6s %-16s %-6s " "剩余流量" "无限制" "流量状态"
             if [ "$traffic_status" = "正常" ]; then
                 green "正常"
             else
