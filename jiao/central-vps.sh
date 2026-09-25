@@ -375,6 +375,45 @@ EOF
     systemctl enable central-vps.service >/dev/null 2>&1 || true
     systemctl restart central-vps.service
 }
+
+
+get_vps_count() {
+    python3 - "$VPS_FILE" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        data=json.load(f)
+    print(len(data.get("vps", [])))
+except Exception:
+    print(0)
+PY
+}
+get_vps_field() {
+    local index="$1"
+    local field="$2"
+    python3 - "$VPS_FILE" "$index" "$field" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        data=json.load(f)
+    vps=data.get("vps", [])
+    index=int(sys.argv[2])
+    field=sys.argv[3]
+    if 0 <= index < len(vps):
+        value=vps[index].get(field, "")
+        if value is None:
+            value=""
+        print(value)
+except Exception:
+    pass
+PY
+}
+
+
+
+
 add_vps() {
     local name
     local token
