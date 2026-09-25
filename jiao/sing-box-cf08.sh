@@ -5959,12 +5959,17 @@ PY
 local result=$?
 if [ "$result" -eq 0 ]; then
     if [[ -n "$central_mode" ]]; then
-        if systemctl is-active --quiet sing-box; then
-            systemctl reload sing-box >/dev/null 2>&1 || true
-        fi
-        echo "CENTRAL_USER_OK"
-        return 0
-    fi
+       if systemctl is-active --quiet sing-box; then
+           systemctl reload sing-box >/dev/null 2>&1 || true
+       fi
+       echo "CENTRAL_USER_OK"
+       echo "NODE_BEGIN"
+       if [ -f "$links_file" ]; then
+          cat "$links_file"
+       fi
+       echo "NODE_END"
+      return 0
+fi
 local sub_path_val=""
 if [ -f "$URL_DIR/$username/$username-path" ]; then
     sub_path_val=$(cat "$URL_DIR/$username/$username-path")
