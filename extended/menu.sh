@@ -197,6 +197,64 @@ manage_service() {
     esac
 }
 
+create_shortcut() {
+    local local_file="$MODULE_DIR/menu.sh"
+    if [ -s "$local_file" ]; then
+        chmod 700 "$local_file"
+        ln -sf "$local_file" /usr/bin/sb
+        ln -sf "$local_file" /usr/bin/b
+    fi
+    if [ -x /usr/bin/sb ] && [ -x /usr/bin/b ]; then
+        green "\n快捷命令 sb 和 b 已创建\n"
+    else
+        red "\n快捷命令创建失败\n"
+        return 1
+    fi
+}
+
+update_script() {
+    local file
+    local module_file
+    local tmp_file
+    local failed=0
+    mkdir -p "$MODULE_DIR"
+    yellow "\n正在更新所有脚本...\n"
+    for file in "${MODULES[@]}"; do
+        module_file="$MODULE_DIR/$file"
+        tmp_file="${module_file}.tmp"
+        if curl -fsSL "$GITHUB_RAW/$file" -o "$tmp_file" >/dev/null 2>&1 && [ -s "$tmp_file" ]; then
+            mv -f "$tmp_file" "$module_file"
+            chmod 700 "$module_file"
+            green "$file 更新成功"
+        else
+            rm -f "$tmp_file"
+            red "$file 更新失败"
+            failed=1
+        fi
+    done
+    # 更新流量统计脚本
+    local traffic_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
+    local traffic_file="/etc/sing-box/sing-box-name.sh"
+    local traffic_tmp="${traffic_file}.tmp"
+    if curl -fsSL "$traffic_url" -o "$traffic_tmp" >/dev/null 2>&1 && [ -s "$traffic_tmp" ]; then
+        mv -f "$traffic_tmp" "$traffic_file"
+        chmod 700 "$traffic_file"
+        green "sing-box-name.sh 更新成功"
+    else
+        rm -f "$traffic_tmp"
+        red "sing-box-name.sh 更新失败"
+        failed=1
+    fi
+    if [ "$failed" -ne 0 ]; then
+        red "\n部分文件更新失败！"
+        sleep 2
+        return 1
+    fi
+    green "\n所有脚本更新完成！"
+    sleep 1
+    exec bash "$MODULE_DIR/menu.sh"
+}
+
 menu() {
     local singbox_status
     local nginx_status
