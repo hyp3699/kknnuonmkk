@@ -2253,6 +2253,7 @@ manage_central_user() {
     local limit_value=0
     local limit_unit="GB"
     local remaining=0
+    local traffic_status="正常"
 
     if [ ! -d "$user_dir" ]; then
         red "用户不存在"
@@ -2278,6 +2279,7 @@ manage_central_user() {
         limit_value=0
         limit_unit="GB"
         remaining=0
+        traffic_status="正常"
 
         if [ -f "$traffic_file" ]; then
             eval "$(
@@ -2317,51 +2319,63 @@ print("limit_enabled=%r" % bool(limit.get("enabled",False)))
 print("limit_bytes=%d" % n(limit.get("limit_bytes")))
 print("limit_value=%r" % str(limit.get("limit_value",0)))
 print("limit_unit=%r" % str(limit.get("limit_unit","GB")))
+print("disabled_by_limit=%r" % bool(d.get("disabled_by_limit",False)))
 PY
 )" 2>/dev/null
         fi
 
+        if [ "$limit_enabled" = "True" ]; then
+            remaining=$((limit_bytes-period_total))
+            [ "$remaining" -lt 0 ] && remaining=0
+        fi
+
+        if [ "${disabled_by_limit:-False}" = "True" ]; then
+            traffic_status="已停用"
+        else
+            traffic_status="正常"
+        fi
+
         clear
-        green "========================================"
-        green "              用户信息"
-        green "========================================"
         echo
         green "用户名：$username"
         green "UUID：$uuid"
         green "订阅路径：$path"
         echo
         green "-------------- 流量统计 ----------------"
-        printf "%-16s %s\n" "上传流量" "$(format_bytes "$upload")"
-        printf "%-16s %s\n" "下载流量" "$(format_bytes "$download")"
-        printf "%-16s %s\n" "总计流量" "$(format_bytes "$total")"
-        printf "%-16s %s\n" "周期流量" "$(format_bytes "$period_total")"
+        printf "%-16s %-18s %-16s %s\n" "上传流量" "$(format_bytes "$upload")" "总计流量" "$(format_bytes "$total")"
+        printf "%-16s %-18s %-16s %s\n" "下载流量" "$(format_bytes "$download")" "周期流量" "$(format_bytes "$period_total")"
         echo
         green "-------------- 流量限制 ----------------"
-
         if [ "$limit_enabled" = "True" ]; then
-            remaining=$((limit_bytes-period_total))
-            [ "$remaining" -lt 0 ] && remaining=0
-            printf "%-16s %s\n" "限制流量" "$(format_bytes "$limit_bytes")"
-            printf "%-16s %s\n" "已用流量" "$(format_bytes "$period_total")"
-            printf "%-16s %s\n" "剩余流量" "$(format_bytes "$remaining")"
+            printf "%-16s %-18s %-16s %s\n" "限制流量" "$(format_bytes "$limit_bytes")" "限制周期" "$(
+                case "$period" in
+                    day) echo "每天" ;;
+                    month) echo "每月" ;;
+                    *) echo "未设置" ;;
+                esac
+            )"
+            printf "%-16s %-18s %-16s " "剩余流量" "$(format_bytes "$remaining")" "流量状态"
+            if [ "$traffic_status" = "正常" ]; then
+                green "正常"
+            else
+                red "已停用"
+            fi
         else
-            printf "%-16s %s\n" "限制流量" "无限制"
-            printf "%-16s %s\n" "已用流量" "$(format_bytes "$period_total")"
+            printf "%-16s %-18s %-16s %s\n" "限制流量" "无限制" "限制周期" "$(
+                case "$period" in
+                    day) echo "每天" ;;
+                    month) echo "每月" ;;
+                    *) echo "未设置" ;;
+                esac
+            )"
+            printf "%-16s %-18s %-16s " "剩余流量" "无限制" "流量状态"
+            if [ "$traffic_status" = "正常" ]; then
+                green "正常"
+            else
+                red "已停用"
+            fi
         fi
-
         echo
-        green "-------------- 周期限制 ----------------"
-        case "$period" in
-            day)
-                printf "%-16s %s\n" "周期限制" "每天"
-                ;;
-            month)
-                printf "%-16s %s\n" "周期限制" "每月"
-                ;;
-            *)
-                printf "%-16s %s\n" "周期限制" "未设置"
-                ;;
-        esac
         printf "%-16s %s\n" "周期开始" "${period_start:-无}"
         printf "%-16s %s\n" "周期结束" "${period_end:-无}"
         echo
