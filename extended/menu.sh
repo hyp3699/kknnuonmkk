@@ -204,13 +204,17 @@ manage_service() {
 }
 
 create_shortcut() {
-    local local_file="$MODULE_DIR/menu.sh"
-    if [ -s "$local_file" ]; then
-        chmod 700 "$local_file"
-        ln -sf "$local_file" /usr/bin/sb
-        ln -sf "$local_file" /usr/bin/b
+    local local_file
+    local_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/menu.sh"
+    if [ ! -f "$local_file" ]; then
+        red "\n找不到主菜单文件：$local_file\n"
+        return 1
     fi
-    if [ -x /usr/bin/sb ] && [ -x /usr/bin/b ]; then
+    chmod 700 "$local_file" || return 1
+    ln -sfn "$local_file" /usr/bin/sb || return 1
+    ln -sfn "$local_file" /usr/bin/b || return 1
+    if [ -L /usr/bin/sb ] && [ -L /usr/bin/b ] &&
+       [ -e /usr/bin/sb ] && [ -e /usr/bin/b ]; then
         green "\n快捷命令 sb 和 b 已创建\n"
     else
         red "\n快捷命令创建失败\n"
