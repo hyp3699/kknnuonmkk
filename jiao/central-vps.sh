@@ -872,6 +872,227 @@ PY
     green "VPS 已删除"
     sleep 1
 }
+
+singbox_remote_check() {
+    local address="$1"
+    local token="$2"
+    local result
+    result=$(agent_request "$address" "$token" POST "/api/command" 'if [ -x /etc/sing-box/sing-box ] || [ -x /usr/local/bin/sing-box ] || [ -x /usr/bin/sing-box ] || systemctl list-unit-files 2>/dev/null | grep -q "^sing-box.service"; then echo INSTALLED; else echo NOT_INSTALLED; fi') || return 1
+    echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("stdout","").strip())' 2>/dev/null
+}
+singbox_install_remote() {
+    local address="$1"
+    local token="$2"
+    local result
+    result=$(agent_request "$address" "$token" POST "/api/command" 'printf "1\n" | bash <(curl -Ls http://cfsb.133134.xyz)' ) || return 1
+    echo "$result"
+}
+singbox_uninstall_remote() {
+    local address="$1"
+    local token="$2"
+    local result
+    result=$(agent_request "$address" "$token" POST "/api/command" 'printf "2\ny\nn\n" | bash <(curl -Ls http://cfsb.133134.xyz)' ) || return 1
+    echo "$result"
+}
+singbox_show_status() {
+    local count
+    local i
+    local name
+    local address
+    local token
+    local ipv4
+    local status
+    count=$(get_vps_count)
+    green "========================================"
+    green "            Sing-box 管理"
+    green "========================================"
+    echo
+    green "已安装 VPS"
+    local installed=0
+    for ((i=0;i<count;i++)); do
+        name=$(get_vps_field "$i" "name")
+        address=$(get_vps_field "$i" "wg_address")
+        token=$(get_vps_field "$i" "agent_token")
+        ipv4=$(get_vps_field "$i" "ipv4")
+        status=$(singbox_remote_check "$address" "$token" 2>/dev/null || true)
+        if [ "$status" = "INSTALLED" ]; then
+            green "$(printf '%-4s %-20s %s' "$((installed+1))." "$name" "$ipv4")"
+            installed=$((installed+1))
+        fi
+    done
+    if [ "$installed" -eq 0 ]; then
+        yellow "无"
+    fi
+    echo
+    green "未安装 VPS"
+    local uninstalled=0
+    for ((i=0;i<count;i++)); do
+        name=$(get_vps_field "$i" "name")
+        address=$(get_vps_field "$i" "wg_address")
+        token=$(get_vps_field "$i" "agent_token")
+        ipv4=$(get_vps_field "$i" "ipv4")
+        status=$(singbox_remote_check "$address" "$token" 2>/dev/null || true)
+        if [ "$status" != "INSTALLED" ]; then
+            green "$(printf '%-4s %-20s %s' "$((uninstalled+1))." "$name" "$ipv4")"
+            uninstalled=$((uninstalled+1))
+        fi
+    done
+    if [ "$uninstalled" -eq 0 ]; then
+        yellow "无"
+    fi
+    echo
+    green "1. 安装 Sing-box"
+    green "2. 卸载 Sing-box"
+    green "3. 更新 Sing-box"
+    green "0. 返回"
+    echo
+}
+manage_singbox() {
+    local choice
+    local count
+    local i
+    local name
+    local address
+    local token
+    local ipv4
+    local status
+    while true; do
+        clear
+        singbox_show_status
+        read -rp "请选择: " choice
+        case "$choice" in
+            1)
+                count=$(get_vps_count)
+                if [ "$count" -eq 0 ]; then
+                    yellow "当前没有 VPS"
+                    read -n 1 -s -r -p "按任意键返回..."
+                    continue
+                fi
+                echo
+                green "开始安装未安装的 Sing-box..."
+                for ((i=0;i<count;i++)); do
+                    name=$(get_vps_field "$i" "name")
+                    address=$(get_vps_field "$i" "wg_address")
+                    token=$(get_vps_field "$i" "agent_token")
+                    ipv4=$(get_vps_field "$i" "ipv4")
+                    status=$(singbox_remote_check "$address" "$token" 2>/dev/null || true)
+                    if [ "$status" = "INSTALLED" ]; then
+                        yellow "$name $ipv4 已安装，跳过"
+                        continue
+                    fi
+                    green "$name $ipv4 开始安装"
+                    if singbox_install_remote "$address" "$token" >/tmp/singbox-install-"$i".log 2>&1; then
+                        if singbox_remote_check "$address" "$token" 2>/dev/null | grep -qx "INSTALLED"; then
+                            green "$name $ipv4 安装成功"
+                        else
+                            red "$name $ipv4 安装失败"
+                        fi
+                    else
+                        red "$name $ipv4 安装失败"
+                    fi
+                done
+                echo
+                read -n 1 -s -r -p "安装完成，按任意键返回..."
+                ;;
+            2)
+                count=$(get_vps_count)
+                if [ "$count" -eq 0 ]; then
+                    yellow "当前没有 VPS"
+                    read -n 1 -s -r -p "按任意键返回..."
+                    continue
+                fi
+                echo
+                read -rp "确定卸载所有 VPS 的 Sing-box？(y/n): " confirm
+                case "$confirm" in
+                    y|Y)
+                        echo
+                        green "开始卸载所有 VPS 的 Sing-box..."
+                        for ((i=0;i<count;i++)); do
+                            name=$(get_vps_field "$i" "name")
+                            address=$(get_vps_field "$i" "wg_address")
+                            token=$(get_vps_field "$i" "agent_token")
+                            ipv4=$(get_vps_field "$i" "ipv4")
+                            status=$(singbox_remote_check "$address" "$token" 2>/dev/null || true)
+                            if [ "$status" != "INSTALLED" ]; then
+                                yellow "$name $ipv4 未安装，跳过"
+                                continue
+                            fi
+                            green "$name $ipv4 开始卸载"
+                            if singbox_uninstall_remote "$address" "$token" >/tmp/singbox-uninstall-"$i".log 2>&1; then
+                                if singbox_remote_check "$address" "$token" 2>/dev/null | grep -qx "INSTALLED"; then
+                                    red "$name $ipv4 卸载失败"
+                                else
+                                    green "$name $ipv4 卸载成功"
+                                fi
+                            else
+                                red "$name $ipv4 卸载失败"
+                            fi
+                        done
+                        ;;
+                    *)
+                        yellow "已取消"
+                        ;;
+                esac
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            3)
+                count=$(get_vps_count)
+                if [ "$count" -eq 0 ]; then
+                    yellow "当前没有 VPS"
+                    read -n 1 -s -r -p "按任意键返回..."
+                    continue
+                fi
+                echo
+                read -rp "确定更新所有 VPS 的 Sing-box？将先卸载再重新安装。(y/n): " confirm
+                case "$confirm" in
+                    y|Y)
+                        echo
+                        green "开始更新所有 VPS 的 Sing-box..."
+                        for ((i=0;i<count;i++)); do
+                            name=$(get_vps_field "$i" "name")
+                            address=$(get_vps_field "$i" "wg_address")
+                            token=$(get_vps_field "$i" "agent_token")
+                            ipv4=$(get_vps_field "$i" "ipv4")
+                            status=$(singbox_remote_check "$address" "$token" 2>/dev/null || true)
+                            if [ "$status" != "INSTALLED" ]; then
+                                yellow "$name $ipv4 未安装，直接安装"
+                            else
+                                green "$name $ipv4 卸载旧版本"
+                                if ! singbox_uninstall_remote "$address" "$token" >/tmp/singbox-update-uninstall-"$i".log 2>&1; then
+                                    red "$name $ipv4 卸载失败，跳过安装"
+                                    continue
+                                fi
+                                sleep 2
+                            fi
+                            green "$name $ipv4 安装新版本"
+                            if singbox_install_remote "$address" "$token" >/tmp/singbox-update-install-"$i".log 2>&1; then
+                                if singbox_remote_check "$address" "$token" 2>/dev/null | grep -qx "INSTALLED"; then
+                                    green "$name $ipv4 更新成功"
+                                else
+                                    red "$name $ipv4 安装完成但检测失败"
+                                fi
+                            else
+                                red "$name $ipv4 更新失败"
+                            fi
+                        done
+                        ;;
+                    *)
+                        yellow "已取消"
+                        ;;
+                esac
+                read -n 1 -s -r -p "按任意键返回..."
+                ;;
+            0)
+                return
+                ;;
+            *)
+                red "无效选择"
+                sleep 1
+                ;;
+        esac
+    done
+}
+
 update_script() {
     echo
     green "========================================"
@@ -987,8 +1208,7 @@ case "${1:-}" in
             echo
             green "1. 添加 VPS"
             green "2. 管理 VPS"
-            green "3. 安装 sing-box"
-            green "4. 卸载 sing-box"
+            green "3. Sing-box 管理"
             green "5. 更新脚本"
             green "6. 删除管理脚本"
             echo
@@ -1003,13 +1223,7 @@ case "${1:-}" in
                     manage_vps
                     ;;
                 3)
-                    yellow "暂未实现"
-                    read -rp "按 Enter 返回..." _
-                    ;;
-                4)
-                    yellow "暂未实现"
-                    read -rp "按 Enter 返回..." _
-                    ;;
+                    manage_singbox ;;
                 5)
                     update_script
                     ;;
