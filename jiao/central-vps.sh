@@ -1547,11 +1547,11 @@ delete_central_user() {
         green "正在删除：$name"
 
         result=$(agent_request \
-            "$address" \
-            "$token" \
-            POST \
-            "/api/command" \
-            "SB_LOAD_ONLY=1 bash -c 'source /etc/sing-box/sb.sh; delete_user \"\$1\" 1 0' -- '$username'") || {
+        "$address" \
+        "$token" \
+        POST \
+        "/api/command" \
+        "SB_LOAD_ONLY=1 source /etc/sing-box/sb.sh && delete_user \"$username\" 1 0") || {
                 red "$name：请求失败"
                 failed=1
                 continue
@@ -1580,14 +1580,14 @@ except Exception:
     pass
 ' 2>/dev/null)
 
-        if echo "$output" | grep -q "用户已删除"; then
-            green "$name：删除成功"
-        else
-            red "$name：删除失败"
-            [ -n "$output" ] && echo "$output"
-            yellow "$name：远程返回码 $returncode"
-            failed=1
-        fi
+        if [ "$returncode" -eq 0 ]; then
+    green "$name：删除成功"
+    else
+    red "$name：删除失败"
+    [ -n "$output" ] && echo "$output"
+    yellow "$name：远程返回码 $returncode"
+    failed=1
+    fi
     done
 
     if [ "$failed" -ne 0 ]; then
