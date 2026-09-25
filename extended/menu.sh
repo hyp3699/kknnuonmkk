@@ -407,7 +407,7 @@ while true; do
             exit 1
         fi
 
-        sleep 5
+        sleep 2
         add_nginx_conf
         create_shortcut
         setup_vps_traffic_stats
