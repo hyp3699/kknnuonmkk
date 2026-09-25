@@ -193,6 +193,7 @@ os.chmod(tmp,0o600)
 os.replace(tmp,config)
 PY
 }
+
 server() {
     exec 9>/run/central-vps-server.lock
     if ! flock -n 9; then
@@ -352,6 +353,90 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200,{"ok":True,"wg_address":item["wg_address"],"wg_server_public_key":server_key,"wg_endpoint":endpoint+":"+str(WG_PORT)})
         except Exception as e:
             self.send_json(500,{"ok":False,"error":str(e)})
+
+def save_traffic_report(source_address, traffic_data):
+    if not isinstance(traffic_data, dict):
+        return False, "invalid traffic data"
+    db=load()
+    vps_item=None
+    for x in db.get("vps",[]):
+        address=x.get("wg_address","")
+        if address:
+            address=address.split("/")[0]
+        if address==source_address:
+            vps_item=x
+            break
+    if vps_item is None:
+        return False, "unknown vps"
+    vps_name=vps_item.get("name","")
+    if not vps_name:
+        return False, "vps name missing"
+    users_dir=os.path.join(os.path.dirname(FILE),"users")
+    os.makedirs(users_dir,mode=0o700,exist_ok=True)
+    for username,data in traffic_data.items():
+        if not isinstance(username,str) or not username:
+            continue
+        if not isinstance(data,dict):
+            continue
+        user_dir=os.path.join(users_dir,username)
+        os.makedirs(user_dir,mode=0o700,exist_ok=True)
+        username_file=os.path.join(user_dir,"username")
+        uuid_file=os.path.join(user_dir,"uuid")
+        if not os.path.isfile(username_file):
+            continue
+        if not os.path.isfile(uuid_file):
+            continue
+        traffic_file=os.path.join(user_dir,"traffic.json")
+
+        try:
+            if os.path.isfile(traffic_file):
+                with open(traffic_file,"r",encoding="utf-8") as f:
+                    traffic=json.load(f)
+            else:
+                traffic={}
+        except Exception:
+            traffic={}
+        if not isinstance(traffic,dict):
+            traffic={}
+        traffic.setdefault("vps",{})
+        traffic["vps"][vps_name]={
+            "wg_address":source_address,
+            "upload":int(data.get("upload",0) or 0),
+            "download":int(data.get("download",0) or 0),
+            "total":int(data.get("total",0) or 0),
+            "period_upload":int(data.get("period_upload",0) or 0),
+            "period_download":int(data.get("period_download",0) or 0),
+            "period_total":int(data.get("period_total",0) or 0)
+        }
+        total_upload=0
+        total_download=0
+        total=0
+        period_upload=0
+        period_download=0
+        period_total=0
+        for vps_data in traffic["vps"].values():
+            if not isinstance(vps_data,dict):
+                continue
+            total_upload+=int(vps_data.get("upload",0) or 0)
+            total_download+=int(vps_data.get("download",0) or 0)
+            total+=int(vps_data.get("total",0) or 0)
+            period_upload+=int(vps_data.get("period_upload",0) or 0)
+            period_download+=int(vps_data.get("period_download",0) or 0)
+            period_total+=int(vps_data.get("period_total",0) or 0)
+        traffic["upload"]=total_upload
+        traffic["download"]=total_download
+        traffic["total"]=total
+        traffic["period_upload"]=period_upload
+        traffic["period_download"]=period_download
+        traffic["period_total"]=period_total
+        tmp=traffic_file+".tmp"
+        with open(tmp,"w",encoding="utf-8") as f:
+            json.dump(traffic,f,ensure_ascii=False,indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp,0o600)
+        os.replace(tmp,traffic_file)
+    return True,"ok"
 server=HTTPServer(("0.0.0.0",PORT),Handler)
 server.serve_forever()
 PY
