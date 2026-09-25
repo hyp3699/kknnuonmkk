@@ -426,32 +426,6 @@ PY
     green "========================================"
     read -rp "按 Enter 返回..." _
 }
-get_vps_count() {
-    python3 - "$VPS_FILE" <<'PY'
-import json
-import sys
-with open(sys.argv[1],encoding="utf-8") as f:
-    print(len(json.load(f).get("vps",[])))
-PY
-}
-get_vps_field() {
-    local index="$1"
-    local field="$2"
-    python3 - "$VPS_FILE" "$index" "$field" <<'PY'
-import json
-import sys
-with open(sys.argv[1],encoding="utf-8") as f:
-    data=json.load(f)
-try:
-    value=data["vps"][int(sys.argv[2])].get(sys.argv[3],"")
-    if isinstance(value,bool):
-        print("true" if value else "false")
-    else:
-        print(value)
-except Exception:
-    print("")
-PY
-}
 set_vps_offline() {
     local name="$1"
     python3 - "$VPS_FILE" "$name" <<'PY'
@@ -656,16 +630,22 @@ PY
 }
 manage_single_vps() {
     local index="$1"
-    local name
-    local address
-    local token
-    local agent_token
-    local action
-    local confirm
-    name=$(get_vps_field "$index" name)
-    address=$(get_vps_field "$index" wg_address)
-    token=$(get_vps_field "$index" token)
-    agent_token=$(get_vps_field "$index" agent_token)
+    local info name address token agent_token ipv4 action confirm
+    
+    # 性能优化：单次读取即可获取单一 VPS 的所有字段
+    info=$(python3 - "$VPS_FILE" "$index" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        v = json.load(f).get("vps", [])[int(sys.argv[2])]
+        print(f"{v.get('name', '')}\t{v.get('wg_address', '')}\t{v.get('token', '')}\t{v.get('agent_token', '')}\t{v.get('ipv4', '')}")
+except Exception:
+    pass
+PY
+    )
+    IFS=$'\t' read -r name address token agent_token ipv4 <<< "$info"
+
     if [ -z "$name" ] || [ -z "$address" ]; then
         red "VPS 数据不完整"
         sleep 1
@@ -717,7 +697,7 @@ manage_single_vps() {
                 red "========================================"
                 echo
                 red "VPS 名称: $name"
-                red "公网 IP : $(get_vps_field "$index" ipv4)"
+                red "公网 IP : $ipv4"
                 echo
                 yellow "确认删除此 VPS？输入 yes:"
                 read -r confirm
@@ -747,26 +727,44 @@ manage_vps() {
         green "              管理 VPS"
         green "========================================"
         echo
-        local count
-        count=$(get_vps_count)
-        if [ "$count" -eq 0 ]; then
+        
+        # 性能优化：替代在 bash 循环中产生极高开销的多次 Python/磁盘 I/O 读写
+        # 仅通过一次 Python 调用读取整个 VPS 列表并交给 Bash 处理
+        local vps_list
+        vps_list=$(python3 - "$VPS_FILE" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        vps = json.load(f).get("vps", [])
+        if not vps:
+            print("EMPTY")
+        else:
+            for i, v in enumerate(vps):
+                name = v.get("name")
+                ipv4 = v.get("ipv4")
+                print(f"{i}\t{name if name else '-'}\t{ipv4 if ipv4 else '-'}")
+except Exception:
+    pass
+PY
+        )
+        if [ -z "$vps_list" ] || [ "$vps_list" = "EMPTY" ]; then
             yellow "暂无 VPS"
             echo
             read -rp "按 Enter 返回..." _
             return
         fi
+
         green "编号  名称                    公网 IP"
         green "----------------------------------------------"
-        local i
-        local name
-        local ipv4
-        for ((i=0;i<count;i++)); do
-            name=$(get_vps_field "$i" name)
-            ipv4=$(get_vps_field "$i" ipv4)
-            [ -n "$name" ] || name="-"
-            [ -n "$ipv4" ] || ipv4="-"
+        
+        local count=0
+        while IFS=$'\t' read -r i name ipv4; do
+            [ -z "$i" ] && continue
+            count=$((count+1))
             green "$((i+1)).    $name                    $ipv4"
-        done
+        done <<< "$vps_list"
+        
         echo
         if [ "$count" -eq 1 ]; then
             green "1. 选择 VPS"
@@ -800,9 +798,26 @@ PY
     chmod 600 "$VPS_FILE"
 }
 delete_vps_menu() {
-    local count
-    count=$(get_vps_count)
-    if [ "$count" -eq 0 ]; then
+    # 性能优化：同上，大幅削减 CPU 峰值开销
+    local vps_list
+    vps_list=$(python3 - "$VPS_FILE" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        vps = json.load(f).get("vps", [])
+        if not vps:
+            print("EMPTY")
+        else:
+            for i, v in enumerate(vps):
+                name = v.get("name")
+                ipv4 = v.get("ipv4")
+                print(f"{i}\t{name if name else '-'}\t{ipv4 if ipv4 else '-'}")
+except Exception:
+    pass
+PY
+    )
+    if [ -z "$vps_list" ] || [ "$vps_list" = "EMPTY" ]; then
         yellow "暂无 VPS"
         read -rp "按 Enter 返回..." _
         return
@@ -812,14 +827,13 @@ delete_vps_menu() {
     red "              删除 VPS"
     red "========================================"
     echo
-    local i
-    local name
-    local ipv4
-    for ((i=0;i<count;i++)); do
-        name=$(get_vps_field "$i" name)
-        ipv4=$(get_vps_field "$i" ipv4)
+    local count=0
+    while IFS=$'\t' read -r i name ipv4; do
+        [ -z "$i" ] && continue
+        count=$((count+1))
         green "$((i+1)). $name  $ipv4"
-    done
+    done <<< "$vps_list"
+    
     echo
     green "0. 返回"
     echo
@@ -830,8 +844,22 @@ delete_vps_menu() {
         sleep 1
         return
     fi
-    name=$(get_vps_field "$((choice-1))" name)
-    ipv4=$(get_vps_field "$((choice-1))" ipv4)
+    
+    local info
+    info=$(python3 - "$VPS_FILE" "$((choice-1))" <<'PY'
+import json
+import sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        v = json.load(f).get("vps", [])[int(sys.argv[2])]
+        print(f"{v.get('name', '')}\t{v.get('ipv4', '')}")
+except Exception:
+    pass
+PY
+    )
+    local name ipv4
+    IFS=$'\t' read -r name ipv4 <<< "$info"
+    
     echo
     red "VPS 名称: $name"
     red "公网 IP : $ipv4"
