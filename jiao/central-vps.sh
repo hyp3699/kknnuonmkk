@@ -1,5 +1,18 @@
 #!/bin/bash
 set -e
+export LANG=en_US.UTF-8
+re="\033[0m"
+red="\e[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+skyblue="\e[1;36m"
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+skyblue() { echo -e "\e[1;36m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
 BASE_DIR=/etc/central-vps
 DATA_DIR=$BASE_DIR/data
 VPS_FILE=$DATA_DIR/vps.json
@@ -18,6 +31,7 @@ WG_PUBLIC_KEY=$WG_DIR/central-mgmt-publickey
 mkdir -p "$BASE_DIR" "$DATA_DIR"
 chmod 700 "$BASE_DIR" "$DATA_DIR"
 [ -f "$VPS_FILE" ] || echo '{"vps":[]}' > "$VPS_FILE"
+chmod 600 "$VPS_FILE"
 get_ipv4() {
     curl -4 -fsS --connect-timeout 3 --max-time 5 https://api.ipify.org 2>/dev/null || true
 }
@@ -34,7 +48,7 @@ install_wireguard() {
     if command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1; then
         return 0
     fi
-    echo "正在安装 WireGuard..."
+    green "正在安装 WireGuard..."
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -y
@@ -46,11 +60,11 @@ install_wireguard() {
     elif command -v apk >/dev/null 2>&1; then
         apk add wireguard-tools
     else
-        echo "无法自动安装 WireGuard"
+        red "无法自动安装 WireGuard"
         exit 1
     fi
     if ! command -v wg >/dev/null 2>&1 || ! command -v wg-quick >/dev/null 2>&1; then
-        echo "WireGuard 安装失败"
+        red "WireGuard 安装失败"
         exit 1
     fi
 }
@@ -64,17 +78,17 @@ EOF
     python3 - "$VPS_FILE" "$WG_CONFIG" <<'PY'
 import json
 import sys
-vps_file, config_file = sys.argv[1:]
-with open(vps_file, encoding="utf-8") as f:
-    data = json.load(f)
-with open(config_file, "a", encoding="utf-8") as f:
-    for item in data.get("vps", []):
-        key = item.get("wg_public_key", "")
-        ip = item.get("wg_address", "")
+vps_file,config_file=sys.argv[1:]
+with open(vps_file,encoding="utf-8") as f:
+    data=json.load(f)
+with open(config_file,"a",encoding="utf-8") as f:
+    for item in data.get("vps",[]):
+        key=item.get("wg_public_key","")
+        ip=item.get("wg_address","")
         if key and ip:
             f.write("\n[Peer]\n")
-            f.write("PublicKey = " + key + "\n")
-            f.write("AllowedIPs = " + ip.split("/")[0] + "/32\n")
+            f.write("PublicKey = "+key+"\n")
+            f.write("AllowedIPs = "+ip.split("/")[0]+"/32\n")
 PY
     chmod 600 "$WG_CONFIG"
 }
@@ -105,18 +119,18 @@ allocate_wg_ip() {
     python3 - "$VPS_FILE" "$WG_NETWORK" <<'PY'
 import json
 import sys
-p, network = sys.argv[1:]
-with open(p, encoding="utf-8") as f:
-    data = json.load(f)
-used = set()
-for item in data.get("vps", []):
-    address = item.get("wg_address", "")
+p,network=sys.argv[1:]
+with open(p,encoding="utf-8") as f:
+    data=json.load(f)
+used=set()
+for item in data.get("vps",[]):
+    address=item.get("wg_address","")
     if address:
         try:
             used.add(int(address.split(".")[-1].split("/")[0]))
         except Exception:
             pass
-for i in range(2, 255):
+for i in range(2,255):
     if i not in used:
         print(f"{network}.{i}")
         break
@@ -132,58 +146,57 @@ persist_peer() {
     python3 - "$WG_CONFIG" "$public_key" "$wg_address" <<'PY'
 import os
 import sys
-config, public_key, address = sys.argv[1:]
+config,public_key,address=sys.argv[1:]
 try:
-    with open(config, "r", encoding="utf-8") as f:
-        text = f.read()
+    with open(config,"r",encoding="utf-8") as f:
+        text=f.read()
 except Exception:
     sys.exit(1)
-target = address.split("/")[0] + "/32"
-blocks = text.split("\n[Peer]")
-found = False
-new_blocks = []
-for i, block in enumerate(blocks):
-    if i == 0:
+target=address.split("/")[0]+"/32"
+blocks=text.split("\n[Peer]")
+found=False
+new_blocks=[]
+for i,block in enumerate(blocks):
+    if i==0:
         new_blocks.append(block)
         continue
-    full = "[Peer]" + block
-    lines = full.splitlines()
-    key = ""
+    full="[Peer]"+block
+    lines=full.splitlines()
+    key=""
     for line in lines:
         if line.strip().startswith("PublicKey"):
-            key = line.split("=", 1)[1].strip()
+            key=line.split("=",1)[1].strip()
             break
-    if key == public_key:
-        found = True
-        replaced = []
+    if key==public_key:
+        found=True
+        replaced=[]
+        has_allowed=False
         for line in lines:
             if line.strip().startswith("AllowedIPs"):
-                replaced.append("AllowedIPs = " + target)
+                replaced.append("AllowedIPs = "+target)
+                has_allowed=True
             else:
                 replaced.append(line)
-        full = "\n".join(replaced)
+        if not has_allowed:
+            replaced.append("AllowedIPs = "+target)
+        full="\n".join(replaced)
     new_blocks.append(full)
 if not found:
-    new_blocks.append(
-        "[Peer]\n"
-        "PublicKey = " + public_key + "\n"
-        "AllowedIPs = " + target + "\n"
-    )
-result = "\n".join(new_blocks)
-tmp = config + ".tmp"
-with open(tmp, "w", encoding="utf-8") as f:
-    f.write(result.rstrip() + "\n")
+    new_blocks.append("[Peer]\nPublicKey = "+public_key+"\nAllowedIPs = "+target+"\n")
+result="\n".join(new_blocks)
+tmp=config+".tmp"
+with open(tmp,"w",encoding="utf-8") as f:
+    f.write(result.rstrip()+"\n")
     f.flush()
     os.fsync(f.fileno())
-os.chmod(tmp, 0o600)
-os.replace(tmp, config)
+os.chmod(tmp,0o600)
+os.replace(tmp,config)
 PY
 }
-
 server() {
     exec 9>/run/central-vps-server.lock
     if ! flock -n 9; then
-        echo "central-vps API 已经在运行"
+        red "central-vps API 已经在运行"
         exit 0
     fi
     python3 - "$VPS_FILE" "$PORT" "$WG_PUBLIC_KEY" "$WG_PORT" "$WG_INTERFACE" "$WG_NETWORK" "$WG_CONFIG" <<'PY'
@@ -191,187 +204,158 @@ import json
 import os
 import sys
 import subprocess
-from http.server import HTTPServer, BaseHTTPRequestHandler
-FILE = sys.argv[1]
-PORT = int(sys.argv[2])
-WG_PUBLIC_FILE = sys.argv[3]
-WG_PORT = int(sys.argv[4])
-WG_INTERFACE = sys.argv[5]
-WG_NETWORK = sys.argv[6]
-WG_CONFIG = sys.argv[7]
+from http.server import HTTPServer,BaseHTTPRequestHandler
+FILE=sys.argv[1]
+PORT=int(sys.argv[2])
+WG_PUBLIC_FILE=sys.argv[3]
+WG_PORT=int(sys.argv[4])
+WG_INTERFACE=sys.argv[5]
+WG_NETWORK=sys.argv[6]
+WG_CONFIG=sys.argv[7]
 def load():
-    with open(FILE, "r", encoding="utf-8") as f:
+    with open(FILE,"r",encoding="utf-8") as f:
         return json.load(f)
 def save(data):
-    tmp = FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp=FILE+".tmp"
+    with open(tmp,"w",encoding="utf-8") as f:
+        json.dump(data,f,ensure_ascii=False,indent=2)
         f.flush()
         os.fsync(f.fileno())
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, FILE)
+    os.chmod(tmp,0o600)
+    os.replace(tmp,FILE)
 def public_ip():
     try:
-        return subprocess.check_output(
-            ["curl", "-4", "-fsS", "--max-time", "5", "https://api.ipify.org"],
-            text=True
-        ).strip()
+        return subprocess.check_output(["curl","-4","-fsS","--max-time","5","https://api.ipify.org"],text=True).strip()
     except Exception:
         return ""
-def persist_peer(public_key, wg_address):
+def persist_peer(public_key,wg_address):
     try:
-        with open(WG_CONFIG, "r", encoding="utf-8") as f:
-            text = f.read()
+        with open(WG_CONFIG,"r",encoding="utf-8") as f:
+            text=f.read()
     except Exception:
         return False
-    target = wg_address.split("/")[0] + "/32"
-    blocks = text.split("\n[Peer]")
-    found = False
-    result = [blocks[0]]
+    target=wg_address.split("/")[0]+"/32"
+    blocks=text.split("\n[Peer]")
+    found=False
+    result=[blocks[0]]
     for block in blocks[1:]:
-        full = "[Peer]" + block
-        lines = full.splitlines()
-        key = ""
+        full="[Peer]"+block
+        lines=full.splitlines()
+        key=""
         for line in lines:
             if line.strip().startswith("PublicKey"):
-                key = line.split("=", 1)[1].strip()
+                key=line.split("=",1)[1].strip()
                 break
-        if key == public_key:
-            found = True
-            new_lines = []
-            replaced = False
+        if key==public_key:
+            found=True
+            new_lines=[]
+            replaced=False
             for line in lines:
                 if line.strip().startswith("AllowedIPs"):
-                    new_lines.append("AllowedIPs = " + target)
-                    replaced = True
+                    new_lines.append("AllowedIPs = "+target)
+                    replaced=True
                 else:
                     new_lines.append(line)
             if not replaced:
-                new_lines.append("AllowedIPs = " + target)
-            full = "\n".join(new_lines)
+                new_lines.append("AllowedIPs = "+target)
+            full="\n".join(new_lines)
         result.append(full)
     if not found:
-        result.append(
-            "[Peer]\n"
-            "PublicKey = " + public_key + "\n"
-            "AllowedIPs = " + target + "\n"
-        )
-    tmp = WG_CONFIG + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write("\n".join(result).rstrip() + "\n")
+        result.append("[Peer]\nPublicKey = "+public_key+"\nAllowedIPs = "+target+"\n")
+    tmp=WG_CONFIG+".tmp"
+    with open(tmp,"w",encoding="utf-8") as f:
+        f.write("\n".join(result).rstrip()+"\n")
         f.flush()
         os.fsync(f.fileno())
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, WG_CONFIG)
+    os.chmod(tmp,0o600)
+    os.replace(tmp,WG_CONFIG)
     return True
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
+    def log_message(self,format,*args):
         pass
-    def send_json(self, code, data):
-        raw = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    def send_json(self,code,data):
+        raw=json.dumps(data,ensure_ascii=False).encode("utf-8")
         self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Content-Type","application/json; charset=utf-8")
+        self.send_header("Content-Length",str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
     def do_POST(self):
-        if self.path != "/api/register":
-            self.send_json(404, {"ok": False, "error": "not found"})
+        if self.path!="/api/register":
+            self.send_json(404,{"ok":False,"error":"not found"})
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > 10240:
-                self.send_json(400, {"ok": False, "error": "invalid request size"})
+            length=int(self.headers.get("Content-Length","0"))
+            if length<=0 or length>10240:
+                self.send_json(400,{"ok":False,"error":"invalid request size"})
                 return
-            data = json.loads(self.rfile.read(length))
-            token = data.get("token", "")
-            wg_key = data.get("wg_public_key", "")
-            agent_token = data.get("agent_token", "")
+            data=json.loads(self.rfile.read(length))
+            token=data.get("token","")
+            wg_key=data.get("wg_public_key","")
+            agent_token=data.get("agent_token","")
             if not token or not wg_key:
-                self.send_json(400, {"ok": False, "error": "missing token or wg_public_key"})
+                self.send_json(400,{"ok":False,"error":"missing token or wg_public_key"})
                 return
-            db = load()
-            item = None
-            for x in db.get("vps", []):
-                if x.get("token") == token:
-                    item = x
+            db=load()
+            item=None
+            for x in db.get("vps",[]):
+                if x.get("token")==token:
+                    item=x
                     break
             if item is None:
-                self.send_json(403, {"ok": False, "error": "invalid token"})
+                self.send_json(403,{"ok":False,"error":"invalid token"})
                 return
-            old_key = item.get("wg_public_key", "")
-            if old_key and old_key != wg_key:
-                self.send_json(403, {"ok": False, "error": "wireguard key mismatch"})
+            old_key=item.get("wg_public_key","")
+            if old_key and old_key!=wg_key:
+                self.send_json(403,{"ok":False,"error":"wireguard key mismatch"})
                 return
             if not item.get("wg_address"):
-                used = set()
-                for x in db.get("vps", []):
-                    address = x.get("wg_address", "")
+                used=set()
+                for x in db.get("vps",[]):
+                    address=x.get("wg_address","")
                     if address:
                         try:
                             used.add(int(address.split(".")[-1].split("/")[0]))
                         except Exception:
                             pass
-                address = ""
-                for i in range(2, 255):
+                address=""
+                for i in range(2,255):
                     if i not in used:
-                        address = f"{WG_NETWORK}.{i}"
+                        address=f"{WG_NETWORK}.{i}"
                         break
                 if not address:
-                    self.send_json(500, {"ok": False, "error": "no wg address available"})
+                    self.send_json(500,{"ok":False,"error":"no wg address available"})
                     return
-                item["wg_address"] = address
-            item["wg_public_key"] = wg_key
-            item["agent_token"] = agent_token
-            item["online"] = True
-            item["ipv4"] = data.get("ipv4", "")
-            item["ipv6"] = data.get("ipv6", "")
-            item["country"] = data.get("country", "")
-            item["hostname"] = data.get("hostname", "")
-            item["os"] = data.get("os", "")
-            item["arch"] = data.get("arch", "")
+                item["wg_address"]=address
+            item["wg_public_key"]=wg_key
+            item["agent_token"]=agent_token
+            item["online"]=True
+            item["ipv4"]=data.get("ipv4","")
+            item["ipv6"]=data.get("ipv6","")
+            item["country"]=data.get("country","")
+            item["hostname"]=data.get("hostname","")
+            item["os"]=data.get("os","")
+            item["arch"]=data.get("arch","")
             save(db)
-            subprocess.run(
-                [
-                    "wg",
-                    "set",
-                    WG_INTERFACE,
-                    "peer",
-                    wg_key,
-                    "allowed-ips",
-                    item["wg_address"] + "/32"
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False
-            )
-            persist_peer(wg_key, item["wg_address"])
-            endpoint = public_ip()
+            subprocess.run(["wg", "set", WG_INTERFACE, "peer", wg_key, "allowed-ips", item["wg_address"]+"/32"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+            persist_peer(wg_key,item["wg_address"])
+            endpoint=public_ip()
             if not endpoint:
-                self.send_json(500, {"ok": False, "error": "failed to get central public IPv4"})
+                self.send_json(500,{"ok":False,"error":"failed to get central public IPv4"})
                 return
             try:
-                with open(WG_PUBLIC_FILE, "r", encoding="utf-8") as f:
-                    server_key = f.read().strip()
+                with open(WG_PUBLIC_FILE,"r",encoding="utf-8") as f:
+                    server_key=f.read().strip()
             except Exception:
-                self.send_json(500, {"ok": False, "error": "failed to read server public key"})
+                self.send_json(500,{"ok":False,"error":"failed to read server public key"})
                 return
-            self.send_json(
-                200,
-                {
-                    "ok": True,
-                    "wg_address": item["wg_address"],
-                    "wg_server_public_key": server_key,
-                    "wg_endpoint": endpoint + ":" + str(WG_PORT)
-                }
-            )
+            self.send_json(200,{"ok":True,"wg_address":item["wg_address"],"wg_server_public_key":server_key,"wg_endpoint":endpoint+":"+str(WG_PORT)})
         except Exception as e:
-            self.send_json(500, {"ok": False, "error": str(e)})
-server = HTTPServer(("0.0.0.0", PORT), Handler)
+            self.send_json(500,{"ok":False,"error":str(e)})
+server=HTTPServer(("0.0.0.0",PORT),Handler)
 server.serve_forever()
 PY
 }
-
 start_server() {
     cat > /etc/systemd/system/central-vps.service <<EOF
 [Unit]
@@ -391,7 +375,6 @@ EOF
     systemctl enable central-vps.service >/dev/null 2>&1 || true
     systemctl restart central-vps.service
 }
-
 add_vps() {
     local name
     local token
@@ -401,21 +384,21 @@ add_vps() {
     if python3 - "$VPS_FILE" "$name" <<'PY'
 import json
 import sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    data = json.load(f)
-for x in data.get("vps", []):
-    if x.get("name") == sys.argv[2]:
+with open(sys.argv[1],encoding="utf-8") as f:
+    data=json.load(f)
+for x in data.get("vps",[]):
+    if x.get("name")==sys.argv[2]:
         sys.exit(0)
 sys.exit(1)
 PY
     then
-        echo "VPS 名称已存在"
+        yellow "VPS 名称已存在"
         read -rp "按 Enter 返回..." _
         return
     fi
     central_ip=$(get_ipv4)
     if [ -z "$central_ip" ]; then
-        echo "获取中央 VPS 公网 IP 失败"
+        red "获取中央 VPS 公网 IP 失败"
         read -rp "按 Enter 返回..." _
         return
     fi
@@ -423,60 +406,45 @@ PY
     python3 - "$VPS_FILE" "$name" "$token" <<'PY'
 import json
 import sys
-p, name, token = sys.argv[1:]
-with open(p, encoding="utf-8") as f:
-    data = json.load(f)
-data["vps"].append({
-    "name": name,
-    "token": token,
-    "agent_token": "",
-    "online": False,
-    "ipv4": "",
-    "ipv6": "",
-    "country": "",
-    "hostname": "",
-    "os": "",
-    "arch": "",
-    "wg_address": "",
-    "wg_public_key": ""
-})
-with open(p, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
+p,name,token=sys.argv[1:]
+with open(p,encoding="utf-8") as f:
+    data=json.load(f)
+data["vps"].append({"name":name,"token":token,"agent_token":"","online":False,"ipv4":"","ipv6":"","country":"","hostname":"","os":"","arch":"","wg_address":"","wg_public_key":""})
+with open(p,"w",encoding="utf-8") as f:
+    json.dump(data,f,ensure_ascii=False,indent=2)
 PY
     chmod 600 "$VPS_FILE"
     init_wireguard
     echo
-    echo "========================================"
-    echo "中央 VPS IPv4: $central_ip"
-    echo "========================================"
-    echo "请在目标 VPS 执行："
+    green "========================================"
+    green "中央 VPS IPv4: $central_ip"
+    green "========================================"
+    green "请在目标 VPS 执行："
     echo
-    printf 'curl -fsSL %s | bash -s -- "%s" "%s"\n' "$AGENT_URL" "$central_ip" "$token"
+    echo -e "\033[33mcurl -fsSL $AGENT_URL | bash -s -- \"$central_ip\" \"$token\"\033[0m"
     echo
-    echo "========================================"
+    green "========================================"
     read -rp "按 Enter 返回..." _
 }
-
 get_vps_count() {
     python3 - "$VPS_FILE" <<'PY'
 import json
 import sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    print(len(json.load(f).get("vps", [])))
+with open(sys.argv[1],encoding="utf-8") as f:
+    print(len(json.load(f).get("vps",[])))
 PY
 }
-
 get_vps_field() {
     local index="$1"
     local field="$2"
     python3 - "$VPS_FILE" "$index" "$field" <<'PY'
 import json
 import sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    data = json.load(f)
+with open(sys.argv[1],encoding="utf-8") as f:
+    data=json.load(f)
 try:
-    value = data["vps"][int(sys.argv[2])].get(sys.argv[3], "")
-    if isinstance(value, bool):
+    value=data["vps"][int(sys.argv[2])].get(sys.argv[3],"")
+    if isinstance(value,bool):
         print("true" if value else "false")
     else:
         print(value)
@@ -484,216 +452,109 @@ except Exception:
     print("")
 PY
 }
-
 set_vps_offline() {
     local name="$1"
     python3 - "$VPS_FILE" "$name" <<'PY'
 import json
 import sys
-p, name = sys.argv[1:]
-with open(p, encoding="utf-8") as f:
-    data = json.load(f)
-for x in data.get("vps", []):
-    if x.get("name") == name:
-        x["online"] = False
-with open(p, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
+p,name=sys.argv[1:]
+with open(p,encoding="utf-8") as f:
+    data=json.load(f)
+for x in data.get("vps",[]):
+    if x.get("name")==name:
+        x["online"]=False
+with open(p,"w",encoding="utf-8") as f:
+    json.dump(data,f,ensure_ascii=False,indent=2)
 PY
     chmod 600 "$VPS_FILE"
 }
-
-agent_command() {
-    local wg_ip="$1"
-    local agent_token="$2"
-    local command="$3"
-    python3 - "$wg_ip" "$agent_token" "$command" <<'PY'
-import sys
+agent_request() {
+    local address="$1"
+    local token="$2"
+    local method="$3"
+    local path="$4"
+    local command="${5:-}"
+    local url="http://${address}:18090${path}"
+    if [ "$method" = "GET" ]; then
+        curl -sS --connect-timeout 3 --max-time 10 -H "Authorization: Bearer ${token}" "$url"
+    else
+        python3 - "$command" "$token" "$url" <<'PY'
 import json
+import sys
 import urllib.request
 import urllib.error
-wg_ip = sys.argv[1]
-token = sys.argv[2]
-command = sys.argv[3]
-url = f"http://{wg_ip}:18090/api/command"
-payload = json.dumps({
-    "command": command
-}).encode()
-req = urllib.request.Request(
-    url,
-    data=payload,
-    method="POST",
-    headers={
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    },
-)
+command=sys.argv[1]
+token=sys.argv[2]
+url=sys.argv[3]
+payload=json.dumps({"command":command},ensure_ascii=False).encode("utf-8")
+req=urllib.request.Request(url,data=payload,method="POST",headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"})
 try:
-    with urllib.request.urlopen(req, timeout=35) as response:
-        body = response.read().decode()
-        print(body)
+    with urllib.request.urlopen(req,timeout=35) as response:
+        print(response.read().decode("utf-8"))
 except urllib.error.HTTPError as e:
-    body = e.read().decode(errors="replace")
-    print(json.dumps({
-        "ok": False,
-        "error": f"HTTP {e.code}",
-        "detail": body
-    }, ensure_ascii=False))
+    body=e.read().decode("utf-8",errors="replace")
+    print(json.dumps({"ok":False,"error":f"HTTP {e.code}","detail":body},ensure_ascii=False))
 except Exception as e:
-    print(json.dumps({
-        "ok": False,
-        "error": str(e)
-    }, ensure_ascii=False))
+    print(json.dumps({"ok":False,"error":str(e)},ensure_ascii=False))
 PY
+    fi
 }
-
-
 check_agent() {
     local address="$1"
     local token="$2"
     local result
     result=$(agent_request "$address" "$token" GET "/api/info") || return 1
-    printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-    sys.exit(0 if d.get("ok") else 1)
-except:
-    sys.exit(1)
-'
-}
-
-show_vps_system() {
-    local name="$1"
-    local address="$2"
-    local token="$3"
-    local result
-    result=$(agent_request "$address" "$token" GET "/api/info") || {
-        echo "Agent 连接失败"
-        return
-    }
-    python3 - "$name" "$result" <<'PY'
+    python3 - "$result" <<'PY'
 import json
 import sys
-name = sys.argv[1]
 try:
-    d = json.loads(sys.argv[2])
+    d=json.loads(sys.argv[1])
 except Exception:
-    print("Agent 返回数据格式错误")
-    sys.exit(0)
-if not d.get("ok"):
-    print("获取系统信息失败：" + d.get("error", "unknown error"))
-    sys.exit(0)
-print("========================================")
-print("              系统信息")
-print("========================================")
-print("VPS 名称  :", name)
-print("主机名    :", d.get("hostname", ""))
-print("系统      :", d.get("os", ""))
-print("架构      :", d.get("arch", ""))
-print("WG 地址   :", d.get("wg_address", ""))
-print("========================================")
+    sys.exit(1)
+sys.exit(0 if d.get("ok") else 1)
 PY
 }
-
-show_vps_cpu() {
+show_vps_detail() {
     local name="$1"
     local address="$2"
     local token="$3"
     local result
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'echo "===== CPU ====="; lscpu | grep -E "^(CPU\(s\)|Model name|Architecture)" || true; echo; echo "===== LOAD ====="; uptime') || {
-        echo "Agent 连接失败"
-        return
+    result=$(agent_request "$address" "$token" POST "/api/command" 'echo "===== 系统信息 =====";echo "主机名: $(hostname 2>/dev/null)";echo "系统: $(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME" || uname -s)";echo "内核: $(uname -r 2>/dev/null)";echo "架构: $(uname -m 2>/dev/null)";echo "运行时间: $(uptime -p 2>/dev/null || uptime)";echo;echo "===== CPU =====";echo "CPU 核心: $(nproc 2>/dev/null || echo N/A)";echo "CPU 型号: $(lscpu 2>/dev/null | awk -F: "/Model name/ {gsub(/^[ \t]+/,"""",\$2);print \$2;exit}")";echo "CPU 负载: $(awk "{print \$1,\$2,\$3}" /proc/loadavg 2>/dev/null)";echo "CPU 使用率:";top -bn1 2>/dev/null | grep -E "Cpu\(s\)" | head -n 1 || true;echo;echo "===== 内存 =====";free -h 2>/dev/null || true;echo;echo "===== 磁盘 =====";df -hT 2>/dev/null || true;echo;echo "===== 网络接口 =====";ip -br addr 2>/dev/null || true;echo;echo "===== 路由 =====";ip route 2>/dev/null || true;echo;echo "===== DNS =====";if command -v resolvectl >/dev/null 2>&1;then resolvectl status 2>/dev/null | grep -E "DNS Servers|Current DNS Server" || true;else grep -v "^[[:space:]]*#" /etc/resolv.conf 2>/dev/null || true;fi;echo;echo "===== WireGuard =====";wg show central-mgmt 2>/dev/null || true') || {
+        red "Agent 连接失败"
+        return 1
     }
-    printf '%s' "$result" | python3 -c '
-import json,sys
+    python3 - "$name" "$address" "$result" <<'PY'
+import json
+import sys
+name=sys.argv[1]
+address=sys.argv[2]
+result=sys.argv[3]
 try:
-    d=json.load(sys.stdin)
-except:
-    print("Agent 返回数据格式错误")
-    raise SystemExit
+    d=json.loads(result)
+except Exception:
+    red="Agent 返回数据格式错误"
+    print(red)
+    sys.exit(1)
 if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
-    raise SystemExit
+    print("执行失败："+str(d.get("error","未知错误")))
+    if d.get("detail"):
+        print(d["detail"],end="")
+    if d.get("stderr"):
+        print(d["stderr"],end="")
+    sys.exit(1)
+print("========================================")
+print("              VPS 详细信息")
+print("========================================")
+print("VPS 名称 :",name)
+print("WG 地址  :",address)
+print("========================================")
+print()
 print(d.get("stdout",""),end="")
 if d.get("stderr"):
+    print()
+    print("stderr:")
     print(d["stderr"],end="")
-'
-}
-show_vps_memory() {
-    local name="$1"
-    local address="$2"
-    local token="$3"
-    local result
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'free -h; echo; echo "===== /proc/meminfo ====="; grep -E "^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree):" /proc/meminfo') || {
-        echo "Agent 连接失败"
-        return
-    }
-    printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-except:
-    print("Agent 返回数据格式错误")
-    raise SystemExit
-if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
-    raise SystemExit
-print(d.get("stdout",""),end="")
-if d.get("stderr"):
-    print(d["stderr"],end="")
-'
-}
-show_vps_disk() {
-    local name="$1"
-    local address="$2"
-    local token="$3"
-    local result
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'df -hT; echo; echo "===== BLOCK DEVICES ====="; lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT') || {
-        echo "Agent 连接失败"
-        return
-    }
-    printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-except:
-    print("Agent 返回数据格式错误")
-    raise SystemExit
-if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
-    raise SystemExit
-print(d.get("stdout",""),end="")
-if d.get("stderr"):
-    print(d["stderr"],end="")
-'
-}
-show_vps_network() {
-    local name="$1"
-    local address="$2"
-    local token="$3"
-    local result
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'echo "===== INTERFACES ====="; ip -br addr; echo; echo "===== ROUTES ====="; ip route; echo; echo "===== DNS ====="; resolvectl status 2>/dev/null | grep -E "DNS Servers|Current DNS Server" || cat /etc/resolv.conf') || {
-        echo "Agent 连接失败"
-        return
-    }
-    printf '%s' "$result" | python3 -c '
-import json,sys
-try:
-    d=json.load(sys.stdin)
-except:
-    print("Agent 返回数据格式错误")
-    raise SystemExit
-if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
-    raise SystemExit
-print(d.get("stdout",""),end="")
-if d.get("stderr"):
-    print(d["stderr"],end="")
-'
+PY
 }
 execute_vps_command() {
     local name="$1"
@@ -702,92 +563,95 @@ execute_vps_command() {
     local command
     local result
     echo
-    echo "========================================"
-    echo "              执行命令"
-    echo "========================================"
-    echo "VPS: $name"
-    echo "WG : $address"
+    green "========================================"
+    green "              执行 VPS 命令"
+    green "========================================"
+    echo
+    green "VPS 名称 : $name"
+    green "WG 地址  : $address"
+    echo
+    yellow "请输入要执行的 Linux 命令："
     echo
     read -r -p "> " command
     [ -n "$command" ] || return
     result=$(agent_request "$address" "$token" POST "/api/command" "$command") || {
-        echo "Agent 连接失败"
-        return
+        red "Agent 连接失败"
+        return 1
     }
     echo
-    echo "========================================"
-    echo "              执行结果"
-    echo "========================================"
-    printf '%s' "$result" | python3 -c '
-import json,sys
+    python3 - "$result" <<'PY'
+import json
+import sys
 try:
-    d=json.load(sys.stdin)
-except:
+    d=json.loads(sys.argv[1])
+except Exception:
     print("Agent 返回数据格式错误")
-    raise SystemExit
+    sys.exit(1)
+print("========================================")
+print("              执行结果")
+print("========================================")
 if not d.get("ok"):
-    print("执行失败:",d.get("error","unknown error"))
+    print("执行失败："+str(d.get("error","未知错误")))
     if d.get("stdout"):
         print(d["stdout"],end="")
     if d.get("stderr"):
         print(d["stderr"],end="")
-    raise SystemExit
+    if d.get("detail"):
+        print(d["detail"],end="")
+    sys.exit(1)
 if d.get("stdout"):
     print(d["stdout"],end="")
 if d.get("stderr"):
-    print("\n----- stderr -----")
+    print()
+    print("stderr:")
     print(d["stderr"],end="")
-print("\n返回码:",d.get("returncode",-1))
-'
+print()
+print("返回码:",d.get("returncode",-1))
+PY
 }
 restart_vps() {
     local name="$1"
     local address="$2"
     local token="$3"
     local result
-
+    local confirm
     echo
-    echo "========================================"
-    echo "              重启 VPS"
-    echo "========================================"
-    echo "VPS: $name"
-    echo "WG : $address"
+    green "========================================"
+    green "              重启 VPS"
+    green "========================================"
     echo
-
-    read -r -p "确定重启此 VPS？输入 yes 确认: " confirm
+    green "VPS 名称 : $name"
+    green "WG 地址  : $address"
+    echo
+    yellow "确定重启此 VPS？输入 yes 确认:"
+    read -r confirm
     [ "$confirm" = "yes" ] || return
-
-    result=$(agent_request "$address" "$token" POST "/api/command" \
-        'nohup sh -c "sleep 2; /sbin/reboot" >/dev/null 2>&1 & echo "REBOOT_SCHEDULED"') || {
-        echo
-        echo "Agent 连接失败"
-        return
+    result=$(agent_request "$address" "$token" POST "/api/command" 'nohup sh -c "sleep 2; /sbin/reboot" >/dev/null 2>&1 & echo "REBOOT_SCHEDULED"') || {
+        red "Agent 连接失败"
+        return 1
     }
-
     echo
-    if printf '%s' "$result" | python3 -c '
+    if python3 - "$result" <<'PY'
 import json
 import sys
-
 try:
-    d = json.load(sys.stdin)
+    d=json.loads(sys.argv[1])
 except Exception:
     print("Agent 返回数据格式错误")
-    raise SystemExit(1)
-
+    sys.exit(1)
 if not d.get("ok"):
-    print("重启失败：" + str(d.get("error", "unknown error")))
-    raise SystemExit(1)
-
-print(d.get("stdout", ""), end="")
-' ; then
+    print("重启失败："+str(d.get("error","未知错误")))
+    if d.get("detail"):
+        print(d["detail"],end="")
+    sys.exit(1)
+print(d.get("stdout",""),end="")
+PY
+    then
         echo
-        echo "VPS 重启已安排，约 2 秒后重启。"
+        green "VPS 重启已安排，约 2 秒后重启。"
     else
-        echo
-        echo "重启命令执行失败"
+        red "重启命令执行失败"
     fi
-
     sleep 2
 }
 manage_single_vps() {
@@ -796,87 +660,81 @@ manage_single_vps() {
     local address
     local token
     local agent_token
+    local action
+    local confirm
     name=$(get_vps_field "$index" name)
     address=$(get_vps_field "$index" wg_address)
     token=$(get_vps_field "$index" token)
     agent_token=$(get_vps_field "$index" agent_token)
     if [ -z "$name" ] || [ -z "$address" ]; then
-        echo "VPS 数据不完整"
+        red "VPS 数据不完整"
         sleep 1
         return
     fi
     if [ -z "$agent_token" ]; then
         echo
-        echo "此 VPS 尚未保存 Agent Token"
-        echo "请重新运行 Agent 注册脚本"
+        red "此 VPS 尚未保存 Agent Token"
+        yellow "请重新运行 Agent 注册脚本"
         echo
         read -rp "按 Enter 返回..." _
         return
     fi
     while true; do
         clear
-        echo "========================================"
-        echo "              VPS 管理"
-        echo "========================================"
+        green "========================================"
+        green "              VPS 管理"
+        green "========================================"
         echo
-        echo "VPS 名称 : $name"
-        echo "WG 地址  : $address"
+        green "1. 查看 VPS 详细信息"
+        green "2. 执行 VPS 命令"
+        green "3. 重启 VPS"
+        green "4. 删除 VPS"
         echo
-        echo "1. 查看系统信息"
-        echo "2. CPU"
-        echo "3. 内存"
-        echo "4. 磁盘"
-        echo "5. 网络"
-        echo "6. 执行命令"
-        echo "7. 重启 VPS"
-        echo "0. 返回"
+        green "0. 返回"
         echo
         read -rp "请选择: " action
         case "$action" in
             1)
                 clear
-                show_vps_system "$name" "$address" "$agent_token"
+                show_vps_detail "$name" "$address" "$agent_token"
                 echo
                 read -rp "按 Enter 返回..." _
                 ;;
             2)
                 clear
-                show_vps_cpu "$name" "$address" "$agent_token"
+                execute_vps_command "$name" "$address" "$agent_token"
                 echo
                 read -rp "按 Enter 返回..." _
                 ;;
             3)
                 clear
-                show_vps_memory "$name" "$address" "$agent_token"
-                echo
-                read -rp "按 Enter 返回..." _
+                restart_vps "$name" "$address" "$agent_token"
                 ;;
             4)
                 clear
-                show_vps_disk "$name" "$address" "$agent_token"
+                red "========================================"
+                red "              删除 VPS"
+                red "========================================"
                 echo
-                read -rp "按 Enter 返回..." _
-                ;;
-            5)
-                clear
-                show_vps_network "$name" "$address" "$agent_token"
+                red "VPS 名称: $name"
+                red "公网 IP : $(get_vps_field "$index" ipv4)"
                 echo
-                read -rp "按 Enter 返回..." _
-                ;;
-            6)
-                clear
-                execute_vps_command "$name" "$address" "$agent_token"
-                echo
-                read -rp "按 Enter 返回..." _
-                ;;
-            7)
-                restart_vps "$name" "$address" "$agent_token"
+                yellow "确认删除此 VPS？输入 yes:"
+                read -r confirm
+                if [ "$confirm" = "yes" ]; then
+                    delete_vps "$name"
+                    rebuild_wg_config
+                    echo
+                    green "VPS 已删除"
+                    sleep 1
+                    return
+                fi
                 ;;
             0)
                 return
                 ;;
             *)
-                echo "无效选择"
+                red "无效选择"
                 sleep 1
                 ;;
         esac
@@ -885,46 +743,44 @@ manage_single_vps() {
 manage_vps() {
     while true; do
         clear
-        echo "========================================"
-        echo "              管理 VPS"
-        echo "========================================"
+        green "========================================"
+        green "              管理 VPS"
+        green "========================================"
         echo
         local count
         count=$(get_vps_count)
         if [ "$count" -eq 0 ]; then
-            echo "暂无 VPS"
+            yellow "暂无 VPS"
             echo
             read -rp "按 Enter 返回..." _
             return
         fi
-        python3 - "$VPS_FILE" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    data = json.load(f)
-for i, x in enumerate(data.get("vps", []), 1):
-    name = x.get("name", "")
-    country = x.get("country", "")
-    ipv4 = x.get("ipv4", "")
-    address = x.get("wg_address", "")
-    online = x.get("online", False)
-    print(
-        f"{i}. {name:<18} "
-        f"{country:<15} "
-        f"{ipv4:<16} "
-        f"{address:<15} "
-        f"{'在线' if online else '离线'}"
-    )
-PY
+        green "编号  名称                    公网 IP"
+        green "----------------------------------------------"
+        local i
+        local name
+        local ipv4
+        for ((i=0;i<count;i++)); do
+            name=$(get_vps_field "$i" name)
+            ipv4=$(get_vps_field "$i" ipv4)
+            [ -n "$name" ] || name="-"
+            [ -n "$ipv4" ] || ipv4="-"
+            green "$((i+1)).    $name                    $ipv4"
+        done
         echo
-        echo "0. 返回"
+        if [ "$count" -eq 1 ]; then
+            green "1. 选择 VPS"
+        else
+            green "1～$count. 选择 VPS"
+        fi
+        green "0. 返回"
         echo
         read -rp "请选择 VPS: " choice
         [ "$choice" = "0" ] && return
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
-            manage_single_vps "$((choice - 1))"
+            manage_single_vps "$((choice-1))"
         else
-            echo "无效选择"
+            red "无效选择"
             sleep 1
         fi
     done
@@ -934,12 +790,12 @@ delete_vps() {
     python3 - "$VPS_FILE" "$name" <<'PY'
 import json
 import sys
-p, name = sys.argv[1:]
-with open(p, encoding="utf-8") as f:
-    data = json.load(f)
-data["vps"] = [x for x in data.get("vps", []) if x.get("name") != name]
-with open(p, "w", encoding="utf-8") as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
+p,name=sys.argv[1:]
+with open(p,encoding="utf-8") as f:
+    data=json.load(f)
+data["vps"]=[x for x in data.get("vps",[]) if x.get("name")!=name]
+with open(p,"w",encoding="utf-8") as f:
+    json.dump(data,f,ensure_ascii=False,indent=2)
 PY
     chmod 600 "$VPS_FILE"
 }
@@ -947,59 +803,60 @@ delete_vps_menu() {
     local count
     count=$(get_vps_count)
     if [ "$count" -eq 0 ]; then
-        echo "暂无 VPS"
+        yellow "暂无 VPS"
         read -rp "按 Enter 返回..." _
         return
     fi
     clear
-    echo "========================================"
-    echo "              删除 VPS"
-    echo "========================================"
+    red "========================================"
+    red "              删除 VPS"
+    red "========================================"
     echo
-    python3 - "$VPS_FILE" <<'PY'
-import json
-import sys
-with open(sys.argv[1], encoding="utf-8") as f:
-    data = json.load(f)
-for i, x in enumerate(data.get("vps", []), 1):
-    print(f"{i}. {x.get('name','')} {x.get('wg_address','')}")
-PY
+    local i
+    local name
+    local ipv4
+    for ((i=0;i<count;i++)); do
+        name=$(get_vps_field "$i" name)
+        ipv4=$(get_vps_field "$i" ipv4)
+        green "$((i+1)). $name  $ipv4"
+    done
     echo
-    echo "0. 返回"
+    green "0. 返回"
     echo
     read -rp "请选择 VPS: " choice
     [ "$choice" = "0" ] && return
     if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "$count" ]; then
-        echo "无效选择"
+        red "无效选择"
         sleep 1
         return
     fi
-    local name
-    local address
-    name=$(get_vps_field "$((choice - 1))" name)
-    address=$(get_vps_field "$((choice - 1))" wg_address)
+    name=$(get_vps_field "$((choice-1))" name)
+    ipv4=$(get_vps_field "$((choice-1))" ipv4)
     echo
-    read -rp "确认删除 [$name]？输入 yes: " confirm
+    red "VPS 名称: $name"
+    red "公网 IP : $ipv4"
+    echo
+    yellow "确认删除此 VPS？输入 yes:"
+    read -r confirm
     [ "$confirm" = "yes" ] || return
     delete_vps "$name"
     rebuild_wg_config
-    echo "VPS 已删除"
+    green "VPS 已删除"
     sleep 1
 }
 update_script() {
     echo
-    echo "========================================"
-    echo "              更新管理脚本"
-    echo "========================================"
+    green "========================================"
+    green "              更新管理脚本"
+    green "========================================"
     echo
     local tmp="${LOCAL_SCRIPT}.tmp"
     rm -f "$tmp"
-    echo "正在下载最新版本..."
+    green "正在下载最新版本..."
     if ! curl -fsSL --connect-timeout 5 --max-time 30 "$SCRIPT_URL" -o "$tmp"; then
         rm -f "$tmp"
-        echo
-        echo "脚本下载失败"
-        echo "原脚本没有修改"
+        red "脚本下载失败"
+        yellow "原脚本没有修改"
         echo
         read -rp "按 Enter 返回..." _
         return
@@ -1007,26 +864,24 @@ update_script() {
     chmod 700 "$tmp"
     if ! bash -n "$tmp"; then
         rm -f "$tmp"
-        echo
-        echo "脚本语法检查失败"
-        echo "原脚本没有修改"
+        red "脚本语法检查失败"
+        yellow "原脚本没有修改"
         echo
         read -rp "按 Enter 返回..." _
         return
     fi
     mv -f "$tmp" "$LOCAL_SCRIPT"
-    echo
-    echo "脚本更新成功"
+    green "脚本更新成功"
     echo
     exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
 delete_script() {
     echo
-    echo "========================================"
-    echo "          删除中央 VPS 管理系统"
-    echo "========================================"
+    red "========================================"
+    red "          删除中央 VPS 管理系统"
+    red "========================================"
     echo
-    echo "将删除："
+    yellow "将删除："
     echo
     echo "  central-vps.service"
     echo "  $WG_INTERFACE"
@@ -1036,7 +891,7 @@ delete_script() {
     echo "  /etc/central-vps"
     echo "  /usr/local/bin/central-vps.sh"
     echo
-    echo "不会删除："
+    yellow "不会删除："
     echo "  route64"
     echo "  central0"
     echo "  其他 WireGuard"
@@ -1059,25 +914,23 @@ delete_script() {
     rm -rf "$BASE_DIR"
     rm -f "$LOCAL_SCRIPT"
     rm -f /run/central-vps-server.lock
-    echo
-    echo "中央 VPS 管理系统已删除"
-    echo
+    green "中央 VPS 管理系统已删除"
     exit 0
 }
 main() {
     mkdir -p "$(dirname "$LOCAL_SCRIPT")"
     if [ ! -f "$LOCAL_SCRIPT" ]; then
         local tmp="${LOCAL_SCRIPT}.tmp"
-        echo "首次运行，正在下载中央 VPS 管理脚本..."
+        green "首次运行，正在下载中央 VPS 管理脚本..."
         if ! curl -fsSL --connect-timeout 5 --max-time 30 "$SCRIPT_URL" -o "$tmp"; then
             rm -f "$tmp"
-            echo "脚本下载失败"
+            red "脚本下载失败"
             exit 1
         fi
         chmod 700 "$tmp"
         if ! bash -n "$tmp"; then
             rm -f "$tmp"
-            echo "下载的脚本语法错误"
+            red "下载的脚本语法错误"
             exit 1
         fi
         mv -f "$tmp" "$LOCAL_SCRIPT"
@@ -1100,18 +953,18 @@ case "${1:-}" in
     --menu)
         while true; do
             clear
-            echo "========================================"
-            echo "          中央 VPS 管理脚本"
-            echo "========================================"
+            green "========================================"
+            green "          中央 VPS 管理脚本"
+            green "========================================"
             echo
-            echo "1. 添加 VPS"
-            echo "2. 管理 VPS"
-            echo "3. 安装 sing-box"
-            echo "4. 卸载 sing-box"
-            echo "5. 更新脚本"
-            echo "6. 删除管理脚本"
+            green "1. 添加 VPS"
+            green "2. 管理 VPS"
+            green "3. 安装 sing-box"
+            green "4. 卸载 sing-box"
+            green "5. 更新脚本"
+            green "6. 删除管理脚本"
             echo
-            echo "0. 退出"
+            green "0. 退出"
             echo
             read -rp "请选择: " choice
             case "$choice" in
@@ -1122,11 +975,11 @@ case "${1:-}" in
                     manage_vps
                     ;;
                 3)
-                    echo "暂未实现"
+                    yellow "暂未实现"
                     read -rp "按 Enter 返回..." _
                     ;;
                 4)
-                    echo "暂未实现"
+                    yellow "暂未实现"
                     read -rp "按 Enter 返回..." _
                     ;;
                 5)
@@ -1139,7 +992,7 @@ case "${1:-}" in
                     exit 0
                     ;;
                 *)
-                    echo "无效选择"
+                    red "无效选择"
                     sleep 1
                     ;;
             esac
