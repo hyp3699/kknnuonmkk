@@ -63,12 +63,16 @@ check_nginx() {
 load_local_modules() {
     local file
     local module_file
+    local error_output
+    local status
     for file in "${MODULES[@]:1}"; do
         module_file="$MODULE_DIR/$file"
         if [ -f "$module_file" ]; then
-            if ! source "$module_file" >/dev/null 2>&1; then
+            error_output=$(source "$module_file" 2>&1 >/dev/null)
+            status=$?
+            if [ $status -ne 0 ]; then
                 red "$file 加载失败"
-                return 1
+                printf '%s\n' "$error_output"
             fi
         fi
     done
@@ -253,6 +257,79 @@ update_script() {
     green "\n所有脚本更新完成！"
     sleep 1
     exec bash "$MODULE_DIR/menu.sh"
+}
+
+uninstall_singbox() {
+    local server_name="sing-box"
+    local work_dir="/etc/sing-box"
+    local log_dir="${work_dir}/logs"
+    reading "确定要卸载 sing-box 吗? (y/n): " choice
+    case "${choice}" in
+        y|Y)
+            yellow "正在卸载 sing-box"
+            if command_exists rc-service; then
+                rc-service sing-box stop 2>/dev/null || true
+                rc-update del sing-box default 2>/dev/null || true
+                rm -f /etc/init.d/sing-box
+            elif command_exists systemctl; then
+                systemctl stop "${server_name}" 2>/dev/null || true
+                systemctl disable "${server_name}" 2>/dev/null || true
+            fi
+            if command_exists systemctl; then
+                systemctl stop singbox-traffic.service 2>/dev/null || true
+                systemctl disable singbox-traffic.service 2>/dev/null || true
+                rm -f /etc/systemd/system/singbox-traffic.service
+            fi
+            rm -f /etc/systemd/system/sing-box.service
+            rm -f /etc/systemd/system/singbox-traffic.service
+            if command_exists systemctl; then
+                systemctl daemon-reload 2>/dev/null || true
+            fi
+            rm -rf "${work_dir}"
+            rm -rf "${log_dir}"
+            rm -f /usr/bin/sb
+            rm -f /usr/bin/b
+            rm -f /etc/nginx/conf.d/sing-box.conf
+            rm -f /etc/nginx/conf.d/sing-box.conf.bak*
+            rm -rf /etc/nginx/conf.d/singbox_users
+
+            reading "\n是否卸载 Nginx？${green}(卸载请输入 ${yellow}y${re} ${green}，回车将跳过卸载Nginx): ${re}" choice
+            case "${choice}" in
+                y|Y)
+                    yellow "\n正在停止 Nginx"
+                    if command_exists rc-service; then
+                        rc-service nginx stop 2>/dev/null || true
+                        rc-update del nginx default 2>/dev/null || true
+                    elif command_exists systemctl; then
+                        systemctl stop nginx 2>/dev/null || true
+                        systemctl disable nginx 2>/dev/null || true
+                    fi
+                    yellow "正在卸载 Nginx"
+                    if command_exists apt-get; then
+                        apt-get purge -y nginx nginx-common nginx-core 2>/dev/null || true
+                        apt-get autoremove -y 2>/dev/null || true
+                    elif command_exists apk; then
+                        apk del nginx 2>/dev/null || true
+                    elif command_exists dnf; then
+                        dnf remove -y nginx 2>/dev/null || true
+                    elif command_exists yum; then
+                        yum remove -y nginx 2>/dev/null || true
+                    elif command_exists pacman; then
+                        pacman -Rns --noconfirm nginx 2>/dev/null || true
+                    fi
+                    rm -rf /etc/nginx
+                    ;;
+                *)
+                    yellow "取消卸载 Nginx\n\n"
+                    ;;
+            esac
+            green "\nsing-box 卸载成功\n\n"
+            exit 0
+            ;;
+        *)
+            purple "已取消卸载操作\n\n"
+            ;;
+    esac
 }
 
 menu() {
