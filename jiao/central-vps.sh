@@ -777,6 +777,44 @@ PY
     fi
     sleep 2
 }
+
+show_namess_url() {
+    local username="$1"
+    local user_dir="$DATA_DIR/users/$username"
+    local nodes_dir="$user_dir/nodes"
+    local node_file=""
+    local node_name=""
+    local found_any=false
+    green "================ 用户节点 ================"
+    echo
+    green "用户：${username}"
+    echo
+    if [ ! -d "$nodes_dir" ]; then
+        red "该用户没有节点目录"
+        echo
+        read -rp "按回车返回..." _
+        return
+    fi
+    while IFS= read -r node_file; do
+        [ -f "$node_file" ] || continue
+        node_name=$(basename "$node_file")
+        [ -n "$node_name" ] || continue
+        found_any=true
+        green "---------------- ${node_name} ----------------"
+        if [ -s "$node_file" ]; then
+            purple "$(cat "$node_file")"
+        else
+            yellow "该 VPS 暂无节点链接"
+        fi
+        echo
+    done < <(find "$nodes_dir" -maxdepth 1 -type f -printf '%p\n' 2>/dev/null | sort)
+    if [ "$found_any" = false ]; then
+        red "该用户暂无 VPS 节点"
+    fi
+    echo
+    read -rp "按回车返回..." _
+}
+
 format_bytes() {
     local bytes="${1:-0}"
     python3 - "$bytes" <<'PY'
@@ -1310,7 +1348,8 @@ PY
         green "1. 设置流量"
         green "2. 周期设置"
         green "3. 更新用户"
-        green "4. 删除用户"
+        green "4. 查看链接"
+        green "5. 删除用户"
         green "0. 返回"
         echo
         read -rp "请输入数字: " choice
@@ -1326,8 +1365,7 @@ PY
                 central_user_update "$username"
                 ;;
             4)
-                central_user_delete "$username"
-                return
+                show_namess_url "$username"
                 ;;
             0)
                 return
