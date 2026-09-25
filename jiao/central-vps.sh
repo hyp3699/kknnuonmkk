@@ -1522,6 +1522,7 @@ central_user_set_limit() {
     local value=""
     local unit=""
     local limit_bytes=0
+    local was_disabled=""
 
     if [ -z "$username" ] || [ ! -d "$user_dir" ]; then
         red "用户不存在"
@@ -1552,7 +1553,24 @@ central_user_set_limit() {
     input=$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')
 
     if [ "$input" = "0" ]; then
-        python3 - "$traffic_file" <<'PY'
+        was_disabled=$(python3 - "$traffic_file" <<'PY'
+import json
+import sys
+
+path=sys.argv[1]
+
+try:
+    with open(path,"r",encoding="utf-8") as f:
+        d=json.load(f)
+except Exception:
+    print("false")
+    sys.exit(0)
+
+print("true" if d.get("disabled_by_limit",False) else "false")
+PY
+)
+
+        if ! python3 - "$traffic_file" <<'PY'
 import json
 import os
 import sys
@@ -1560,11 +1578,8 @@ import tempfile
 
 path=sys.argv[1]
 
-try:
-    with open(path,"r",encoding="utf-8") as f:
-        data=json.load(f)
-except Exception:
-    sys.exit(1)
+with open(path,"r",encoding="utf-8") as f:
+    data=json.load(f)
 
 data["limit"]={
     "enabled":False,
@@ -1572,6 +1587,11 @@ data["limit"]={
     "limit_unit":"GB",
     "limit_bytes":0
 }
+
+data["period_upload"]=0
+data["period_download"]=0
+data["period_total"]=0
+data["disabled_by_limit"]=False
 
 directory=os.path.dirname(path)
 fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
@@ -1592,14 +1612,24 @@ except Exception:
         pass
     raise
 PY
-
-        if [ "$?" -ne 0 ]; then
+        then
             red "解除流量限制失败"
             sleep 1
             return 1
         fi
 
+        if [ "$was_disabled" = "true" ]; then
+            if central_restore_user_to_all_vps "$username"; then
+                green "VPS 用户已恢复"
+            else
+                red "VPS 用户恢复失败"
+                sleep 1
+                return 1
+            fi
+        fi
+
         green "流量限制已解除"
+        green "周期使用流量已清零"
         sleep 1
         return 0
     fi
@@ -1652,6 +1682,23 @@ PY
         return 1
     fi
 
+    was_disabled=$(python3 - "$traffic_file" <<'PY'
+import json
+import sys
+
+path=sys.argv[1]
+
+try:
+    with open(path,"r",encoding="utf-8") as f:
+        d=json.load(f)
+except Exception:
+    print("false")
+    sys.exit(0)
+
+print("true" if d.get("disabled_by_limit",False) else "false")
+PY
+)
+
     if ! python3 - "$traffic_file" "$value" "$unit" "$limit_bytes" <<'PY'
 import json
 import os
@@ -1672,6 +1719,11 @@ data["limit"]={
     "limit_unit":unit,
     "limit_bytes":limit_bytes
 }
+
+data["period_upload"]=0
+data["period_download"]=0
+data["period_total"]=0
+data["disabled_by_limit"]=False
 
 directory=os.path.dirname(path)
 fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
@@ -1698,12 +1750,25 @@ PY
         return 1
     fi
 
+    if [ "$was_disabled" = "true" ]; then
+        if central_restore_user_to_all_vps "$username"; then
+            green "VPS 用户已恢复"
+        else
+            red "VPS 用户恢复失败"
+            sleep 1
+            return 1
+        fi
+    fi
+
     green "流量限制设置成功"
     green "限制：${value}${unit^^}"
     green "限制大小：$(format_bytes "$limit_bytes")"
+    green "周期使用流量已清零"
     sleep 1
     return 0
 }
+
+
 central_user_set_period() {
     local username="$1"
     local user_dir="$DATA_DIR/users/$username"
