@@ -1500,18 +1500,22 @@ delete_central_user() {
     local token=""
     local result=""
     local output=""
+    local returncode=0
     local failed=0
     local user_dir="$DATA_DIR/users/$username"
+
     if [ -z "$username" ]; then
         red "用户名不能为空"
         sleep 1
         return 1
     fi
+
     if [ ! -d "$user_dir" ]; then
         red "用户不存在"
         sleep 1
         return 1
     fi
+
     echo
     red "确定删除用户：$username？"
     yellow "将从所有 VPS 的所有入站中删除该用户。"
@@ -1519,13 +1523,16 @@ delete_central_user() {
     echo
     read -rp "输入 y 确认删除: " confirm
     [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return 1
+
     count=$(get_vps_count)
+
     if [ "$count" -le 0 ]; then
         rm -rf "$user_dir"
         green "中央用户已删除"
         sleep 1
         return 0
     fi
+
     for ((i=0; i<count; i++)); do
         name=$(get_vps_field "$i" "name")
         address=$(get_vps_field "$i" "wg_address")
@@ -1536,34 +1543,49 @@ delete_central_user() {
             failed=1
             continue
         fi
+
         green "正在删除：$name"
+
         result=$(agent_request \
             "$address" \
             "$token" \
             POST \
             "/api/command" \
-            "SB_LOAD_ONLY=1 source /etc/sing-box/sb.sh && delete_user '$username' 1 0") || {
+            "SB_LOAD_ONLY=1 bash -c 'source /etc/sing-box/sb.sh; delete_user \"\$1\" 1 0' -- '$username'") || {
                 red "$name：请求失败"
                 failed=1
                 continue
             }
+
+        returncode=$(echo "$result" | python3 -c '
+import json
+import sys
+try:
+    d=json.load(sys.stdin)
+    print(int(d.get("returncode",1)))
+except Exception:
+    print(1)
+' 2>/dev/null)
+
         output=$(echo "$result" | python3 -c '
 import json
 import sys
 try:
     d=json.load(sys.stdin)
-    print(d.get("stdout",""), end="")
-    if d.get("returncode",0) != 0:
-        sys.exit(1)
+    print(d.get("stdout",""),end="")
+    err=d.get("stderr","")
+    if err:
+        print(err,end="")
 except Exception:
-    sys.exit(1)
+    pass
 ' 2>/dev/null)
 
-        if [ $? -eq 0 ]; then
+        if echo "$output" | grep -q "用户已删除"; then
             green "$name：删除成功"
         else
             red "$name：删除失败"
             [ -n "$output" ] && echo "$output"
+            yellow "$name：远程返回码 $returncode"
             failed=1
         fi
     done
