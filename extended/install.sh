@@ -563,12 +563,23 @@ EOF
 
 create_shortcut() {
     local local_file="/etc/sing-box/menu.sh"
-    if [ -s "$local_file" ]; then
-        chmod 700 "$local_file"
-        ln -sf "$local_file" /usr/bin/sb
-        ln -sf "$local_file" /usr/bin/b
+    if [ ! -s "$local_file" ]; then
+        red "\n主菜单文件不存在：$local_file\n"
+        return 1
     fi
-    if [ -x /usr/bin/sb ] && [ -x /usr/bin/b ]; then
+    chmod 700 "$local_file" || {
+        red "\n设置主菜单执行权限失败\n"
+        return 1
+    }
+    ln -sfn "$local_file" /usr/bin/sb || {
+        red "\n创建 sb 快捷命令失败\n"
+        return 1
+    }
+    ln -sfn "$local_file" /usr/bin/b || {
+        red "\n创建 b 快捷命令失败\n"
+        return 1
+    }
+    if [ -L /usr/bin/sb ] && [ -L /usr/bin/b ]; then
         green "\n快捷命令 sb 和 b 已创建\n"
     else
         red "\n快捷命令创建失败\n"
