@@ -2807,6 +2807,8 @@ update_script() {
     mv -f "$tmp" "$LOCAL_SCRIPT"
     chmod 700 "$LOCAL_SCRIPT"
     green "脚本更新成功"
+    systemctl restart central-vps 2>/dev/null || true
+    green "API 已重新加载最新脚本"
     green "正在加载新版本..."
     exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
