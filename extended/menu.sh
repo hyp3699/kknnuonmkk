@@ -85,7 +85,7 @@ download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
     local module_file
-    for file in "${MODULES[@]:1}"; do
+    for file in "${MODULES[@]}"; do
         module_file="$MODULE_DIR/$file"
         if ! curl -fsSL "$GITHUB_RAW/$file" -o "$module_file" >/dev/null 2>&1; then
             red "$file 下载失败"
