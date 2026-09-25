@@ -983,9 +983,96 @@ singbox_show_status() {
     green "1. 安装 Sing-box"
     green "2. 卸载 Sing-box"
     green "3. 更新 Sing-box"
+    green "4. 添加用户"
     green "0. 返回"
     echo
 }
+add_central_user() {
+    local username=""
+    local uuid=""
+    local count=0
+    local i=0
+    local name=""
+    local address=""
+    local token=""
+    local result=""
+    local output=""
+    local failed=0
+    echo
+    green "================ 添加用户 ================"
+    echo
+    read -rp "请输入用户名: " username
+    if [ -z "$username" ]; then
+        red "用户名不能为空"
+        sleep 1
+        return
+    fi
+    if ! [[ "$username" =~ ^[A-Za-z0-9._-]+$ ]]; then
+        red "用户名只能包含字母、数字、点、下划线和横线"
+        sleep 1
+        return
+    fi
+    uuid=$(cat /proc/sys/kernel/random/uuid)
+    count=$(get_vps_count)
+    if [ "$count" -le 0 ]; then
+        red "当前没有已添加的 VPS"
+        sleep 1
+        return
+    fi
+    echo
+    green "用户名：$username"
+    green "UUID：$uuid"
+    echo
+    for ((i=0; i<count; i++)); do
+        name=$(get_vps_field "$i" "name")
+        address=$(get_vps_field "$i" "wg_address")
+        token=$(get_vps_field "$i" "agent_token")
+        if [ -z "$address" ] || [ -z "$token" ]; then
+            red "$name：VPS信息不完整"
+            failed=1
+            continue
+        fi
+        green "正在添加：$name"
+        result=$(agent_request \
+            "$address" \
+            "$token" \
+            POST \
+            "/api/command" \
+            "source /etc/sing-box/sb.sh && add_user_menu '$username' '$uuid' '' 'central'") || {
+                red "$name：请求失败"
+                failed=1
+                continue
+            }
+        output=$(echo "$result" | python3 -c '
+import json
+import sys
+try:
+    d=json.load(sys.stdin)
+    print(d.get("stdout",""), end="")
+except Exception:
+    pass
+' 2>/dev/null)
+        if echo "$output" | grep -q "CENTRAL_USER_OK"; then
+            green "$name：添加成功"
+        else
+            red "$name：添加失败"
+            [ -n "$output" ] && echo "$output"
+            failed=1
+        fi
+    done
+    echo
+    if [ "$failed" -eq 0 ]; then
+        green "用户添加成功"
+    else
+        red "用户添加完成，但部分 VPS 添加失败"
+    fi
+    echo
+    green "用户名：$username"
+    green "UUID：$uuid"
+    echo
+    read -rp "按回车返回..." _
+}
+
 manage_singbox() {
     local choice
     local count
@@ -1121,6 +1208,9 @@ manage_singbox() {
                 esac
                 read -n 1 -s -r -p "按任意键返回..."
                 ;;
+            4)
+            add_central_user
+            ;;
             0)
                 return
                 ;;
@@ -1166,7 +1256,7 @@ update_script() {
 delete_script() {
     echo
     red "========================================"
-    red "          删除中央 VPS 管理系统"
+    red "          删除 VPS 管理系统"
     red "========================================"
     echo
     yellow "将删除："
@@ -1179,14 +1269,8 @@ delete_script() {
     echo "  /etc/central-vps"
     echo "  /usr/local/bin/central-vps.sh"
     echo
-    yellow "不会删除："
-    echo "  route64"
-    echo "  central0"
-    echo "  其他 WireGuard"
-    echo "  WireGuard 软件包"
-    echo
-    read -rp "确认删除？输入 yes: " confirm
-    [ "$confirm" = "yes" ] || return
+    read -rp "确认删除？输入 y: " confirm
+    [ "$confirm" = "y" ] || return
     systemctl stop central-vps.service >/dev/null 2>&1 || true
     systemctl disable central-vps.service >/dev/null 2>&1 || true
     systemctl stop "wg-quick@$WG_INTERFACE.service" >/dev/null 2>&1 || true
