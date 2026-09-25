@@ -203,25 +203,6 @@ manage_service() {
     esac
 }
 
-create_shortcut() {
-    local local_file
-    local_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/menu.sh"
-    if [ ! -f "$local_file" ]; then
-        red "\n找不到主菜单文件：$local_file\n"
-        return 1
-    fi
-    chmod 700 "$local_file" || return 1
-    ln -sfn "$local_file" /usr/bin/sb || return 1
-    ln -sfn "$local_file" /usr/bin/b || return 1
-    if [ -L /usr/bin/sb ] && [ -L /usr/bin/b ] &&
-       [ -e /usr/bin/sb ] && [ -e /usr/bin/b ]; then
-        green "\n快捷命令 sb 和 b 已创建\n"
-    else
-        red "\n快捷命令创建失败\n"
-        return 1
-    fi
-}
-
 update_script() {
     local file
     local module_file
