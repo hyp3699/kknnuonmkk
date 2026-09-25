@@ -63,21 +63,12 @@ check_nginx() {
 load_local_modules() {
     local file
     local module_file
-    local error_file
-    local status
-    error_file=$(mktemp)
     for file in "${MODULES[@]:1}"; do
         module_file="$MODULE_DIR/$file"
         if [ -f "$module_file" ]; then
-            source "$module_file" >/dev/null 2>"$error_file"
-            status=$?
-            if [ $status -ne 0 ]; then
-                red "$file 加载失败"
-                cat "$error_file"
-            fi
+            source "$module_file"
         fi
     done
-    rm -f "$error_file"
     return 0
 }
 load_local_modules
@@ -85,14 +76,29 @@ download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
     local module_file
+    local pid
+    local failed=0
+    local pids=()
     for file in "${MODULES[@]}"; do
         module_file="$MODULE_DIR/$file"
-        if ! curl -fsSL "$GITHUB_RAW/$file" -o "$module_file" >/dev/null 2>&1; then
-            red "$file 下载失败"
-            return 1
-        fi
-        chmod 700 "$module_file"
+        (
+            if ! curl -fsSL "$GITHUB_RAW/$file" -o "$module_file" >/dev/null 2>&1; then
+                echo "$file 下载失败"
+                exit 1
+            fi
+            chmod 700 "$module_file"
+        ) &
+        pids+=("$!")
     done
+    for pid in "${pids[@]}"; do
+        if ! wait "$pid"; then
+            failed=1
+        fi
+    done
+    if [ "$failed" -ne 0 ]; then
+        red "部分模块下载失败"
+        return 1
+    fi
     for file in "${MODULES[@]:1}"; do
         module_file="$MODULE_DIR/$file"
         if ! source "$module_file" >/dev/null 2>&1; then
