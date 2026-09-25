@@ -5839,91 +5839,92 @@ for item in selected:
     total_links += copy_links(inbound_type, inbound_tag)
 
 if not central_mode:
-if os.path.isfile(links_file):
-    with open(links_file, "r", encoding="utf-8") as f:
-        links_text = f.read().strip()
-        
-    import urllib.parse
-    traffic_state = "/etc/sing-box/user_manager/traffic/state.json"
-    limit_dir = "/etc/sing-box/user_manager/limits"
-    used = 0
-    limit_bytes = 0
-    enabled = False
-    try:
-        with open(traffic_state, "r", encoding="utf-8") as f:
-            state = json.load(f)
-            used = int(state.get("users", {}).get(username, {}).get("period_total", 0) or 0)
-    except Exception:
-        pass
-    try:
-        with open(os.path.join(limit_dir, f"{username}.json"), "r", encoding="utf-8") as f:
-            limit_data = json.load(f)
-            enabled = bool(limit_data.get("enabled", False))
-            limit_bytes = int(limit_data.get("limit_bytes", 0) or 0)
-    except Exception:
-        pass
-    
-    def format_b(val):
+    if os.path.isfile(links_file):
+        with open(links_file, "r", encoding="utf-8") as f:
+            links_text = f.read().strip()
+
+        import urllib.parse
+        traffic_state = "/etc/sing-box/user_manager/traffic/state.json"
+        limit_dir = "/etc/sing-box/user_manager/limits"
+        used = 0
+        limit_bytes = 0
+        enabled = False
         try:
-            val = float(val)
+            with open(traffic_state, "r", encoding="utf-8") as f:
+                state = json.load(f)
+                used = int(state.get("users", {}).get(username, {}).get("period_total", 0) or 0)
         except Exception:
-            val = 0
-        if val >= 1024**3: return f"{val/1024**3:.2f} GB"
-        if val >= 1024**2: return f"{val/1024**2:.2f} MB"
-        if val >= 1024: return f"{val/1024:.2f} KB"
-        return f"{int(val)} B"
-        
-    if enabled and limit_bytes > 0:
-        rem = max(limit_bytes - used, 0)
-        remark = f"📊 剩余流量: {format_b(rem)} | 已用: {format_b(used)}"
-    else:
-        remark = f"📊 剩余流量: 无限制 | 已用: {format_b(used)}"
-        
-    safe_remark = urllib.parse.quote(remark)
-    traffic_line = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#{safe_remark}"
-    
-    final_text = traffic_line + "\n" + links_text
-    with open(sub_file, "wb") as f:
-        f.write(base64.b64encode(final_text.encode("utf-8")))
-    os.chmod(sub_file, 0o644)
+            pass
+        try:
+            with open(os.path.join(limit_dir, f"{username}.json"), "r", encoding="utf-8") as f:
+                limit_data = json.load(f)
+                enabled = bool(limit_data.get("enabled", False))
+                limit_bytes = int(limit_data.get("limit_bytes", 0) or 0)
+        except Exception:
+            pass
+
+        def format_b(val):
+            try:
+                val = float(val)
+            except Exception:
+                val = 0
+            if val >= 1024**3: return f"{val/1024**3:.2f} GB"
+            if val >= 1024**2: return f"{val/1024**2:.2f} MB"
+            if val >= 1024: return f"{val/1024:.2f} KB"
+            return f"{int(val)} B"
+
+        if enabled and limit_bytes > 0:
+            rem = max(limit_bytes - used, 0)
+            remark = f"📊 剩余流量: {format_b(rem)} | 已用: {format_b(used)}"
+        else:
+            remark = f"📊 剩余流量: 无限制 | 已用: {format_b(used)}"
+
+        safe_remark = urllib.parse.quote(remark)
+        traffic_line = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#{safe_remark}"
+
+        final_text = traffic_line + "\n" + links_text
+        with open(sub_file, "wb") as f:
+            f.write(base64.b64encode(final_text.encode("utf-8")))
+        os.chmod(sub_file, 0o644)
 # ==========================================================
 if not central_mode:
-def generate_sub_path():
-    while True:
-        token = secrets.token_urlsafe(18)
-        token = re.sub(r'[^A-Za-z0-9-]', '', token)
-        if len(token) < 16:
-            continue
-        location = "/" + token
-        duplicated = False
-        if os.path.isdir(nginx_user_conf_dir):
-            for name in os.listdir(nginx_user_conf_dir):
-                if not name.endswith(".conf"):
-                    continue
-                path = os.path.join(nginx_user_conf_dir, name)
-                if not os.path.isfile(path):
-                    continue
-                try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        if f"location = {location}" in f.read():
-                            duplicated = True
-                            break
-                except Exception:
-                    continue
-        if not duplicated:
-            return location
+    def generate_sub_path():
+        while True:
+            token = secrets.token_urlsafe(18)
+            token = re.sub(r'[^A-Za-z0-9-]', '', token)
+            if len(token) < 16:
+                continue
+            location = "/" + token
+            duplicated = False
+            if os.path.isdir(nginx_user_conf_dir):
+                for name in os.listdir(nginx_user_conf_dir):
+                    if not name.endswith(".conf"):
+                        continue
+                    path = os.path.join(nginx_user_conf_dir, name)
+                    if not os.path.isfile(path):
+                        continue
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                            if f"location = {location}" in f.read():
+                                duplicated = True
+                                break
+                    except Exception:
+                        continue
+            if not duplicated:
+                return location
 
-if input_path:
-    sub_path = input_path
-else:
-    sub_path = generate_sub_path()
-path_file = os.path.join(user_dir, f"{username}-path")
-with open(path_file, "w", encoding="utf-8") as f:
-    f.write(sub_path)
+    if input_path:
+        sub_path = input_path
+    else:
+        sub_path = generate_sub_path()
 
-nginx_conf = os.path.join(nginx_user_conf_dir, f"{username}.conf")
+    path_file = os.path.join(user_dir, f"{username}-path")
+    with open(path_file, "w", encoding="utf-8") as f:
+        f.write(sub_path)
 
-nginx_content = f"""location = {sub_path} {{
+    nginx_conf = os.path.join(nginx_user_conf_dir, f"{username}.conf")
+
+    nginx_content = f"""location = {sub_path} {{
 proxy_pass http://127.0.0.1:18080/sub/{username};
 proxy_http_version 1.1;
 proxy_set_header Host \$host;
@@ -5933,17 +5934,23 @@ proxy_no_cache 1;
 proxy_cache_bypass 1;
 }}"""
 
-with open(nginx_conf, "w", encoding="utf-8") as f:
-    f.write(nginx_content)
-os.chmod(nginx_conf, 0o644)
+    with open(nginx_conf, "w", encoding="utf-8") as f:
+        f.write(nginx_content)
 
-result = subprocess.run(["nginx", "-t"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-if result.returncode != 0:
-    try:
-        os.unlink(nginx_conf)
-    except Exception:
-        pass
-    raise RuntimeError("Nginx 配置语法检查失败")
+    os.chmod(nginx_conf, 0o644)
+
+    result = subprocess.run(
+        ["nginx", "-t"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+    if result.returncode != 0:
+        try:
+            os.unlink(nginx_conf)
+        except Exception:
+            pass
+        raise RuntimeError("Nginx 配置语法检查失败")
 
 result = subprocess.run(["systemctl", "reload", "nginx"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 if result.returncode != 0:
