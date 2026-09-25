@@ -389,10 +389,9 @@ while true; do
         continue
         fi
 
-        check_singbox &>/dev/null
-        check_singbox=$?
-
-        if [ ${check_singbox} -eq 0 ]; then
+		check_singbox &>/dev/null
+        singbox_check_status=$?
+        if [ "$singbox_check_status" -eq 0 ]; then
         yellow "sing-box 已经安装！\n"
         else
         optimize_dns
