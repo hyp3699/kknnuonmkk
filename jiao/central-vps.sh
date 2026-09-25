@@ -1366,7 +1366,9 @@ PY
                 show_namess_url "$username"
                 ;;
             5)
-                delete_central_user "$username"
+                if delete_central_user "$username"; then
+                 return
+                fi
                 ;;
             0)
                 return
@@ -1545,7 +1547,6 @@ delete_central_user() {
         fi
 
         green "正在删除：$name"
-
         result=$(agent_request \
         "$address" \
         "$token" \
@@ -1556,7 +1557,6 @@ delete_central_user() {
                 failed=1
                 continue
             }
-
         returncode=$(echo "$result" | python3 -c '
 import json
 import sys
@@ -1566,7 +1566,6 @@ try:
 except Exception:
     print(1)
 ' 2>/dev/null)
-
         output=$(echo "$result" | python3 -c '
 import json
 import sys
@@ -1579,7 +1578,6 @@ try:
 except Exception:
     pass
 ' 2>/dev/null)
-
         if [ "$returncode" -eq 0 ]; then
     green "$name：删除成功"
     else
@@ -1589,7 +1587,6 @@ except Exception:
     failed=1
     fi
     done
-
     if [ "$failed" -ne 0 ]; then
         echo
         red "部分 VPS 删除失败"
@@ -1598,9 +1595,7 @@ except Exception:
         read -rp "按回车返回..." _
         return 1
     fi
-
     rm -rf "$user_dir"
-
     echo
     green "========================================"
     green " 用户已删除：$username"
