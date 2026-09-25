@@ -5271,6 +5271,7 @@ local NGINX_MAIN_CONF="/etc/nginx/conf.d/singbox_sub.conf"
 local input_username="${1:-}"
 local input_uuid="${2:-}"
 local input_path="${3:-}"
+local central_mode="${4:-}"
 
 local username
 local uuid
@@ -5281,6 +5282,7 @@ local LIMIT_DIR="/etc/sing-box/user_manager/limits"
 
 mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "$NGINX_USER_CONF_DIR" "$LIMIT_DIR"
 
+if [[ -z "$central_mode" ]]; then
 local need_ssl_init=1
 if [[ -f "$NGINX_MAIN_CONF" ]]; then
     local existing_domain
@@ -5470,6 +5472,7 @@ chmod 644 "$SUB_SERVICE_UNIT"
 systemctl daemon-reload
 systemctl enable --now sing-box-subscription.service >/dev/null 2>&1
 systemctl restart sing-box-subscription.service >/dev/null 2>&1
+fi
 # ==========================================================
 local max_num=0
 local f n
@@ -5505,19 +5508,19 @@ local index=1
 local file
 shopt -s nullglob
 for file in "$CONF_DIR"/*.json; do
-[ -f "$file" ] || continue
-case "$(basename "$file")" in
-    config.json|cloudflared.json)
-        continue
-        ;;
-esac
-while IFS=$'\t' read -r inbound_type inbound_tag; do
-[ -n "$inbound_type" ] || continue
-[ -n "$inbound_tag" ] || continue
-entries+=("$file|$inbound_type|$inbound_tag")
-green "${index}. ${inbound_tag}"
-index=$((index + 1))
-done < <(python3 - "$file" <<'PY'
+    [ -f "$file" ] || continue
+    case "$(basename "$file")" in
+        config.json|cloudflared.json)
+            continue
+            ;;
+    esac
+    while IFS=$'\t' read -r inbound_type inbound_tag; do
+        [ -n "$inbound_type" ] || continue
+        [ -n "$inbound_tag" ] || continue
+        entries+=("$file|$inbound_type|$inbound_tag")
+        green "${index}. ${inbound_tag}"
+        index=$((index + 1))
+    done < <(python3 - "$file" <<'PY'
 import json
 import sys
 path = sys.argv[1]
@@ -5538,31 +5541,36 @@ PY
 done
 shopt -u nullglob
 if [ ${#entries[@]} -eq 0 ]; then
-yellow "暂无可用入站"
-sleep 1
-return
+    yellow "暂无可用入站"
+    sleep 1
+    return
 fi
-echo
-green "请输入要添加的入站编号，可多选，例如：1 2 3"
-green "输入 0 返回"
-echo
-read -rp "请选择: " choice
-[ "$choice" = "0" ] && return
-[ -z "$choice" ] && continue
 local selected=()
-local invalid=0
-for n in $choice; do
-if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#entries[@]}" ]; then
-selected+=("${entries[$((n - 1))]}")
+if [[ -n "$central_mode" ]]; then
+    selected=("${entries[@]}")
 else
-invalid=1
+    echo
+    green "请输入要添加的入站编号，可多选，例如：1 2 3"
+    green "输入 0 返回"
+    echo
+    read -rp "请选择: " choice
+    [ "$choice" = "0" ] && return
+    [ -z "$choice" ] && continue
+    local invalid=0
+    for n in $choice; do
+        if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#entries[@]}" ]; then
+            selected+=("${entries[$((n - 1))]}")
+        else
+            invalid=1
+        fi
+    done
+    if [ "$invalid" -eq 1 ] || [ "${#selected[@]}" -eq 0 ]; then
+        red "存在无效入站编号"
+        sleep 1
+        continue
+    fi
 fi
-done
-if [ "$invalid" -eq 1 ] || [ "${#selected[@]}" -eq 0 ]; then
-red "存在无效入站编号"
-sleep 1
-continue
-fi
+
 local selected_data=""
 for f in "${selected[@]}"; do
 if [ -n "$selected_data" ]; then
