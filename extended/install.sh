@@ -561,6 +561,21 @@ EOF
     fi
 }
 
+create_shortcut() {
+    local local_file="/etc/sing-box/menu.sh"
+    if [ -s "$local_file" ]; then
+        chmod 700 "$local_file"
+        ln -sf "$local_file" /usr/bin/sb
+        ln -sf "$local_file" /usr/bin/b
+    fi
+    if [ -x /usr/bin/sb ] && [ -x /usr/bin/b ]; then
+        green "\n快捷命令 sb 和 b 已创建\n"
+    else
+        red "\n快捷命令创建失败\n"
+        return 1
+    fi
+}
+
 start_singbox() {
     manage_service "sing-box" "start"
 }
