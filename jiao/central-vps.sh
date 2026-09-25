@@ -1038,7 +1038,7 @@ add_central_user() {
             "$token" \
             POST \
             "/api/command" \
-            "source /etc/sing-box/sb.sh && add_user_menu '$username' '$uuid' '' 'central'") || {
+            "SB_LOAD_ONLY=1 source /etc/sing-box/sb.sh && add_user_menu '$username' '$uuid' '' 'central'") || {
                 red "$name：请求失败"
                 failed=1
                 continue
