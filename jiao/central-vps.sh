@@ -1158,6 +1158,754 @@ singbox_show_status() {
     green "0. 返回"
     echo
 }
+
+central_delete_user_from_all_vps() {
+    local username="$1"
+    local count=0
+    local i=0
+    local name=""
+    local address=""
+    local token=""
+    local result=""
+    local returncode=0
+    local failed=0
+
+    [ -n "$username" ] || return 1
+
+    count=$(get_vps_count)
+
+    for ((i=0; i<count; i++)); do
+        name=$(get_vps_field "$i" "name")
+        address=$(get_vps_field "$i" "wg_address")
+        token=$(get_vps_field "$i" "agent_token")
+
+        [ -n "$address" ] || {
+            failed=1
+            continue
+        }
+
+        [ -n "$token" ] || {
+            failed=1
+            continue
+        }
+
+        result=$(agent_request \
+            "$address" \
+            "$token" \
+            POST \
+            "/api/command" \
+            "export SB_LOAD_ONLY=1; source /etc/sing-box/sb.sh; delete_user \"$username\" 1 0") || {
+                failed=1
+                continue
+            }
+
+        returncode=$(echo "$result" | python3 -c '
+import json
+import sys
+try:
+    d=json.load(sys.stdin)
+    print(int(d.get("returncode",1)))
+except Exception:
+    print(1)
+' 2>/dev/null)
+
+        if [ "$returncode" -ne 0 ]; then
+            failed=1
+        fi
+    done
+
+    [ "$failed" -eq 0 ]
+}
+central_restore_user_to_all_vps() {
+    local username="$1"
+    local user_dir="$DATA_DIR/users/$username"
+    local uuid=""
+    local count=0
+    local i=0
+    local name=""
+    local address=""
+    local token=""
+    local result=""
+    local returncode=0
+    local failed=0
+
+    [ -n "$username" ] || return 1
+    [ -d "$user_dir" ] || return 1
+
+    uuid=$(cat "$user_dir/uuid" 2>/dev/null)
+    [ -n "$uuid" ] || return 1
+
+    count=$(get_vps_count)
+
+    for ((i=0; i<count; i++)); do
+        name=$(get_vps_field "$i" "name")
+        address=$(get_vps_field "$i" "wg_address")
+        token=$(get_vps_field "$i" "agent_token")
+
+        [ -n "$address" ] || {
+            failed=1
+            continue
+        }
+
+        [ -n "$token" ] || {
+            failed=1
+            continue
+        }
+
+        result=$(agent_request \
+            "$address" \
+            "$token" \
+            POST \
+            "/api/command" \
+            "export SB_LOAD_ONLY=1; source /etc/sing-box/sb.sh; add_user_menu \"$username\" \"$uuid\" \"\" \"central\"") || {
+                failed=1
+                continue
+            }
+
+        returncode=$(echo "$result" | python3 -c '
+import json
+import sys
+try:
+    d=json.load(sys.stdin)
+    print(int(d.get("returncode",1)))
+except Exception:
+    print(1)
+' 2>/dev/null)
+
+        if [ "$returncode" -ne 0 ]; then
+            failed=1
+        fi
+    done
+
+    [ "$failed" -eq 0 ]
+}
+
+central_check_user_limit() {
+    local username="$1"
+    local user_dir="$DATA_DIR/users/$username"
+    local traffic_file="$user_dir/traffic.json"
+    local result=""
+    local action=""
+
+    [ -d "$user_dir" ] || return 0
+    [ -f "$traffic_file" ] || return 0
+
+    result=$(
+        python3 - "$traffic_file" <<'PY'
+import json
+import sys
+
+path=sys.argv[1]
+
+try:
+    with open(path,"r",encoding="utf-8") as f:
+        d=json.load(f)
+except Exception:
+    sys.exit(0)
+
+limit=d.get("limit",{})
+if not isinstance(limit,dict):
+    sys.exit(0)
+
+if not limit.get("enabled",False):
+    sys.exit(0)
+
+try:
+    limit_bytes=int(limit.get("limit_bytes",0) or 0)
+except Exception:
+    limit_bytes=0
+
+if limit_bytes <= 0:
+    sys.exit(0)
+
+try:
+    period_total=int(d.get("period_total",0) or 0)
+except Exception:
+    period_total=0
+
+disabled=bool(d.get("disabled_by_limit",False))
+
+if period_total >= limit_bytes and not disabled:
+    print("DELETE")
+elif period_total < limit_bytes and disabled:
+    print("RESTORE")
+PY
+    )
+
+    case "$result" in
+        DELETE)
+            if central_delete_user_from_all_vps "$username"; then
+                python3 - "$traffic_file" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+path=sys.argv[1]
+
+with open(path,"r",encoding="utf-8") as f:
+    d=json.load(f)
+
+d["disabled_by_limit"]=True
+
+directory=os.path.dirname(path)
+fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump(d,f,ensure_ascii=False,indent=2)
+        f.write("\n")
+    os.chmod(tmp,0o600)
+    os.replace(tmp,path)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except Exception:
+        pass
+    raise
+PY
+                green "用户 $username 已达到流量限制，VPS 用户信息已删除"
+            fi
+            ;;
+        RESTORE)
+            if central_restore_user_to_all_vps "$username"; then
+                python3 - "$traffic_file" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+path=sys.argv[1]
+
+with open(path,"r",encoding="utf-8") as f:
+    d=json.load(f)
+
+d["disabled_by_limit"]=False
+
+directory=os.path.dirname(path)
+fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump(d,f,ensure_ascii=False,indent=2)
+        f.write("\n")
+    os.chmod(tmp,0o600)
+    os.replace(tmp,path)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except Exception:
+        pass
+    raise
+PY
+                green "用户 $username 已恢复到所有 VPS"
+            fi
+            ;;
+    esac
+}
+
+central_check_user_period() {
+    local username="$1"
+    local user_dir="$DATA_DIR/users/$username"
+    local traffic_file="$user_dir/traffic.json"
+    local result=""
+
+    [ -d "$user_dir" ] || return 0
+    [ -f "$traffic_file" ] || return 0
+
+    result=$(
+        python3 - "$traffic_file" <<'PY'
+import json
+import sys
+from datetime import datetime
+
+path=sys.argv[1]
+
+try:
+    with open(path,"r",encoding="utf-8") as f:
+        d=json.load(f)
+except Exception:
+    sys.exit(0)
+
+period=d.get("period","")
+period_end=d.get("period_end","")
+
+if period not in ("day","daily","month","monthly"):
+    sys.exit(0)
+
+if not period_end:
+    sys.exit(0)
+
+try:
+    end=datetime.fromisoformat(period_end)
+    now=datetime.now(end.tzinfo) if end.tzinfo else datetime.now()
+except Exception:
+    sys.exit(0)
+
+if now < end:
+    sys.exit(0)
+
+print("EXPIRED")
+PY
+    )
+
+    if [ "$result" != "EXPIRED" ]; then
+        return 0
+    fi
+
+    if ! central_restore_user_to_all_vps "$username"; then
+        return 1
+    fi
+
+    python3 - "$traffic_file" <<'PY'
+import json
+import os
+import sys
+import tempfile
+from datetime import datetime, timedelta
+
+path=sys.argv[1]
+
+with open(path,"r",encoding="utf-8") as f:
+    d=json.load(f)
+
+period=d.get("period","month")
+
+now=datetime.now().astimezone()
+
+if period in ("day","daily"):
+    start=now.replace(hour=0,minute=0,second=0,microsecond=0)
+    end=start+timedelta(days=1)
+elif period in ("month","monthly"):
+    start=now.replace(day=1,hour=0,minute=0,second=0,microsecond=0)
+    if start.month == 12:
+        end=start.replace(year=start.year+1,month=1,day=1)
+    else:
+        end=start.replace(month=start.month+1,day=1)
+else:
+    start=None
+    end=None
+
+d["period_upload"]=0
+d["period_download"]=0
+d["period_total"]=0
+d["disabled_by_limit"]=False
+
+if start is not None:
+    d["period"]="day" if period in ("day","daily") else "month"
+    d["period_start"]=start.isoformat()
+    d["period_end"]=end.isoformat()
+
+directory=os.path.dirname(path)
+fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
+
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump(d,f,ensure_ascii=False,indent=2)
+        f.write("\n")
+    os.chmod(tmp,0o600)
+    os.replace(tmp,path)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except Exception:
+        pass
+    raise
+PY
+
+    green "用户 $username 周期已结束，已恢复到所有 VPS"
+}
+
+central_user_set_limit() {
+    local username="$1"
+    local user_dir="$DATA_DIR/users/$username"
+    local traffic_file="$user_dir/traffic.json"
+    local input=""
+    local value=""
+    local unit=""
+    local limit_bytes=0
+
+    if [ -z "$username" ] || [ ! -d "$user_dir" ]; then
+        red "用户不存在"
+        sleep 1
+        return 1
+    fi
+
+    if [ ! -f "$traffic_file" ]; then
+        red "流量数据不存在"
+        sleep 1
+        return 1
+    fi
+
+    echo
+    green "================ 流量限制 ================"
+    echo
+    green "当前用户：$username"
+    echo
+    green "支持："
+    green "纯数字默认 GB，例如：1"
+    green "MB，例如：512mb"
+    green "GB，例如：1gb、1.5gb"
+    green "输入 0 解除流量限制"
+    echo
+    read -rp "请输入流量限制: " input
+
+    input="${input// /}"
+    input=$(printf '%s' "$input" | tr '[:upper:]' '[:lower:]')
+
+    if [ "$input" = "0" ]; then
+        python3 - "$traffic_file" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+path=sys.argv[1]
+
+try:
+    with open(path,"r",encoding="utf-8") as f:
+        data=json.load(f)
+except Exception:
+    sys.exit(1)
+
+data["limit"]={
+    "enabled":False,
+    "limit_value":0,
+    "limit_unit":"GB",
+    "limit_bytes":0
+}
+
+directory=os.path.dirname(path)
+fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
+
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump(data,f,ensure_ascii=False,indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+    os.chmod(tmp,0o600)
+    os.replace(tmp,path)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except Exception:
+        pass
+    raise
+PY
+
+        if [ "$?" -ne 0 ]; then
+            red "解除流量限制失败"
+            sleep 1
+            return 1
+        fi
+
+        green "流量限制已解除"
+        sleep 1
+        return 0
+    fi
+
+    if [[ "$input" =~ ^([0-9]+([.][0-9]+)?)(mb|gb)$ ]]; then
+        value="${BASH_REMATCH[1]}"
+        unit="${BASH_REMATCH[3]}"
+    elif [[ "$input" =~ ^([0-9]+([.][0-9]+)?)$ ]]; then
+        value="${BASH_REMATCH[1]}"
+        unit="gb"
+    else
+        red "输入格式错误"
+        yellow "示例：1、1gb、512mb、1.5gb"
+        sleep 1
+        return 1
+    fi
+
+    if ! limit_bytes=$(python3 - "$value" "$unit" <<'PY'
+import sys
+from decimal import Decimal, InvalidOperation
+
+value=sys.argv[1]
+unit=sys.argv[2]
+
+try:
+    number=Decimal(value)
+except InvalidOperation:
+    sys.exit(1)
+
+if number <= 0:
+    sys.exit(1)
+
+if unit=="mb":
+    multiplier=1024**2
+elif unit=="gb":
+    multiplier=1024**3
+else:
+    sys.exit(1)
+
+result=int(number*multiplier)
+
+if result <= 0:
+    sys.exit(1)
+
+print(result)
+PY
+    ); then
+        red "流量限制无效"
+        sleep 1
+        return 1
+    fi
+
+    if ! python3 - "$traffic_file" "$value" "$unit" "$limit_bytes" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+path=sys.argv[1]
+value=sys.argv[2]
+unit=sys.argv[3].upper()
+limit_bytes=int(sys.argv[4])
+
+with open(path,"r",encoding="utf-8") as f:
+    data=json.load(f)
+
+data["limit"]={
+    "enabled":True,
+    "limit_value":value,
+    "limit_unit":unit,
+    "limit_bytes":limit_bytes
+}
+
+directory=os.path.dirname(path)
+fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
+
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump(data,f,ensure_ascii=False,indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+    os.chmod(tmp,0o600)
+    os.replace(tmp,path)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except Exception:
+        pass
+    raise
+PY
+    then
+        red "设置流量限制失败"
+        sleep 1
+        return 1
+    fi
+
+    green "流量限制设置成功"
+    green "限制：${value}${unit^^}"
+    green "限制大小：$(format_bytes "$limit_bytes")"
+    sleep 1
+    return 0
+}
+central_user_set_period() {
+    local username="$1"
+    local user_dir="$DATA_DIR/users/$username"
+    local traffic_file="$user_dir/traffic.json"
+    local choice=""
+    local period=""
+    local period_start=""
+    local period_end=""
+
+    if [ -z "$username" ] || [ ! -d "$user_dir" ]; then
+        red "用户不存在"
+        sleep 1
+        return 1
+    fi
+
+    if [ ! -f "$traffic_file" ]; then
+        red "流量数据不存在"
+        sleep 1
+        return 1
+    fi
+
+    echo
+    green "================ 流量周期 ================"
+    echo
+    green "当前用户：$username"
+    echo
+    green "1. 每日"
+    green "2. 每月"
+    green "0. 不设置周期"
+    echo
+    read -rp "请输入数字: " choice
+
+    case "$choice" in
+        1)
+            period="day"
+            ;;
+        2)
+            period="month"
+            ;;
+        0)
+            python3 - "$traffic_file" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+path=sys.argv[1]
+
+with open(path,"r",encoding="utf-8") as f:
+    data=json.load(f)
+
+data["period"]=""
+data["period_start"]=""
+data["period_end"]=""
+data["period_upload"]=0
+data["period_download"]=0
+data["period_total"]=0
+
+directory=os.path.dirname(path)
+fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
+
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump(data,f,ensure_ascii=False,indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+    os.chmod(tmp,0o600)
+    os.replace(tmp,path)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except Exception:
+        pass
+    raise
+PY
+
+        if [ "$?" -ne 0 ]; then
+            red "取消流量周期失败"
+            sleep 1
+            return 1
+        fi
+
+        green "流量周期已取消"
+        sleep 1
+        return 0
+        ;;
+        *)
+            red "输入无效"
+            sleep 1
+            return 1
+            ;;
+    esac
+
+    read -r period_start period_end < <(
+        python3 - "$period" <<'PY'
+import sys
+from datetime import datetime,timedelta
+
+period=sys.argv[1]
+now=datetime.now().astimezone()
+
+if period=="day":
+    start=now.replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0
+    )
+    end=start+timedelta(days=1)
+else:
+    start=now.replace(
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0
+    )
+
+    if start.month==12:
+        end=start.replace(
+            year=start.year+1,
+            month=1,
+            day=1
+        )
+    else:
+        end=start.replace(
+            month=start.month+1,
+            day=1
+        )
+
+print(start.isoformat(),end.isoformat())
+PY
+    )
+
+    if [ -z "$period_start" ] || [ -z "$period_end" ]; then
+        red "生成流量周期失败"
+        sleep 1
+        return 1
+    fi
+
+    if ! python3 - "$traffic_file" "$period" "$period_start" "$period_end" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+path=sys.argv[1]
+period=sys.argv[2]
+period_start=sys.argv[3]
+period_end=sys.argv[4]
+
+with open(path,"r",encoding="utf-8") as f:
+    data=json.load(f)
+
+data["period"]=period
+data["period_start"]=period_start
+data["period_end"]=period_end
+data["period_upload"]=0
+data["period_download"]=0
+data["period_total"]=0
+
+directory=os.path.dirname(path)
+fd,tmp=tempfile.mkstemp(prefix=".traffic.",dir=directory)
+
+try:
+    with os.fdopen(fd,"w",encoding="utf-8") as f:
+        json.dump(data,f,ensure_ascii=False,indent=2)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+    os.chmod(tmp,0o600)
+    os.replace(tmp,path)
+except Exception:
+    try:
+        os.unlink(tmp)
+    except Exception:
+        pass
+    raise
+PY
+    then
+        red "设置流量周期失败"
+        sleep 1
+        return 1
+    fi
+
+    if [ "$period" = "day" ]; then
+        green "流量周期已设置：每日"
+    else
+        green "流量周期已设置：每月"
+    fi
+
+    green "周期开始：$period_start"
+    green "周期结束：$period_end"
+
+    sleep 1
+    return 0
+}
+
+
 show_central_users() {
     local users_dir="$DATA_DIR/users"
     local count=0
