@@ -1365,6 +1365,9 @@ PY
             4)
                 show_namess_url "$username"
                 ;;
+            5)
+                delete_central_user "$username"
+                ;;
             0)
                 return
                 ;;
@@ -1487,6 +1490,154 @@ except Exception:
     echo
     read -rp "按回车返回..." _
 }
+
+delete_central_user() {
+    local username="$1"
+    local count=0
+    local i=0
+    local name=""
+    local address=""
+    local token=""
+    local result=""
+    local output=""
+    local failed=0
+    local user_dir="$DATA_DIR/users/$username"
+    if [ -z "$username" ]; then
+        red "用户名不能为空"
+        sleep 1
+        return 1
+    fi
+    if [ ! -d "$user_dir" ]; then
+        red "用户不存在"
+        sleep 1
+        return 1
+    fi
+    echo
+    red "确定删除用户：$username？"
+    yellow "将从所有 VPS 的所有入站中删除该用户。"
+    yellow "中央保存的用户、节点和流量数据也会删除。"
+    echo
+    read -rp "输入 y 确认删除: " confirm
+    [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return 1
+    count=$(get_vps_count)
+    if [ "$count" -le 0 ]; then
+        rm -rf "$user_dir"
+        green "中央用户已删除"
+        sleep 1
+        return 0
+    fi
+    for ((i=0; i<count; i++)); do
+        name=$(get_vps_field "$i" "name")
+        address=$(get_vps_field "$i" "wg_address")
+        token=$(get_vps_field "$i" "agent_token")
+
+        if [ -z "$address" ] || [ -z "$token" ]; then
+            red "$name：VPS信息不完整"
+            failed=1
+            continue
+        fi
+        green "正在删除：$name"
+        result=$(agent_request \
+            "$address" \
+            "$token" \
+            POST \
+            "/api/command" \
+            "SB_LOAD_ONLY=1 source /etc/sing-box/sb.sh && delete_user '$username' 1 0") || {
+                red "$name：请求失败"
+                failed=1
+                continue
+            }
+        output=$(echo "$result" | python3 -c '
+import json
+import sys
+try:
+    d=json.load(sys.stdin)
+    print(d.get("stdout",""), end="")
+    if d.get("returncode",0) != 0:
+        sys.exit(1)
+except Exception:
+    sys.exit(1)
+' 2>/dev/null)
+
+        if [ $? -eq 0 ]; then
+            green "$name：删除成功"
+        else
+            red "$name：删除失败"
+            [ -n "$output" ] && echo "$output"
+            failed=1
+        fi
+    done
+
+    if [ "$failed" -ne 0 ]; then
+        echo
+        red "部分 VPS 删除失败"
+        yellow "中央用户数据未删除"
+        echo
+        read -rp "按回车返回..." _
+        return 1
+    fi
+
+    rm -rf "$user_dir"
+
+    echo
+    green "========================================"
+    green " 用户已删除：$username"
+    green "========================================"
+    echo
+    sleep 1
+    return 0
+}
+
+manage_central_delete_user() {
+    local users_dir="$DATA_DIR/users"
+    local count=0
+    local i=0
+    local selected=""
+    local username=""
+    local -a users=()
+
+    mkdir -p "$users_dir"
+
+    while IFS= read -r username; do
+        [ -n "$username" ] || continue
+        users+=("$username")
+    done < <(find "$users_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
+
+    count=${#users[@]}
+
+    clear
+    green "========================================"
+    green "              删除用户"
+    green "========================================"
+    echo
+
+    if [ "$count" -eq 0 ]; then
+        yellow "当前没有用户"
+        echo
+        read -rp "按回车返回..." _
+        return
+    fi
+
+    for ((i=0; i<count; i++)); do
+        green "$((i+1)). ${users[$i]}"
+    done
+
+    echo
+    green "0. 返回"
+    echo
+    read -rp "请输入数字: " selected
+
+    if [ "$selected" = "0" ]; then
+        return
+    fi
+    if ! [[ "$selected" =~ ^[0-9]+$ ]] || [ "$selected" -lt 1 ] || [ "$selected" -gt "$count" ]; then
+        red "输入无效"
+        sleep 1
+        return
+    fi
+    delete_central_user "${users[$((selected-1))]}"
+}
+
 manage_singbox() {
     local choice
     local count
