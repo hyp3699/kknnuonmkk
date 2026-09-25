@@ -777,6 +777,30 @@ PY
     fi
     sleep 2
 }
+format_bytes() {
+    local bytes="${1:-0}"
+    python3 - "$bytes" <<'PY'
+import sys
+try:
+    value=float(sys.argv[1])
+except Exception:
+    value=0
+units=["B","KB","MB","GB","TB","PB"]
+i=0
+while value >= 1024 and i < len(units)-1:
+    value /= 1024
+    i += 1
+if i == 0:
+    print(f"{int(value)} {units[i]}")
+elif value >= 100:
+    print(f"{value:.0f} {units[i]}")
+elif value >= 10:
+    print(f"{value:.1f} {units[i]}")
+else:
+    print(f"{value:.2f} {units[i]}")
+PY
+}
+
 manage_single_vps() {
     local index="$1"
     local info name address token agent_token ipv4 action confirm
