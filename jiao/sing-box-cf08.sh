@@ -5590,6 +5590,7 @@ URL_DIR="$URL_DIR" \
 NGINX_USER_CONF_DIR="$NGINX_USER_CONF_DIR" \
 FORCE_OVERWRITE="$force_overwrite" \
 INPUT_PATH="$input_path" \
+CENTRAL_MODE="$central_mode" \
 python3 - <<'PY'
 import os
 import json
@@ -5608,6 +5609,7 @@ main_config = os.environ["MAIN_CONFIG"]
 url_dir = os.environ["URL_DIR"]
 nginx_user_conf_dir = os.environ["NGINX_USER_CONF_DIR"]
 force_overwrite = os.environ.get("FORCE_OVERWRITE", "0") == "1"
+central_mode = os.environ.get("CENTRAL_MODE", "").strip() != ""
 input_path = os.environ.get("INPUT_PATH", "").strip()
 user_dir = os.path.join(url_dir, username)
 if force_overwrite and os.path.isdir(user_dir):
@@ -5836,6 +5838,7 @@ for item in selected:
     _, inbound_type, inbound_tag = item.split("|", 2)
     total_links += copy_links(inbound_type, inbound_tag)
 
+if not central_mode:
 if os.path.isfile(links_file):
     with open(links_file, "r", encoding="utf-8") as f:
         links_text = f.read().strip()
@@ -5884,7 +5887,7 @@ if os.path.isfile(links_file):
         f.write(base64.b64encode(final_text.encode("utf-8")))
     os.chmod(sub_file, 0o644)
 # ==========================================================
-
+if not central_mode:
 def generate_sub_path():
     while True:
         token = secrets.token_urlsafe(18)
@@ -5948,6 +5951,13 @@ if result.returncode != 0:
 PY
 local result=$?
 if [ "$result" -eq 0 ]; then
+    if [[ -n "$central_mode" ]]; then
+        if systemctl is-active --quiet sing-box; then
+            systemctl reload sing-box >/dev/null 2>&1 || true
+        fi
+        echo "CENTRAL_USER_OK"
+        return 0
+    fi
 local sub_path_val=""
 if [ -f "$URL_DIR/$username/$username-path" ]; then
     sub_path_val=$(cat "$URL_DIR/$username/$username-path")
