@@ -271,6 +271,89 @@ def persist_peer(public_key,wg_address):
     os.chmod(tmp,0o600)
     os.replace(tmp,WG_CONFIG)
     return True
+def save_traffic_report(source_address,traffic_data):
+    if not isinstance(traffic_data,dict):
+        return False,"invalid traffic data"
+    db=load()
+    vps_item=None
+    for x in db.get("vps",[]):
+        address=x.get("wg_address","")
+        if address:
+            address=address.split("/")[0]
+        if address==source_address:
+            vps_item=x
+            break
+    if vps_item is None:
+        return False,"unknown vps"
+    vps_name=vps_item.get("name","")
+    if not vps_name:
+        return False,"vps name missing"
+    users_dir=os.path.join(os.path.dirname(FILE),"users")
+    os.makedirs(users_dir,mode=0o700,exist_ok=True)
+    for username,data in traffic_data.items():
+        if not isinstance(username,str) or not username:
+            continue
+        if not isinstance(data,dict):
+            continue
+        user_dir=os.path.join(users_dir,username)
+        if not os.path.isdir(user_dir):
+            continue
+        username_file=os.path.join(user_dir,"username")
+        uuid_file=os.path.join(user_dir,"uuid")
+        if not os.path.isfile(username_file):
+            continue
+        if not os.path.isfile(uuid_file):
+            continue
+        traffic_file=os.path.join(user_dir,"traffic.json")
+        try:
+            if os.path.isfile(traffic_file):
+                with open(traffic_file,"r",encoding="utf-8") as f:
+                    traffic=json.load(f)
+            else:
+                traffic={}
+        except Exception:
+            traffic={}
+        if not isinstance(traffic,dict):
+            traffic={}
+        traffic.setdefault("vps",{})
+        traffic["vps"][vps_name]={
+            "wg_address":source_address,
+            "upload":int(data.get("upload",0) or 0),
+            "download":int(data.get("download",0) or 0),
+            "total":int(data.get("total",0) or 0),
+            "period_upload":int(data.get("period_upload",0) or 0),
+            "period_download":int(data.get("period_download",0) or 0),
+            "period_total":int(data.get("period_total",0) or 0)
+        }
+        total_upload=0
+        total_download=0
+        total=0
+        period_upload=0
+        period_download=0
+        period_total=0
+        for vps_data in traffic["vps"].values():
+            if not isinstance(vps_data,dict):
+                continue
+            total_upload+=int(vps_data.get("upload",0) or 0)
+            total_download+=int(vps_data.get("download",0) or 0)
+            total+=int(vps_data.get("total",0) or 0)
+            period_upload+=int(vps_data.get("period_upload",0) or 0)
+            period_download+=int(vps_data.get("period_download",0) or 0)
+            period_total+=int(vps_data.get("period_total",0) or 0)
+        traffic["upload"]=total_upload
+        traffic["download"]=total_download
+        traffic["total"]=total
+        traffic["period_upload"]=period_upload
+        traffic["period_download"]=period_download
+        traffic["period_total"]=period_total
+        tmp=traffic_file+".tmp"
+        with open(tmp,"w",encoding="utf-8") as f:
+            json.dump(traffic,f,ensure_ascii=False,indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp,0o600)
+        os.replace(tmp,traffic_file)
+    return True,"ok"
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,format,*args):
         pass
@@ -282,6 +365,29 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
     def do_POST(self):
+        if self.path=="/api/traffic/report":
+            try:
+                length=int(self.headers.get("Content-Length","0"))
+                if length<=0 or length>1048576:
+                    self.send_json(400,{"ok":False,"error":"invalid request size"})
+                    return
+                data=json.loads(self.rfile.read(length))
+                if not isinstance(data,dict):
+                    self.send_json(400,{"ok":False,"error":"invalid json"})
+                    return
+                users=data.get("users",{})
+                if not isinstance(users,dict):
+                    self.send_json(400,{"ok":False,"error":"invalid users"})
+                    return
+                source_address=self.client_address[0]
+                ok,message=save_traffic_report(source_address,users)
+                if not ok:
+                    self.send_json(403,{"ok":False,"error":message})
+                    return
+                self.send_json(200,{"ok":True})
+            except Exception as e:
+                self.send_json(500,{"ok":False,"error":str(e)})
+            return
         if self.path!="/api/register":
             self.send_json(404,{"ok":False,"error":"not found"})
             return
@@ -338,7 +444,7 @@ class Handler(BaseHTTPRequestHandler):
             item["os"]=data.get("os","")
             item["arch"]=data.get("arch","")
             save(db)
-            subprocess.run(["wg", "set", WG_INTERFACE, "peer", wg_key, "allowed-ips", item["wg_address"]+"/32"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+            subprocess.run(["wg","set",WG_INTERFACE,"peer",wg_key,"allowed-ips",item["wg_address"]+"/32"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
             persist_peer(wg_key,item["wg_address"])
             endpoint=public_ip()
             if not endpoint:
@@ -353,94 +459,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200,{"ok":True,"wg_address":item["wg_address"],"wg_server_public_key":server_key,"wg_endpoint":endpoint+":"+str(WG_PORT)})
         except Exception as e:
             self.send_json(500,{"ok":False,"error":str(e)})
-
-def save_traffic_report(source_address, traffic_data):
-    if not isinstance(traffic_data, dict):
-        return False, "invalid traffic data"
-    db=load()
-    vps_item=None
-    for x in db.get("vps",[]):
-        address=x.get("wg_address","")
-        if address:
-            address=address.split("/")[0]
-        if address==source_address:
-            vps_item=x
-            break
-    if vps_item is None:
-        return False, "unknown vps"
-    vps_name=vps_item.get("name","")
-    if not vps_name:
-        return False, "vps name missing"
-    users_dir=os.path.join(os.path.dirname(FILE),"users")
-    os.makedirs(users_dir,mode=0o700,exist_ok=True)
-    for username,data in traffic_data.items():
-        if not isinstance(username,str) or not username:
-            continue
-        if not isinstance(data,dict):
-            continue
-        user_dir=os.path.join(users_dir,username)
-        os.makedirs(user_dir,mode=0o700,exist_ok=True)
-        username_file=os.path.join(user_dir,"username")
-        uuid_file=os.path.join(user_dir,"uuid")
-        if not os.path.isfile(username_file):
-            continue
-        if not os.path.isfile(uuid_file):
-            continue
-        traffic_file=os.path.join(user_dir,"traffic.json")
-
-        try:
-            if os.path.isfile(traffic_file):
-                with open(traffic_file,"r",encoding="utf-8") as f:
-                    traffic=json.load(f)
-            else:
-                traffic={}
-        except Exception:
-            traffic={}
-        if not isinstance(traffic,dict):
-            traffic={}
-        traffic.setdefault("vps",{})
-        traffic["vps"][vps_name]={
-            "wg_address":source_address,
-            "upload":int(data.get("upload",0) or 0),
-            "download":int(data.get("download",0) or 0),
-            "total":int(data.get("total",0) or 0),
-            "period_upload":int(data.get("period_upload",0) or 0),
-            "period_download":int(data.get("period_download",0) or 0),
-            "period_total":int(data.get("period_total",0) or 0)
-        }
-        total_upload=0
-        total_download=0
-        total=0
-        period_upload=0
-        period_download=0
-        period_total=0
-        for vps_data in traffic["vps"].values():
-            if not isinstance(vps_data,dict):
-                continue
-            total_upload+=int(vps_data.get("upload",0) or 0)
-            total_download+=int(vps_data.get("download",0) or 0)
-            total+=int(vps_data.get("total",0) or 0)
-            period_upload+=int(vps_data.get("period_upload",0) or 0)
-            period_download+=int(vps_data.get("period_download",0) or 0)
-            period_total+=int(vps_data.get("period_total",0) or 0)
-        traffic["upload"]=total_upload
-        traffic["download"]=total_download
-        traffic["total"]=total
-        traffic["period_upload"]=period_upload
-        traffic["period_download"]=period_download
-        traffic["period_total"]=period_total
-        tmp=traffic_file+".tmp"
-        with open(tmp,"w",encoding="utf-8") as f:
-            json.dump(traffic,f,ensure_ascii=False,indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(tmp,0o600)
-        os.replace(tmp,traffic_file)
-    return True,"ok"
 server=HTTPServer(("0.0.0.0",PORT),Handler)
 server.serve_forever()
 PY
 }
+    
+
+        
 start_server() {
     cat > /etc/systemd/system/central-vps.service <<EOF
 [Unit]
@@ -1069,8 +1094,226 @@ singbox_show_status() {
     green "2. 卸载 Sing-box"
     green "3. 更新 Sing-box"
     green "4. 添加用户"
+    green "5. 管理用户"
     green "0. 返回"
     echo
+}
+show_central_users() {
+    local users_dir="$DATA_DIR/users"
+    local count=0
+    local i=1
+    local username=""
+    local selected=""
+    local -a users=()
+
+    mkdir -p "$users_dir"
+
+    while IFS= read -r username; do
+        [ -n "$username" ] || continue
+        users+=("$username")
+    done < <(find "$users_dir" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort)
+
+    count=${#users[@]}
+
+    while true; do
+        clear
+        green "========================================"
+        green "              用户管理"
+        green "========================================"
+        echo
+
+        if [ "$count" -eq 0 ]; then
+            yellow "当前没有用户"
+            echo
+            read -rp "按回车返回..." _
+            return
+        fi
+
+        for ((i=0; i<count; i++)); do
+            green "$((i+1)). ${users[$i]}"
+        done
+
+        echo
+        green "0. 返回"
+        echo
+        read -rp "请输入数字: " selected
+
+        if [ "$selected" = "0" ]; then
+            return
+        fi
+
+        if ! [[ "$selected" =~ ^[0-9]+$ ]] || [ "$selected" -lt 1 ] || [ "$selected" -gt "$count" ]; then
+            red "输入无效"
+            sleep 1
+            continue
+        fi
+
+        manage_central_user "${users[$((selected-1))]}"
+    done
+}
+
+manage_central_user() {
+    local username="$1"
+    local user_dir="$DATA_DIR/users/$username"
+    local traffic_file="$user_dir/traffic.json"
+    local username_file="$user_dir/username"
+    local uuid_file="$user_dir/uuid"
+    local path_file="$user_dir/path"
+    local uuid=""
+    local path=""
+    local choice=""
+    local upload=0
+    local download=0
+    local total=0
+    local period_upload=0
+    local period_download=0
+    local period_total=0
+    local period=""
+    local period_start=""
+    local period_end=""
+    local limit_enabled=""
+    local limit_bytes=0
+    local limit_value=0
+    local limit_unit="GB"
+
+    if [ ! -d "$user_dir" ]; then
+        red "用户不存在"
+        sleep 1
+        return
+    fi
+
+    uuid=$(cat "$uuid_file" 2>/dev/null)
+    path=$(cat "$path_file" 2>/dev/null)
+
+    while true; do
+        upload=0
+        download=0
+        total=0
+        period_upload=0
+        period_download=0
+        period_total=0
+        period=""
+        period_start=""
+        period_end=""
+        limit_enabled="false"
+        limit_bytes=0
+        limit_value=0
+        limit_unit="GB"
+
+        if [ -f "$traffic_file" ]; then
+            eval "$(
+                python3 - "$traffic_file" "$user_dir" <<'PY'
+import json
+import os
+import sys
+
+traffic_file=sys.argv[1]
+user_dir=sys.argv[2]
+
+try:
+    with open(traffic_file,"r",encoding="utf-8") as f:
+        d=json.load(f)
+except Exception:
+    d={}
+
+def n(v):
+    try:
+        return int(v or 0)
+    except Exception:
+        return 0
+
+print("upload=%d" % n(d.get("upload")))
+print("download=%d" % n(d.get("download")))
+print("total=%d" % n(d.get("total")))
+print("period_upload=%d" % n(d.get("period_upload")))
+print("period_download=%d" % n(d.get("period_download")))
+print("period_total=%d" % n(d.get("period_total")))
+print("period=%r" % str(d.get("period","")))
+print("period_start=%r" % str(d.get("period_start","")))
+print("period_end=%r" % str(d.get("period_end","")))
+
+limit_file=os.path.join(user_dir,"limit.json")
+
+try:
+    with open(limit_file,"r",encoding="utf-8") as f:
+        l=json.load(f)
+except Exception:
+    l={}
+
+print("limit_enabled=%r" % bool(l.get("enabled",False)))
+print("limit_bytes=%d" % n(l.get("limit_bytes")))
+print("limit_value=%r" % str(l.get("limit_value",0)))
+print("limit_unit=%r" % str(l.get("limit_unit","GB")))
+PY
+)" 2>/dev/null
+        fi
+
+        clear
+        green "========================================"
+        green "              用户信息"
+        green "========================================"
+        echo
+        green "用户名：$username"
+        green "UUID：$uuid"
+        green "订阅路径：$path"
+        echo
+        green "总上传：$(format_bytes "$upload")"
+        green "总下载：$(format_bytes "$download")"
+        green "总流量：$(format_bytes "$total")"
+        echo
+        green "当前周期：${period:-未设置}"
+        green "周期开始：${period_start:-无}"
+        green "周期结束：${period_end:-无}"
+        green "周期上传：$(format_bytes "$period_upload")"
+        green "周期下载：$(format_bytes "$period_download")"
+        green "周期流量：$(format_bytes "$period_total")"
+        echo
+
+        if [ "$limit_enabled" = "True" ]; then
+            green "流量限制：${limit_value}${limit_unit}"
+            green "限制流量：$(format_bytes "$limit_bytes")"
+            if [ "$limit_bytes" -gt 0 ]; then
+                local remaining=$((limit_bytes-period_total))
+                [ "$remaining" -lt 0 ] && remaining=0
+                green "剩余流量：$(format_bytes "$remaining")"
+            fi
+        else
+            green "流量限制：无限制"
+        fi
+
+        echo
+        green "----------------------------------------"
+        green "1. 设置流量"
+        green "2. 周期设置"
+        green "3. 更新用户"
+        green "4. 删除用户"
+        green "0. 返回"
+        echo
+        read -rp "请输入数字: " choice
+
+        case "$choice" in
+            1)
+                central_user_set_limit "$username"
+                ;;
+            2)
+                central_user_set_period "$username"
+                ;;
+            3)
+                central_user_update "$username"
+                ;;
+            4)
+                central_user_delete "$username"
+                return
+                ;;
+            0)
+                return
+                ;;
+            *)
+                red "输入无效"
+                sleep 1
+                ;;
+        esac
+    done
 }
 add_central_user() {
     local username=""
@@ -1082,7 +1325,17 @@ add_central_user() {
     local token=""
     local result=""
     local output=""
+    local nodes=""
     local failed=0
+    local user_dir="$DATA_DIR/users"
+    local user_path=""
+    local user_file=""
+    mkdir -p "$user_dir"
+    if [ -d "$user_dir/$username" ]; then
+        red "用户已存在"
+        sleep 1
+        return
+    fi
     echo
     green "================ 添加用户 ================"
     echo
@@ -1097,6 +1350,11 @@ add_central_user() {
         sleep 1
         return
     fi
+    if [ -d "$user_dir/$username" ]; then
+        red "用户已存在"
+        sleep 1
+        return
+    fi
     uuid=$(cat /proc/sys/kernel/random/uuid)
     count=$(get_vps_count)
     if [ "$count" -le 0 ]; then
@@ -1108,6 +1366,8 @@ add_central_user() {
     green "用户名：$username"
     green "UUID：$uuid"
     echo
+    local temp_dir
+    temp_dir=$(mktemp -d)
     for ((i=0; i<count; i++)); do
         name=$(get_vps_field "$i" "name")
         address=$(get_vps_field "$i" "wg_address")
@@ -1138,6 +1398,9 @@ except Exception:
     pass
 ' 2>/dev/null)
         if echo "$output" | grep -q "CENTRAL_USER_OK"; then
+            nodes=$(printf '%s\n' "$output" | sed -n '/^NODE_BEGIN$/,/^NODE_END$/p' | sed '1d;$d')
+            mkdir -p "$temp_dir/nodes"
+            printf '%s\n' "$nodes" > "$temp_dir/nodes/$name"
             green "$name：添加成功"
         else
             red "$name：添加失败"
@@ -1145,15 +1408,29 @@ except Exception:
             failed=1
         fi
     done
-    echo
-    if [ "$failed" -eq 0 ]; then
-        green "用户添加成功"
-    else
-        red "用户添加完成，但部分 VPS 添加失败"
+    if [ "$failed" -ne 0 ]; then
+        rm -rf "$temp_dir"
+        echo
+        red "用户添加失败，未创建中央用户目录"
+        echo
+        read -rp "按回车返回..." _
+        return
     fi
+    user_path="$username"
+    mkdir -p "$temp_dir/nodes"
+    printf '%s\n' "$username" > "$temp_dir/username"
+    printf '%s\n' "$uuid" > "$temp_dir/uuid"
+    printf '%s\n' "$user_path" > "$temp_dir/path"
+    printf '%s\n' '{"vps":{},"upload":0,"download":0,"total":0,"period_upload":0,"period_download":0,"period_total":0}' > "$temp_dir/traffic.json"
+    chmod 600 "$temp_dir/username" "$temp_dir/uuid" "$temp_dir/path" "$temp_dir/traffic.json"
+    chmod 700 "$temp_dir/nodes"
+    mv "$temp_dir" "$user_dir/$username"
+    rmdir "$temp_dir" 2>/dev/null || true
     echo
+    green "用户添加成功"
     green "用户名：$username"
     green "UUID：$uuid"
+    green "订阅路径：$user_path"
     echo
     read -rp "按回车返回..." _
 }
@@ -1295,6 +1572,9 @@ manage_singbox() {
                 ;;
             4)
             add_central_user
+            ;;
+            5)
+            show_central_users
             ;;
             0)
                 return
