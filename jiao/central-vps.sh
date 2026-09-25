@@ -2340,45 +2340,41 @@ PY
         green "用户名：$username"
         green "UUID：$uuid"
         green "订阅路径：$path"
-        echo
         green "-------------- 流量统计 ----------------"
-        printf "%-16s %-18s %-16s %s\n" "上传流量" "$(format_bytes "$upload")" "总计流量" "$(format_bytes "$total")"
-        printf "%-16s %-18s %-16s %s\n" "下载流量" "$(format_bytes "$download")" "周期流量" "$(format_bytes "$period_total")"
-        echo
+        printf "%-6s %-22s %-6s %s\n" "上传流量" "$(format_bytes "$upload")" "总计流量" "$(format_bytes "$total")"
+        printf "%-6s %-22s %-6s %s\n" "下载流量" "$(format_bytes "$download")" "周期流量" "$(format_bytes "$period_total")"
         green "-------------- 流量限制 ----------------"
         if [ "$limit_enabled" = "True" ]; then
-            printf "%-16s %-18s %-16s %s\n" "限制流量" "$(format_bytes "$limit_bytes")" "限制周期" "$(
+            printf "%-6s %-22s %-6s %s\n" "限制流量" "$(format_bytes "$limit_bytes")" "限制周期" "$(
                 case "$period" in
                     day) echo "每天" ;;
                     month) echo "每月" ;;
                     *) echo "未设置" ;;
                 esac
             )"
-            printf "%-16s %-18s %-16s " "剩余流量" "$(format_bytes "$remaining")" "流量状态"
+            printf "%-6s %-22s %-6s " "剩余流量" "$(format_bytes "$remaining")" "流量状态"
             if [ "$traffic_status" = "正常" ]; then
                 green "正常"
             else
                 red "已停用"
             fi
         else
-            printf "%-16s %-18s %-16s %s\n" "限制流量" "无限制" "限制周期" "$(
+            printf "%-6s %-22s %-6s %s\n" "限制流量" "无限制" "限制周期" "$(
                 case "$period" in
                     day) echo "每天" ;;
                     month) echo "每月" ;;
                     *) echo "未设置" ;;
                 esac
             )"
-            printf "%-16s %-18s %-16s " "剩余流量" "无限制" "流量状态"
+            printf "%-6s %-22s %-6s " "剩余流量" "无限制" "流量状态"
             if [ "$traffic_status" = "正常" ]; then
                 green "正常"
             else
                 red "已停用"
             fi
         fi
-        echo
-        printf "%-16s %s\n" "周期开始" "${period_start:-无}"
-        printf "%-16s %s\n" "周期结束" "${period_end:-无}"
-        echo
+        printf "%-6s %s\n" "周期开始" "${period_start:-无}"
+        printf "%-6s %s\n" "周期结束" "${period_end:-无}"
         green "----------------------------------------"
         green "1. 设置流量"
         green "2. 周期设置"
