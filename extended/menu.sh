@@ -63,19 +63,21 @@ check_nginx() {
 load_local_modules() {
     local file
     local module_file
-    local error_output
+    local error_file
     local status
+    error_file=$(mktemp)
     for file in "${MODULES[@]:1}"; do
         module_file="$MODULE_DIR/$file"
         if [ -f "$module_file" ]; then
-            error_output=$(source "$module_file" 2>&1 >/dev/null)
+            source "$module_file" >/dev/null 2>"$error_file"
             status=$?
             if [ $status -ne 0 ]; then
                 red "$file 加载失败"
-                printf '%s\n' "$error_output"
+                cat "$error_file"
             fi
         fi
     done
+    rm -f "$error_file"
     return 0
 }
 load_local_modules
