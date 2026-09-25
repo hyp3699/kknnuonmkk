@@ -7585,6 +7585,10 @@ delete_user() {
     local username="$1"
 	local force_delete="${2:-0}"
     local preserve_data="${3:-0}"
+	local CONF_DIR="/etc/sing-box/conf"
+    local TRAFFIC_STATE="/etc/sing-box/user_manager/traffic/state.json"
+    local LIMIT_DIR="/etc/sing-box/user_manager/limits"
+    local URL_DIR="/etc/sing-box/url"
     if [ -z "$username" ]; then
         red "错误：用户名不能为空"
         sleep 1
