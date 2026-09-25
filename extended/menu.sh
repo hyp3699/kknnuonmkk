@@ -17,6 +17,21 @@ MODULES=(
 	cf.sh
 	install.sh
 )
+load_local_modules() {
+    local file
+    local module_file
+    for file in "${MODULES[@]:1}"; do
+        module_file="$MODULE_DIR/$file"
+        if [ -f "$module_file" ]; then
+            if ! source "$module_file" >/dev/null 2>&1; then
+                red "$file 加载失败"
+                return 1
+            fi
+        fi
+    done
+    return 0
+}
+load_local_modules
 download_and_load_modules() {
     mkdir -p "$MODULE_DIR"
     local file
