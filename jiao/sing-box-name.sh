@@ -984,6 +984,8 @@ def main():
     save_state(state)
     log("singbox traffic collector started (V2Ray Stats API)")
     last_save = time.monotonic()
+    last_central_check = 0.0
+    last_central_traffic = None
     while running:
         try:
             sync_periods(state)
@@ -1004,6 +1006,13 @@ def main():
                 check_limits(state)
                 save_state(state)
                 last_save = now
+            if now - last_central_check >= CENTRAL_CHECK_INTERVAL:
+                last_central_check = now
+                if central_vps_available():
+                    current_central_traffic = get_central_traffic_snapshot(state)
+                    if last_central_traffic is None or current_central_traffic != last_central_traffic:
+                        last_central_traffic = current_central_traffic
+                        upload_central_traffic(current_central_traffic)
             if current_stats is None:
                 time.sleep(RECONNECT_INTERVAL)
             else:
