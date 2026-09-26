@@ -4,7 +4,7 @@
 # 主菜单
 # ============================================================
 MODULE_DIR="/etc/sing-box"
-GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended"
+GITHUB_RAW="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/extended-vps"
 MODULES=(
     menu.sh
 	nftables.sh
