@@ -207,6 +207,9 @@ import sys
 import subprocess
 import urllib.request
 import urllib.error
+import threading
+import time
+from datetime import datetime,timezone,timedelta
 from http.server import HTTPServer,BaseHTTPRequestHandler
 FILE=sys.argv[1]
 PORT=int(sys.argv[2])
@@ -316,6 +319,131 @@ def delete_user_from_all_vps(username):
         if not agent_command(address,token,command):
             failed=True
     return not failed
+def restore_user_to_all_vps(username):
+    db=load()
+    vps_list=db.get("vps",[])
+    if not isinstance(vps_list,list):
+        return False
+    if not username or not all(c.isalnum() or c in "._-" for c in username):
+        return False
+    user_dir=os.path.join(os.path.dirname(FILE),"users",username)
+    uuid_file=os.path.join(user_dir,"uuid")
+    try:
+        with open(uuid_file,"r",encoding="utf-8") as f:
+            uuid=f.read().strip()
+    except Exception:
+        return False
+    if not uuid:
+        return False
+    failed=False
+    command="export SB_LOAD_ONLY=1; source /etc/sing-box/sb.sh; add_user_menu \"{}\" \"{}\" \"\" \"central\"".format(username,uuid)
+    for item in vps_list:
+        if not isinstance(item,dict):
+            failed=True
+            continue
+        address=item.get("wg_address","")
+        token=item.get("agent_token","")
+        if address:
+            address=address.split("/")[0]
+        if not address or not token:
+            failed=True
+            continue
+        if not agent_command(address,token,command):
+            failed=True
+    return not failed
+def get_current_period(period):
+    now=datetime.now(timezone.utc)
+    if period=="day":
+        start=now.replace(hour=0,minute=0,second=0,microsecond=0)
+        end=start+timedelta(days=1)
+        return start.isoformat(),end.isoformat()
+    if period=="month":
+        start=now.replace(day=1,hour=0,minute=0,second=0,microsecond=0)
+        if start.month==12:
+            end=start.replace(year=start.year+1,month=1)
+        else:
+            end=start.replace(month=start.month+1)
+        return start.isoformat(),end.isoformat()
+    return "",""
+def parse_period_end(value):
+    if not value:
+        return None
+    try:
+        text=str(value)
+        if text.endswith("Z"):
+            text=text[:-1]+"+00:00"
+        dt=datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt=dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+def check_expired_periods():
+    users_dir=os.path.join(os.path.dirname(FILE),"users")
+    if not os.path.isdir(users_dir):
+        return
+    now=datetime.now(timezone.utc)
+    try:
+        usernames=os.listdir(users_dir)
+    except Exception:
+        return
+    for username in usernames:
+        if not username or not all(c.isalnum() or c in "._-" for c in username):
+            continue
+        user_dir=os.path.join(users_dir,username)
+        traffic_file=os.path.join(user_dir,"traffic.json")
+        if not os.path.isfile(traffic_file):
+            continue
+        try:
+            with open(traffic_file,"r",encoding="utf-8") as f:
+                traffic=json.load(f)
+        except Exception:
+            continue
+        if not isinstance(traffic,dict):
+            continue
+        period=traffic.get("period","")
+        if period not in ("day","month"):
+            continue
+        period_end=parse_period_end(traffic.get("period_end",""))
+        if period_end is not None and now<period_end:
+            continue
+        period_start,period_end_text=get_current_period(period)
+        if not period_start or not period_end_text:
+            continue
+        was_disabled=bool(traffic.get("disabled_by_limit",False))
+        limit=traffic.get("limit",{})
+        if not isinstance(limit,dict):
+            limit={}
+        traffic["period_upload"]=0
+        traffic["period_download"]=0
+        traffic["period_total"]=0
+        traffic["period_start"]=period_start
+        traffic["period_end"]=period_end_text
+        restored=True
+        if was_disabled:
+            if bool(limit.get("enabled",False)):
+                restored=restore_user_to_all_vps(username)
+            else:
+                restored=True
+            if restored:
+                traffic["disabled_by_limit"]=False
+            else:
+                traffic["disabled_by_limit"]=True
+        else:
+            traffic["disabled_by_limit"]=False
+        tmp=traffic_file+".tmp"
+        try:
+            with open(tmp,"w",encoding="utf-8") as f:
+                json.dump(traffic,f,ensure_ascii=False,indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp,0o600)
+            os.replace(tmp,traffic_file)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
 def check_user_limit(username,traffic):
     if not isinstance(traffic,dict):
         return
@@ -664,6 +792,14 @@ class Handler(BaseHTTPRequestHandler):
             )
         except Exception as e:
             self.send_json(500,{"ok":False,"error":str(e)})
+def period_checker():
+    while True:
+        try:
+            check_expired_periods()
+        except Exception:
+            pass
+        time.sleep(180)
+threading.Thread(target=period_checker,daemon=True).start()
 server=HTTPServer(("0.0.0.0",PORT),Handler)
 server.serve_forever()
 PY
