@@ -142,39 +142,13 @@ to_chinese() {
         *)               echo -e "\033[0;37m$clean_status\033[0m" ;;
     esac
 }
-
-# 获取ip
-get_realip() {
-    local ip=""
-    local v6=""
-    ip=$(curl -4 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
-    if [ -z "$ip" ]; then
-        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 ip.sb 2>/dev/null)
-        if [ -n "$v6" ]; then
-            echo "[$v6]"
-            return 0
-        fi
-        return 1
-    fi
-    if curl -4 -sL --connect-timeout 3 --max-time 5 \
-        http://ipinfo.io/org 2>/dev/null |
-        grep -qE 'Cloudflare|UnReal|AEZA|Andrei'; then
-        v6=$(curl -6 -sL --connect-timeout 3 --max-time 5 \
-            ip.sb 2>/dev/null)
-        if [ -n "$v6" ]; then
-            echo "[$v6]"
-            return 0
-        fi
-    fi
-    echo "$ip"
-}
+    
 ip_address() {
     ipv4_address=$(curl -4 -sS -L -m 3 https://ipv4.ip.sb 2>/dev/null | tr -d '[:space:]')
     ipv6_address=$(curl -6 -sS -L -m 3 https://ipv6.ip.sb 2>/dev/null | tr -d '[:space:]')
     [[ "$ipv4_address" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || ipv4_address=""
     [[ "$ipv6_address" =~ : ]] || ipv6_address=""
 }
-
 
 manage_nodes_menu() {
     if [ -z "$private_key" ]; then
@@ -345,6 +319,7 @@ local NGINX_MAIN_CONF="/etc/nginx/conf.d/singbox_sub.conf"
 local input_username="${1:-}"
 local input_uuid="${2:-}"
 local input_path="${3:-}"
+local central_mode="${4:-}"
 
 local username
 local uuid
@@ -355,6 +330,7 @@ local LIMIT_DIR="/etc/sing-box/user_manager/limits"
 
 mkdir -p "$URL_DIR" "$NGINX_CONF_DIR" "$NGINX_USER_CONF_DIR" "$LIMIT_DIR"
 
+if [[ -z "$central_mode" ]]; then
 local need_ssl_init=1
 if [[ -f "$NGINX_MAIN_CONF" ]]; then
     local existing_domain
@@ -544,6 +520,7 @@ chmod 644 "$SUB_SERVICE_UNIT"
 systemctl daemon-reload
 systemctl enable --now sing-box-subscription.service >/dev/null 2>&1
 systemctl restart sing-box-subscription.service >/dev/null 2>&1
+fi
 # ==========================================================
 local max_num=0
 local f n
@@ -579,19 +556,19 @@ local index=1
 local file
 shopt -s nullglob
 for file in "$CONF_DIR"/*.json; do
-[ -f "$file" ] || continue
-case "$(basename "$file")" in
-    config.json|cloudflared.json)
-        continue
-        ;;
-esac
-while IFS=$'\t' read -r inbound_type inbound_tag; do
-[ -n "$inbound_type" ] || continue
-[ -n "$inbound_tag" ] || continue
-entries+=("$file|$inbound_type|$inbound_tag")
-green "${index}. ${inbound_tag}"
-index=$((index + 1))
-done < <(python3 - "$file" <<'PY'
+    [ -f "$file" ] || continue
+    case "$(basename "$file")" in
+        config.json|cloudflared.json)
+            continue
+            ;;
+    esac
+    while IFS=$'\t' read -r inbound_type inbound_tag; do
+        [ -n "$inbound_type" ] || continue
+        [ -n "$inbound_tag" ] || continue
+        entries+=("$file|$inbound_type|$inbound_tag")
+        green "${index}. ${inbound_tag}"
+        index=$((index + 1))
+    done < <(python3 - "$file" <<'PY'
 import json
 import sys
 path = sys.argv[1]
@@ -612,31 +589,36 @@ PY
 done
 shopt -u nullglob
 if [ ${#entries[@]} -eq 0 ]; then
-yellow "暂无可用入站"
-sleep 1
-return
+    yellow "暂无可用入站"
+    sleep 1
+    return
 fi
-echo
-green "请输入要添加的入站编号，可多选，例如：1 2 3"
-green "输入 0 返回"
-echo
-read -rp "请选择: " choice
-[ "$choice" = "0" ] && return
-[ -z "$choice" ] && continue
 local selected=()
-local invalid=0
-for n in $choice; do
-if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#entries[@]}" ]; then
-selected+=("${entries[$((n - 1))]}")
+if [[ -n "$central_mode" ]]; then
+    selected=("${entries[@]}")
 else
-invalid=1
+    echo
+    green "请输入要添加的入站编号，可多选，例如：1 2 3"
+    green "输入 0 返回"
+    echo
+    read -rp "请选择: " choice
+    [ "$choice" = "0" ] && return
+    [ -z "$choice" ] && continue
+    local invalid=0
+    for n in $choice; do
+        if [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le "${#entries[@]}" ]; then
+            selected+=("${entries[$((n - 1))]}")
+        else
+            invalid=1
+        fi
+    done
+    if [ "$invalid" -eq 1 ] || [ "${#selected[@]}" -eq 0 ]; then
+        red "存在无效入站编号"
+        sleep 1
+        continue
+    fi
 fi
-done
-if [ "$invalid" -eq 1 ] || [ "${#selected[@]}" -eq 0 ]; then
-red "存在无效入站编号"
-sleep 1
-continue
-fi
+
 local selected_data=""
 for f in "${selected[@]}"; do
 if [ -n "$selected_data" ]; then
@@ -656,6 +638,7 @@ URL_DIR="$URL_DIR" \
 NGINX_USER_CONF_DIR="$NGINX_USER_CONF_DIR" \
 FORCE_OVERWRITE="$force_overwrite" \
 INPUT_PATH="$input_path" \
+CENTRAL_MODE="$central_mode" \
 python3 - <<'PY'
 import os
 import json
@@ -674,6 +657,7 @@ main_config = os.environ["MAIN_CONFIG"]
 url_dir = os.environ["URL_DIR"]
 nginx_user_conf_dir = os.environ["NGINX_USER_CONF_DIR"]
 force_overwrite = os.environ.get("FORCE_OVERWRITE", "0") == "1"
+central_mode = os.environ.get("CENTRAL_MODE", "").strip() != ""
 input_path = os.environ.get("INPUT_PATH", "").strip()
 user_dir = os.path.join(url_dir, username)
 if force_overwrite and os.path.isdir(user_dir):
@@ -902,91 +886,93 @@ for item in selected:
     _, inbound_type, inbound_tag = item.split("|", 2)
     total_links += copy_links(inbound_type, inbound_tag)
 
-if os.path.isfile(links_file):
-    with open(links_file, "r", encoding="utf-8") as f:
-        links_text = f.read().strip()
-        
-    import urllib.parse
-    traffic_state = "/etc/sing-box/user_manager/traffic/state.json"
-    limit_dir = "/etc/sing-box/user_manager/limits"
-    used = 0
-    limit_bytes = 0
-    enabled = False
-    try:
-        with open(traffic_state, "r", encoding="utf-8") as f:
-            state = json.load(f)
-            used = int(state.get("users", {}).get(username, {}).get("period_total", 0) or 0)
-    except Exception:
-        pass
-    try:
-        with open(os.path.join(limit_dir, f"{username}.json"), "r", encoding="utf-8") as f:
-            limit_data = json.load(f)
-            enabled = bool(limit_data.get("enabled", False))
-            limit_bytes = int(limit_data.get("limit_bytes", 0) or 0)
-    except Exception:
-        pass
-    
-    def format_b(val):
+if not central_mode:
+    if os.path.isfile(links_file):
+        with open(links_file, "r", encoding="utf-8") as f:
+            links_text = f.read().strip()
+
+        import urllib.parse
+        traffic_state = "/etc/sing-box/user_manager/traffic/state.json"
+        limit_dir = "/etc/sing-box/user_manager/limits"
+        used = 0
+        limit_bytes = 0
+        enabled = False
         try:
-            val = float(val)
+            with open(traffic_state, "r", encoding="utf-8") as f:
+                state = json.load(f)
+                used = int(state.get("users", {}).get(username, {}).get("period_total", 0) or 0)
         except Exception:
-            val = 0
-        if val >= 1024**3: return f"{val/1024**3:.2f} GB"
-        if val >= 1024**2: return f"{val/1024**2:.2f} MB"
-        if val >= 1024: return f"{val/1024:.2f} KB"
-        return f"{int(val)} B"
-        
-    if enabled and limit_bytes > 0:
-        rem = max(limit_bytes - used, 0)
-        remark = f"📊 剩余流量: {format_b(rem)} | 已用: {format_b(used)}"
-    else:
-        remark = f"📊 剩余流量: 无限制 | 已用: {format_b(used)}"
-        
-    safe_remark = urllib.parse.quote(remark)
-    traffic_line = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#{safe_remark}"
-    
-    final_text = traffic_line + "\n" + links_text
-    with open(sub_file, "wb") as f:
-        f.write(base64.b64encode(final_text.encode("utf-8")))
-    os.chmod(sub_file, 0o644)
+            pass
+        try:
+            with open(os.path.join(limit_dir, f"{username}.json"), "r", encoding="utf-8") as f:
+                limit_data = json.load(f)
+                enabled = bool(limit_data.get("enabled", False))
+                limit_bytes = int(limit_data.get("limit_bytes", 0) or 0)
+        except Exception:
+            pass
+
+        def format_b(val):
+            try:
+                val = float(val)
+            except Exception:
+                val = 0
+            if val >= 1024**3: return f"{val/1024**3:.2f} GB"
+            if val >= 1024**2: return f"{val/1024**2:.2f} MB"
+            if val >= 1024: return f"{val/1024:.2f} KB"
+            return f"{int(val)} B"
+
+        if enabled and limit_bytes > 0:
+            rem = max(limit_bytes - used, 0)
+            remark = f"📊 剩余流量: {format_b(rem)} | 已用: {format_b(used)}"
+        else:
+            remark = f"📊 剩余流量: 无限制 | 已用: {format_b(used)}"
+
+        safe_remark = urllib.parse.quote(remark)
+        traffic_line = f"vless://00000000-0000-0000-0000-000000000000@127.0.0.1:10000?encryption=none&security=none&type=tcp#{safe_remark}"
+
+        final_text = traffic_line + "\n" + links_text
+        with open(sub_file, "wb") as f:
+            f.write(base64.b64encode(final_text.encode("utf-8")))
+        os.chmod(sub_file, 0o644)
 # ==========================================================
+if not central_mode:
+    def generate_sub_path():
+        while True:
+            token = secrets.token_urlsafe(18)
+            token = re.sub(r'[^A-Za-z0-9-]', '', token)
+            if len(token) < 16:
+                continue
+            location = "/" + token
+            duplicated = False
+            if os.path.isdir(nginx_user_conf_dir):
+                for name in os.listdir(nginx_user_conf_dir):
+                    if not name.endswith(".conf"):
+                        continue
+                    path = os.path.join(nginx_user_conf_dir, name)
+                    if not os.path.isfile(path):
+                        continue
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                            if f"location = {location}" in f.read():
+                                duplicated = True
+                                break
+                    except Exception:
+                        continue
+            if not duplicated:
+                return location
 
-def generate_sub_path():
-    while True:
-        token = secrets.token_urlsafe(18)
-        token = re.sub(r'[^A-Za-z0-9-]', '', token)
-        if len(token) < 16:
-            continue
-        location = "/" + token
-        duplicated = False
-        if os.path.isdir(nginx_user_conf_dir):
-            for name in os.listdir(nginx_user_conf_dir):
-                if not name.endswith(".conf"):
-                    continue
-                path = os.path.join(nginx_user_conf_dir, name)
-                if not os.path.isfile(path):
-                    continue
-                try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        if f"location = {location}" in f.read():
-                            duplicated = True
-                            break
-                except Exception:
-                    continue
-        if not duplicated:
-            return location
+    if input_path:
+        sub_path = input_path
+    else:
+        sub_path = generate_sub_path()
 
-if input_path:
-    sub_path = input_path
-else:
-    sub_path = generate_sub_path()
-path_file = os.path.join(user_dir, f"{username}-path")
-with open(path_file, "w", encoding="utf-8") as f:
-    f.write(sub_path)
+    path_file = os.path.join(user_dir, f"{username}-path")
+    with open(path_file, "w", encoding="utf-8") as f:
+        f.write(sub_path)
 
-nginx_conf = os.path.join(nginx_user_conf_dir, f"{username}.conf")
+    nginx_conf = os.path.join(nginx_user_conf_dir, f"{username}.conf")
 
-nginx_content = f"""location = {sub_path} {{
+    nginx_content = f"""location = {sub_path} {{
 proxy_pass http://127.0.0.1:18080/sub/{username};
 proxy_http_version 1.1;
 proxy_set_header Host \$host;
@@ -996,17 +982,23 @@ proxy_no_cache 1;
 proxy_cache_bypass 1;
 }}"""
 
-with open(nginx_conf, "w", encoding="utf-8") as f:
-    f.write(nginx_content)
-os.chmod(nginx_conf, 0o644)
+    with open(nginx_conf, "w", encoding="utf-8") as f:
+        f.write(nginx_content)
 
-result = subprocess.run(["nginx", "-t"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-if result.returncode != 0:
-    try:
-        os.unlink(nginx_conf)
-    except Exception:
-        pass
-    raise RuntimeError("Nginx 配置语法检查失败")
+    os.chmod(nginx_conf, 0o644)
+
+    result = subprocess.run(
+        ["nginx", "-t"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
+
+    if result.returncode != 0:
+        try:
+            os.unlink(nginx_conf)
+        except Exception:
+            pass
+        raise RuntimeError("Nginx 配置语法检查失败")
 
 result = subprocess.run(["systemctl", "reload", "nginx"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 if result.returncode != 0:
@@ -1014,6 +1006,18 @@ if result.returncode != 0:
 PY
 local result=$?
 if [ "$result" -eq 0 ]; then
+    if [[ -n "$central_mode" ]]; then
+    if systemctl is-active --quiet sing-box; then
+        systemctl reload sing-box > /dev/null 2>&1 || true
+    fi
+    echo "CENTRAL_USER_OK"
+    echo "NODE_BEGIN"
+    if [ -f "$URL_DIR/$username/$username" ]; then
+        cat "$URL_DIR/$username/$username"
+    fi
+    echo "NODE_END"
+    return 0
+fi
 local sub_path_val=""
 if [ -f "$URL_DIR/$username/$username-path" ]; then
     sub_path_val=$(cat "$URL_DIR/$username/$username-path")
@@ -1048,8 +1052,6 @@ return
 fi
 done
 }
-
-
 
 add_inbound_menu() {
     while true; do
@@ -2629,6 +2631,10 @@ delete_user() {
     local username="$1"
 	local force_delete="${2:-0}"
     local preserve_data="${3:-0}"
+	local CONF_DIR="/etc/sing-box/conf"
+    local TRAFFIC_STATE="/etc/sing-box/user_manager/traffic/state.json"
+    local LIMIT_DIR="/etc/sing-box/user_manager/limits"
+    local URL_DIR="/etc/sing-box/url"
     if [ -z "$username" ]; then
         red "错误：用户名不能为空"
         sleep 1
@@ -2777,7 +2783,9 @@ PY
             systemctl reload nginx >/dev/null 2>&1
         fi
     fi
-    update_sub_file
+	if [[ "${SB_LOAD_ONLY:-0}" != "1" ]]; then
+        update_sub_file
+    fi
     if [[ "$force_delete" != "1" ]]; then
     green "==============================================="
     green " 用户已删除：${username}"
@@ -2785,5 +2793,5 @@ PY
     echo
     sleep 1
     fi
-	return 2
+	return 0
 }
