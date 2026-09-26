@@ -827,6 +827,7 @@ while true; do
    green "10. 三网回程测试"
    green "11. BBR3"
    green "12. 其他ipv6隧道"
+   green "13. journald内存占用修改"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -953,6 +954,19 @@ while true; do
 		12) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/Tunnel-tongyong.sh)
 		    ;;
+
+		13)
+    read -p "请输入内存限制大小 (例如 16M, 32M) [默认 16M]: " size
+    size=${size:-16M}
+    sudo mkdir -p /etc/systemd/journald.conf.d/
+    sudo tee /etc/systemd/journald.conf.d/limit.conf > /dev/null <<EOF
+[Journal]
+RuntimeMaxUse=$size
+EOF
+    sudo systemctl restart systemd-journald
+    sudo journalctl --vacuum-size=$size
+    echo -e "\n[✔] 优化完成！journald 内存限制已设为 $size，且已清理旧日志。"
+    ;;
         0)
             echo "退出脚本"
             exit 0
