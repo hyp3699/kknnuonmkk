@@ -2760,24 +2760,179 @@ except Exception:
         read -rp "按回车返回..." _
         return
     fi
-    user_path="$username"
+    user_path=$(python3 - <<'PY'
+import secrets
+import string
+chars=string.ascii_letters+string.digits
+print(''.join(secrets.choice(chars) for _ in range(16)))
+PY
+)
     mkdir -p "$temp_dir/nodes"
     printf '%s\n' "$username" > "$temp_dir/username"
     printf '%s\n' "$uuid" > "$temp_dir/uuid"
     printf '%s\n' "$user_path" > "$temp_dir/path"
-    printf '%s\n' '{"vps":{},"upload":0,"download":0,"total":0,"period_upload":0,"period_download":0,"period_total":0}' > "$temp_dir/traffic.json"
-    chmod 600 "$temp_dir/username" "$temp_dir/uuid" "$temp_dir/path" "$temp_dir/traffic.json"
+    chmod 600 "$temp_dir/username" "$temp_dir/uuid" "$temp_dir/path"
     chmod 700 "$temp_dir/nodes"
-    mv "$temp_dir" "$user_dir/$username"
+    if ! mv "$temp_dir" "$user_dir/$username"; then
+        red "创建中央用户目录失败"
+        rm -rf "$temp_dir"
+        read -rp "按回车返回..." _
+        return
+    fi
+    temp_dir=""
+    local central_user_dir="$user_dir/$username"
     echo
     green "用户添加成功"
     green "用户名：$username"
     green "UUID：$uuid"
-    green "订阅路径：$user_path"
+    green "用户路径：$user_path"
+    echo
+    green "================ 选择证书 ================"
+    echo
+    local cert_dirs=()
+    local cert_dir=""
+    local cert_file=""
+    local key_file=""
+    local cert_domain=""
+    local cert_index=1
+    local cert_choice=""
+    for cert_dir in /root/cert/* /etc/nginx/cert/*; do
+        [ -d "$cert_dir" ] || continue
+        [ -f "$cert_dir/fullchain.pem" ] || continue
+        [ -f "$cert_dir/privkey.pem" ] || continue
+        cert_dirs+=("$cert_dir")
+        echo "$cert_index. $(basename "$cert_dir")"
+        cert_index=$((cert_index + 1))
+    done
+    if [ "${#cert_dirs[@]}" -eq 0 ]; then
+        red "没有找到有效证书"
+        read -rp "按回车返回..." _
+        return
+    fi
+    echo
+    while true; do
+        read -rp "请选择证书 [1-${#cert_dirs[@]}]: " cert_choice
+        if [[ "$cert_choice" =~ ^[0-9]+$ ]] && [ "$cert_choice" -ge 1 ] && [ "$cert_choice" -le "${#cert_dirs[@]}" ]; then
+            break
+        fi
+        red "输入错误，请重新选择"
+    done
+    cert_dir="${cert_dirs[$((cert_choice - 1))]}"
+    cert_file="$cert_dir/fullchain.pem"
+    key_file="$cert_dir/privkey.pem"
+    cert_domain="$(basename "$cert_dir")"
+    printf '%s\n' "$cert_domain" > "$central_user_dir/domain"
+    printf '%s\n' "$cert_file" > "$central_user_dir/cert_file"
+    printf '%s\n' "$key_file" > "$central_user_dir/key_file"
+    chmod 600 "$central_user_dir/domain" "$central_user_dir/cert_file" "$central_user_dir/key_file"
+    green "证书：$cert_dir"
+    green "域名：$cert_domain"
+    echo
+    green "================ 合并节点 ================"
+    echo
+    local merged_file="$central_user_dir/merged_nodes.txt"
+    local subscription_file="$central_user_dir/sub"
+    local node_file=""
+    local node_count=0
+    : > "$merged_file"
+    for node_file in "$central_user_dir"/nodes/*; do
+        [ -f "$node_file" ] || continue
+        cat "$node_file" >> "$merged_file"
+        node_count=$((node_count + 1))
+    done
+    if [ ! -s "$merged_file" ]; then
+        red "没有找到 VPS 节点"
+        read -rp "按回车返回..." _
+        return
+    fi
+    sed -i '/^[[:space:]]*$/d' "$merged_file"
+    if [ ! -s "$merged_file" ]; then
+        red "合并后的节点文件为空"
+        read -rp "按回车返回..." _
+        return
+    fi
+    chmod 600 "$merged_file"
+    green "节点合并完成"
+    green "节点数量：$node_count"
+    echo
+    green "================ 生成订阅 ================"
+    echo
+    if ! base64 -w 0 "$merged_file" > "$subscription_file"; then
+        red "Base64 编码失败"
+        rm -f "$subscription_file"
+        read -rp "按回车返回..." _
+        return
+    fi
+    if [ ! -s "$subscription_file" ]; then
+        red "订阅文件生成失败"
+        read -rp "按回车返回..." _
+        return
+    fi
+    chmod 600 "$subscription_file"
+    local subscription_url="https://$cert_domain/$user_path"
+    printf '%s\n' "$subscription_url" > "$central_user_dir/subscription_url"
+    chmod 600 "$central_user_dir/subscription_url"
+    echo
+    green "================ 配置 Nginx ================"
+    echo
+    local nginx_user_dir="/etc/nginx/conf.d/central_vps_users"
+    local nginx_user_conf="$nginx_user_dir/$username.conf"
+    local nginx_main_conf="/etc/nginx/conf.d/central_vps_sub.conf"
+    mkdir -p "$nginx_user_dir"
+    cat > "$nginx_user_conf" <<EOF
+location = /$user_path {
+    alias $subscription_file;
+    default_type text/plain;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+}
+EOF
+    cat > "$nginx_main_conf" <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $cert_domain;
+    return 301 https://\$host\$request_uri;
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name $cert_domain;
+    ssl_certificate $cert_file;
+    ssl_certificate_key $key_file;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    include /etc/nginx/conf.d/central_vps_users/*.conf;
+    location / {
+        return 404;
+    }
+}
+EOF
+    if ! nginx -t; then
+        red "Nginx 配置检查失败"
+        rm -f "$nginx_user_conf"
+        read -rp "按回车返回..." _
+        return
+    fi
+    if ! systemctl reload nginx; then
+        red "Nginx 重载失败"
+        rm -f "$nginx_user_conf"
+        read -rp "按回车返回..." _
+        return
+    fi
+    echo
+    green "========================================"
+    green "           用户添加完成"
+    green "========================================"
+    green "用户名：$username"
+    green "UUID：$uuid"
+    green "域名：$cert_domain"
+    green "用户路径：$user_path"
+    green "订阅地址：$subscription_url"
+    green "节点数量：$node_count"
+    green "订阅文件：$subscription_file"
     echo
     read -rp "按回车返回..." _
 }
-
 
 
 delete_central_user() {
@@ -3148,7 +3303,7 @@ case "${1:-}" in
         while true; do
             clear
             green "========================================"
-            green "          VPS 管理脚本2"
+            green "          VPS 管理脚本3"
             green "========================================"
             echo
             green "1. 添加 VPS"
