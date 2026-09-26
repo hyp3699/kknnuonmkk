@@ -28,6 +28,9 @@ WG_DIR=/etc/wireguard
 WG_CONFIG=$WG_DIR/central-mgmt.conf
 WG_PRIVATE_KEY=$WG_DIR/central-mgmt-privatekey
 WG_PUBLIC_KEY=$WG_DIR/central-mgmt-publickey
+SSH_KEY_DIR="$BASE_DIR/ssh"
+SSH_PRIVATE_KEY="$SSH_KEY_DIR/central_vps"
+SSH_PUBLIC_KEY="$SSH_PRIVATE_KEY.pub"
 mkdir -p "$BASE_DIR" "$DATA_DIR"
 chmod 700 "$BASE_DIR" "$DATA_DIR"
 [ -f "$VPS_FILE" ] || echo '{"vps":[]}' > "$VPS_FILE"
@@ -865,6 +868,7 @@ add_vps() {
     local name
     local token
     local central_ip
+    local ssh_public_key
     read -rp "请输入 VPS 名称: " name
     [ -n "$name" ] || return
     if python3 - "$VPS_FILE" "$name" <<'PY'
@@ -889,6 +893,14 @@ PY
         return
     fi
     token=$(generate_token)
+    init_ssh_key
+    ssh_public_key=$(cat "$SSH_PUBLIC_KEY")
+
+    if [ -z "$ssh_public_key" ]; then
+    red "获取SSH 公钥失败"
+    read -rp "按 Enter 返回..." _
+    return
+    fi
     python3 - "$VPS_FILE" "$name" "$token" <<'PY'
 import json
 import sys
@@ -907,7 +919,7 @@ PY
     green "========================================"
     green "请在目标 VPS 执行："
     echo
-    echo -e "\033[33mcurl -fsSL $AGENT_URL | bash -s -- \"$central_ip\" \"$token\"\033[0m"
+    echo -e "\033[33mcurl -fsSL $AGENT_URL | bash -s -- \"$central_ip\" \"$token\" \"$ssh_public_key\"\033[0m"
     echo
     green "========================================"
     read -rp "按 Enter 返回..." _
@@ -1196,6 +1208,19 @@ open_vps_menu() {
     echo
     yellow "已退出 $name 管理菜单"
     read -rp "按 Enter 返回..." _
+}
+init_ssh_key() {
+    mkdir -p "$SSH_KEY_DIR"
+    chmod 700 "$SSH_KEY_DIR"
+
+    if [ ! -f "$SSH_PRIVATE_KEY" ] || [ ! -f "$SSH_PUBLIC_KEY" ]; then
+        ssh-keygen -t ed25519 \
+            -f "$SSH_PRIVATE_KEY" \
+            -N "" \
+            -C "central-vps" >/dev/null 2>&1
+    fi
+    chmod 600 "$SSH_PRIVATE_KEY"
+    chmod 644 "$SSH_PUBLIC_KEY"
 }
 
 manage_single_vps() {
@@ -2989,7 +3014,6 @@ update_script() {
     systemctl restart central-vps 2>/dev/null || true
     green "API 已重新加载最新脚本"
     green "正在加载新版本..."
-    create_shortcut
     exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
 delete_script() {
@@ -3052,6 +3076,8 @@ main() {
     elif ! systemctl is-active --quiet central-vps.service 2>/dev/null; then
         systemctl start central-vps.service
     fi
+    init_ssh_key
+    create_shortcut
     exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
 case "${1:-}" in
