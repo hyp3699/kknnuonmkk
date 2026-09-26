@@ -16,6 +16,7 @@ AGENT_DIR=/etc/central-vps-agent
 AGENT_TOKEN_FILE=$AGENT_DIR/token
 AGENT_ADDRESS_FILE=$AGENT_DIR/address
 AGENT_SCRIPT=/usr/local/bin/central-vps-agent.py
+AGENT_MENU=/usr/local/bin/central-vps-agent-menu
 AGENT_SERVICE=central-vps-agent.service
 AGENT_PORT=18090
 [ -n "$CENTRAL_IP" ] || {
@@ -96,6 +97,8 @@ install_ssh_key() {
     fi
 }
 install_ssh_key
+printf '%s\n' "$SSH_PUBLIC_KEY" > "$AGENT_DIR/ssh_public_key"
+chmod 600 "$AGENT_DIR/ssh_public_key"
 if [ ! -f "$WG_PRIVATE_KEY" ]; then
     wg genkey > "$WG_PRIVATE_KEY"
     chmod 600 "$WG_PRIVATE_KEY"
@@ -346,3 +349,167 @@ else
     systemctl status "$AGENT_SERVICE" --no-pager
     exit 1
 fi
+# ==================== Agent 本地管理菜单 ====================
+
+cat > "$AGENT_MENU" <<'MENU'
+#!/bin/bash
+
+AGENT_DIR="/etc/central-vps-agent"
+AGENT_SCRIPT="/usr/local/bin/central-vps-agent.py"
+AGENT_MENU="/usr/local/bin/central-vps-agent-menu"
+AGENT_SERVICE="central-vps-agent.service"
+
+WG_INTERFACE="central-mgmt"
+WG_CONFIG="/etc/wireguard/central-mgmt.conf"
+WG_PRIVATE_KEY="/etc/wireguard/central-mgmt-privatekey"
+
+show_info() {
+    clear
+
+    echo "========================================"
+    echo "        Central VPS Agent"
+    echo "========================================"
+    echo
+
+    echo "Agent 服务 : $AGENT_SERVICE"
+
+    if systemctl is-active --quiet "$AGENT_SERVICE"; then
+        echo "Agent 状态 : 运行中"
+    else
+        echo "Agent 状态 : 未运行"
+    fi
+
+    echo "Agent 地址 : $(cat "$AGENT_DIR/address" 2>/dev/null || echo "未知")"
+    echo "Agent 端口 : 18090"
+    echo
+
+    echo "WireGuard  : $WG_INTERFACE"
+
+    if command -v wg >/dev/null 2>&1 &&
+       wg show "$WG_INTERFACE" >/dev/null 2>&1; then
+        echo "WG 状态    : 运行中"
+    else
+        echo "WG 状态    : 未运行"
+    fi
+
+    echo "WG 配置    : $WG_CONFIG"
+    echo
+
+    if [ -f "$WG_CONFIG" ]; then
+        echo "WireGuard 配置："
+        echo "----------------------------------------"
+        cat "$WG_CONFIG"
+        echo "----------------------------------------"
+        echo
+    fi
+
+    if command -v wg >/dev/null 2>&1; then
+        echo "WireGuard 运行信息："
+        echo "----------------------------------------"
+        wg show "$WG_INTERFACE" 2>/dev/null || true
+        echo "----------------------------------------"
+        echo
+    fi
+
+    echo "Agent 文件："
+    echo "----------------------------------------"
+    echo "$AGENT_DIR"
+    echo "$AGENT_SCRIPT"
+    echo "$AGENT_MENU"
+    echo "/etc/systemd/system/$AGENT_SERVICE"
+    echo "$WG_CONFIG"
+    echo "$WG_PRIVATE_KEY"
+    echo "/usr/bin/yy"
+    echo "----------------------------------------"
+    echo
+
+    echo "========================================"
+    echo "输入 s 卸载 Central VPS Agent"
+    echo "按 Enter 返回"
+    echo "========================================"
+    echo
+}
+
+uninstall_agent() {
+    clear
+    echo "========================================"
+    echo "      卸载 Central VPS Agent"
+    echo "========================================"
+    echo
+    echo "将停止并删除本 Agent 创建的全部服务和文件。"
+    echo
+    read -rp "确认卸载？输入 y: " confirm
+    if [ "$confirm" != "y" ]; then
+        echo
+        echo "已取消"
+        sleep 1
+        return
+    fi
+    echo
+    echo "正在停止服务..."
+    systemctl disable --now "$AGENT_SERVICE" >/dev/null 2>&1 || true
+    rm -f "/etc/systemd/system/$AGENT_SERVICE"
+    if command -v wg-quick >/dev/null 2>&1; then
+        wg-quick down "$WG_INTERFACE" >/dev/null 2>&1 || true
+    fi
+    systemctl disable "wg-quick@$WG_INTERFACE" >/dev/null 2>&1 || true
+    rm -f "$WG_CONFIG"
+    rm -f "$WG_PRIVATE_KEY"
+    SSH_KEY_FILE="$AGENT_DIR/ssh_public_key"
+    if [ -f "$SSH_KEY_FILE" ] && [ -f /root/.ssh/authorized_keys ]; then
+        SSH_KEY=$(cat "$SSH_KEY_FILE" 2>/dev/null || true)
+        if [ -n "$SSH_KEY" ]; then
+            TMP_FILE=$(mktemp)
+            while IFS= read -r line; do
+                [ "$line" = "$SSH_KEY" ] && continue
+                printf '%s\n' "$line"
+            done < /root/.ssh/authorized_keys > "$TMP_FILE"
+            chmod 600 "$TMP_FILE"
+            mv -f "$TMP_FILE" /root/.ssh/authorized_keys
+        fi
+    fi
+    rm -f "$AGENT_SCRIPT"
+    rm -f "$AGENT_MENU"
+    rm -f /usr/bin/yy
+    rm -rf "$AGENT_DIR"
+    systemctl daemon-reload
+    echo
+    echo "========================================"
+    echo "Central VPS Agent 已完全卸载"
+    echo "========================================"
+    echo
+    echo "已删除："
+    echo "  Agent 服务"
+    echo "  Agent 程序"
+    echo "  Agent 配置"
+    echo "  central-mgmt WireGuard"
+    echo "  Agent SSH 公钥"
+    echo "  yy 快捷命令"
+    echo
+    echo "原有 y 命令未修改"
+    echo
+    exit 0
+}
+while true; do
+    show_info
+    read -rp "请选择: " choice
+    case "$choice" in
+        s|S)
+            uninstall_agent
+            ;;
+        "")
+            exit 0
+            ;;
+        *)
+            echo
+            echo "无效输入"
+            sleep 1
+            ;;
+    esac
+done
+MENU
+chmod 700 "$AGENT_MENU"
+# 创建本地 yy 快捷命令
+ln -sfn "$AGENT_MENU" /usr/bin/yy
+echo
+echo "快捷命令已创建: yy"
