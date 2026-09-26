@@ -2833,8 +2833,8 @@ PY
     green "================ 合并节点 ================"
     echo
     local merged_file="$central_user_dir/merged_nodes.txt"
-    local subscription_dir="$central_user_dir/sub"
-    local subscription_file="$subscription_dir/sub"
+    local subscription_dir="/etc/central-vps-sub"
+    local subscription_file="$subscription_dir/$username"
     local node_file=""
     local node_count=0
     mkdir -p "$subscription_dir"
@@ -2870,6 +2870,7 @@ PY
     fi
     if [ ! -s "$subscription_file" ]; then
         red "订阅文件生成失败"
+        rm -f "$subscription_file"
         read -rp "按回车返回..." _
         return
     fi
@@ -2930,11 +2931,8 @@ EOF
     green "========================================"
     green "用户名：$username"
     green "UUID：$uuid"
-    green "域名：$cert_domain"
-    green "用户路径：$user_path"
     green "订阅地址：$subscription_url"
     green "节点数量：$node_count"
-    green "订阅文件：$subscription_file"
     echo
     read -rp "按回车返回..." _
 }
@@ -3041,7 +3039,10 @@ except Exception:
         read -rp "按回车返回..." _
         return 1
     fi
+    rm -f "/etc/nginx/conf.d/central_vps_users/$username.conf"
+    rm -f "/etc/central-vps-sub/$username"
     rm -rf "$user_dir"
+    systemctl reload nginx
     echo
     green "========================================"
     green " 用户已删除：$username"
@@ -3262,10 +3263,14 @@ delete_script() {
     systemctl daemon-reload
     systemctl reset-failed central-vps.service >/dev/null 2>&1 || true
     rm -f "$WG_CONFIG" "$WG_PRIVATE_KEY" "$WG_PUBLIC_KEY"
+    rm -rf /etc/nginx/conf.d/central_vps_users
+    rm -rf /etc/central-vps-sub
     rm -rf "$BASE_DIR"
     rm -f "$LOCAL_SCRIPT"
     rm -f /run/central-vps-server.lock
-    green "中央 VPS 管理系统已删除"
+    rm -f /etc/nginx/conf.d/central_vps_sub.conf
+    systemctl reload nginx >/dev/null 2>&1 || true
+    green "VPS 管理系统已删除"
     exit 0
 }
 main() {
