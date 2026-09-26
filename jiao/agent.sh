@@ -3,6 +3,7 @@ set -e
 umask 077
 CENTRAL_IP="${1:-}"
 TOKEN="${2:-}"
+SSH_PUBLIC_KEY="${3:-}"
 CENTRAL_URL="http://${CENTRAL_IP}:18089/api/register"
 WG_INTERFACE=central-mgmt
 WG_NETWORK=10.231.47
@@ -23,6 +24,10 @@ AGENT_PORT=18090
 }
 [ -n "$TOKEN" ] || {
     echo "缺少注册码"
+    exit 1
+}
+[ -n "$SSH_PUBLIC_KEY" ] || {
+    echo "缺少SSH 公钥"
     exit 1
 }
 command -v curl >/dev/null 2>&1 || {
@@ -79,6 +84,18 @@ mkdir -p "$WG_DIR"
 chmod 700 "$WG_DIR"
 mkdir -p "$AGENT_DIR"
 chmod 700 "$AGENT_DIR"
+install_ssh_key() {
+    local ssh_dir="/root/.ssh"
+    local authorized_keys="$ssh_dir/authorized_keys"
+    mkdir -p "$ssh_dir"
+    chmod 700 "$ssh_dir"
+    touch "$authorized_keys"
+    chmod 600 "$authorized_keys"
+    if ! grep -qxF "$SSH_PUBLIC_KEY" "$authorized_keys" 2>/dev/null; then
+        printf '%s\n' "$SSH_PUBLIC_KEY" >> "$authorized_keys"
+    fi
+}
+install_ssh_key
 if [ ! -f "$WG_PRIVATE_KEY" ]; then
     wg genkey > "$WG_PRIVATE_KEY"
     chmod 600 "$WG_PRIVATE_KEY"
