@@ -658,7 +658,7 @@ add_ipv6() {
     fi
 
     mkdir -p "$(dirname "$list_file")"
-    echo "$NEW_IPV6" >> "$list_file"
+    echo -e "\033[32m$NEW_IPV6\033[0m" >> "$list_file"
     echo "✓ 附加 IPv6 添加成功: $NEW_IPV6"
 
     if ip -6 route get 2606:4700:4700::1111 from "$NEW_IPV6" 2>/dev/null | grep -qs "$IFACE"; then
@@ -679,7 +679,7 @@ delete_ipv6() {
     fi
 
     echo "========== 附加 IPv6 列表 ($IFACE) =========="
-    awk '{print NR". "$0}' "$list_file"
+    awk '{print "\033[32m" NR". "$0 "\033[0m"}' "$list_file"
     echo "============================================="
     read -p "输入要删除的编号: " NUM
     if ! [[ "$NUM" =~ ^[1-9][0-9]*$ ]]; then
