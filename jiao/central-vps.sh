@@ -1333,10 +1333,15 @@ PY
 }
 
 create_shortcut() {
-    if [ -f "$LOCAL_SCRIPT" ]; then
-        chmod 755 "$LOCAL_SCRIPT"
-        ln -sf "$LOCAL_SCRIPT" /usr/bin/y
+    if [ ! -f "$LOCAL_SCRIPT" ]; then
+        return 1
     fi
+    chmod 700 "$LOCAL_SCRIPT"
+    ln -sfn "$LOCAL_SCRIPT" /usr/bin/y
+    if [ -L /usr/bin/y ] && [ "$(readlink -f /usr/bin/y)" = "$(readlink -f "$LOCAL_SCRIPT")" ]; then
+        return 0
+    fi
+    return 1
 }
 
 delete_vps() {
