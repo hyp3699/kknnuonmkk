@@ -3270,21 +3270,55 @@ EOF
         return
     fi
 
-    if ! mv "$temp_dir" "$user_dir"; then
-        red "创建中央用户目录失败"
-        red "目标目录：$user_dir"
-        rm -f "$nginx_user_conf"
-        read -rp "按回车返回..." _
-        return
-    fi
+    echo
+yellow "========== 保存中央用户数据 =========="
+echo "users_dir = $users_dir"
+echo "user_dir  = $user_dir"
+echo "temp_dir  = $temp_dir"
 
-    temp_dir=""
+echo
+yellow "执行 mv 前："
+ls -lad "$users_dir" 2>&1
+ls -lad "$temp_dir" 2>&1
+ls -l "$temp_dir/sub" 2>&1
 
-    if [ ! -d "$user_dir" ]; then
-        red "用户目录创建后不存在"
-        rm -f "$nginx_user_conf"
-        return
-    fi
+if ! mv -v -- "$temp_dir" "$user_dir"; then
+    red "创建中央用户目录失败"
+    red "源目录：$temp_dir"
+    red "目标目录：$user_dir"
+    echo
+    ls -lad "$users_dir" 2>&1
+    ls -lad "$temp_dir" 2>&1
+    rm -f "$nginx_user_conf"
+    read -rp "按回车返回..." _
+    return 1
+fi
+
+temp_dir=""
+
+echo
+yellow "执行 mv 后："
+ls -lad "$user_dir" 2>&1
+ls -la "$user_dir" 2>&1
+
+if [ ! -d "$user_dir" ]; then
+    red "严重错误：mv 成功，但用户目录不存在"
+    red "目标目录：$user_dir"
+    rm -f "$nginx_user_conf"
+    read -rp "按回车返回..." _
+    return 1
+fi
+
+if [ ! -s "$user_dir/sub" ]; then
+    red "用户目录存在，但 sub 文件不存在或为空"
+    ls -la "$user_dir" 2>&1
+    rm -rf "$user_dir"
+    rm -f "$nginx_user_conf"
+    read -rp "按回车返回..." _
+    return 1
+fi
+
+green "中央用户数据保存成功"
 
     if [ ! -s "$user_dir/sub" ]; then
         red "用户目录已创建，但订阅文件不存在"
