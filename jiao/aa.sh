@@ -956,16 +956,35 @@ while true; do
 		    ;;
 
 		13)
-    read -p "请输入内存限制大小 (例如 16M, 32M) [默认 16M]: " size
+    read -p "请输入 journald 日志限制大小 (例如 16M, 32M) [默认 16M]: " size
     size=${size:-16M}
+    read -p "请输入 journald 内存限制大小 (例如 32M, 64M) [默认 64M]: " mem
+    mem=${mem:-64M}
     sudo mkdir -p /etc/systemd/journald.conf.d/
     sudo tee /etc/systemd/journald.conf.d/limit.conf > /dev/null <<EOF
 [Journal]
 RuntimeMaxUse=$size
+SystemMaxUse=$size
 EOF
+    sudo mkdir -p /etc/systemd/system/systemd-journald.service.d/
+    sudo tee /etc/systemd/system/systemd-journald.service.d/memory.conf > /dev/null <<EOF
+[Service]
+MemoryMax=$mem
+EOF
+    sudo systemctl daemon-reload
     sudo systemctl restart systemd-journald
-    sudo journalctl --vacuum-size=$size
-    echo -e "\n[✔] 优化完成！journald 内存限制已设为 $size，且已清理旧日志。"
+    sudo journalctl --vacuum-size="$size"
+    echo
+    echo "[✔] journald 优化完成"
+    echo "[✔] 运行时日志限制: $size"
+    echo "[✔] 磁盘日志限制: $size"
+    echo "[✔] journald RAM 限制: $mem"
+    echo
+    sudo systemctl show systemd-journald \
+        -p MemoryCurrent \
+        -p MemoryMax
+    echo
+    sudo journalctl --disk-usage
     ;;
         0)
             echo "退出脚本"
