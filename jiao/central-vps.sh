@@ -1197,24 +1197,24 @@ open_vps_menu() {
         return
     fi
     if [ ! -f "$SSH_PRIVATE_KEY" ]; then
-        red "SSH 私钥不存在"
+        red "中央 VPS SSH 私钥不存在"
         sleep 1
         return
     fi
     clear
     green "========================================"
-    green "       正在连接 $name"
+    green "       正在连接 $name ..."
     green "========================================"
     echo
-    yellow "WireGuard: $address"
+    yellow "连接地址：$address"
     echo
     ssh \
         -tt \
         -i "$SSH_PRIVATE_KEY" \
+        -o IdentitiesOnly=yes \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o GlobalKnownHostsFile=/dev/null \
-        -o LogLevel=ERROR \
         -o ConnectTimeout=8 \
         -o ServerAliveInterval=15 \
         -o ServerAliveCountMax=3 \
