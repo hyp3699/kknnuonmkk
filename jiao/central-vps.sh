@@ -2957,6 +2957,7 @@ update_script() {
     systemctl restart central-vps 2>/dev/null || true
     green "API 已重新加载最新脚本"
     green "正在加载新版本..."
+    create_shortcut
     exec /bin/bash "$LOCAL_SCRIPT" --menu
 }
 delete_script() {
