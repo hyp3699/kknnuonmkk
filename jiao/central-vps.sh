@@ -2680,6 +2680,7 @@ add_central_user() {
     local user_dir="$DATA_DIR/users"
     local user_path=""
     mkdir -p "$user_dir"
+    chmod 755 "$BASE_DIR" "$DATA_DIR" "$user_dir"
     echo
     green "================ 添加用户 ================"
     echo
@@ -2781,6 +2782,7 @@ PY
     fi
     temp_dir=""
     local central_user_dir="$user_dir/$username"
+    chmod 755 "$central_user_dir"
     echo
     green "用户添加成功"
     green "用户名：$username"
@@ -2831,9 +2833,12 @@ PY
     green "================ 合并节点 ================"
     echo
     local merged_file="$central_user_dir/merged_nodes.txt"
-    local subscription_file="$central_user_dir/sub"
+    local subscription_dir="$central_user_dir/sub"
+    local subscription_file="$subscription_dir/sub"
     local node_file=""
     local node_count=0
+    mkdir -p "$subscription_dir"
+    chmod 755 "$subscription_dir"
     : > "$merged_file"
     for node_file in "$central_user_dir"/nodes/*; do
         [ -f "$node_file" ] || continue
@@ -2868,7 +2873,7 @@ PY
         read -rp "按回车返回..." _
         return
     fi
-    chmod 600 "$subscription_file"
+    chmod 644 "$subscription_file"
     local subscription_url="https://$cert_domain/$user_path"
     printf '%s\n' "$subscription_url" > "$central_user_dir/subscription_url"
     chmod 600 "$central_user_dir/subscription_url"
@@ -2933,7 +2938,6 @@ EOF
     echo
     read -rp "按回车返回..." _
 }
-
 
 delete_central_user() {
     local username="$1"
