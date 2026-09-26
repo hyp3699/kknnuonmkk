@@ -2,6 +2,19 @@
 # ==========================================
 # Tunnel64 多出口策略路由网关系统 (生产加固版)
 # ==========================================
+export LANG=en_US.UTF-8
+re="\033[0m"
+red="\033[1;91m"
+green="\e[1;32m"
+yellow="\e[1;33m"
+purple="\e[1;35m"
+skyblue="\e[1;36m"
+red() { echo -e "\e[1;91m$1\033[0m"; }
+green() { echo -e "\e[1;32m$1\033[0m"; }
+yellow() { echo -e "\e[1;33m$1\033[0m"; }
+purple() { echo -e "\e[1;35m$1\033[0m"; }
+skyblue() { echo -e "\e[1;36m$1\033[0m"; }
+reading() { read -p "$(red "$1")" "$2"; }
 
 CONFIG_DIR="/etc/tunnel64"
 T64_RESTORE_BIN="/usr/local/bin/tunnel64-restore"
@@ -668,9 +681,7 @@ add_ipv6() {
     fi
     read -p "按回车键继续..."
 }
-Purple() {
-    echo -e "\033[35m$1\033[0m"
-}
+
 delete_ipv6() {
     local config_file="$1"
     local list_file="$2"
@@ -684,7 +695,7 @@ delete_ipv6() {
     local i=1
     while IFS= read -r ip; do
         [ -z "$ip" ] && continue
-        echo -e "\033[35m$i.\033[0m $ip"
+        echo -e "${purple}$i. $ip${re}"      
         ((i++))
     done < "$list_file"
     echo "============================================="
