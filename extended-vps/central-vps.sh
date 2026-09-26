@@ -2665,6 +2665,12 @@ PY
     done
 }
 
+
+
+
+
+
+
 add_central_user() {
     local username=""
     local uuid=""
@@ -2677,11 +2683,108 @@ add_central_user() {
     local output=""
     local nodes=""
     local failed=0
+
     local user_dir="$DATA_DIR/users"
     local user_path=""
+    local short_path=""
+    local domain=""
+    local cert_file=""
+    local key_file=""
+    local cert_index=1
+    local cert_choice=""
+    local cert_dir=""
+    local cert_domains=()
+    local cert_paths=()
+
+    local temp_dir=""
+    local nginx_user_dir="/etc/nginx/conf.d/central_vps_users"
+    local nginx_main_conf="/etc/nginx/conf.d/central_vps_sub.conf"
+    local sub_service="/usr/local/bin/central-vps-subscription.py"
+    local sub_service_unit="/etc/systemd/system/central-vps-subscription.service"
+    local sub_port="18080"
+    local short_path_file="$DATA_DIR/subscription_short_path"
+
     mkdir -p "$user_dir"
     echo
     green "================ 添加用户 ================"
+    echo
+    skyblue "============== 本地已有证书列表 =============="
+    shopt -s nullglob
+    local dir
+    local d_name
+    for dir in /root/cert/* /etc/nginx/cert/*; do
+        if [[ -d "$dir" &&
+              -f "$dir/fullchain.pem" &&
+              -f "$dir/privkey.pem" ]]; then
+            d_name=$(basename "$dir")
+            if [[ ! " ${cert_domains[*]} " =~ " ${d_name} " ]]; then
+                cert_domains+=("$d_name")
+                cert_paths+=("$dir")
+            fi
+        fi
+    done
+    shopt -u nullglob
+    if [[ ${#cert_domains[@]} -eq 0 ]]; then
+        red "未检测到可用证书"
+        yellow "要求证书目录同时存在："
+        yellow "  fullchain.pem"
+        yellow "  privkey.pem"
+        echo
+        read -rp "按回车返回..." _
+        return
+    fi
+    local idx
+    local cert_mark
+    for idx in "${!cert_domains[@]}"; do
+        cert_mark=""
+        if openssl x509 \
+            -in "${cert_paths[$idx]}/fullchain.pem" \
+            -noout -issuer 2>/dev/null |
+            grep -qi "CloudFlare Origin SSL"; then
+            cert_mark=" ${red}【15年证书】${re}"
+        fi
+        echo -e " ${cert_index}) ${cert_domains[$idx]}${cert_mark}"
+        echo "    路径: ${cert_paths[$idx]}"
+
+        ((cert_index++))
+    done
+    echo
+    read -rp "请选择证书 [1-${#cert_domains[@]}]: " cert_choice
+    if ! [[ "$cert_choice" =~ ^[0-9]+$ ]] ||
+       [ "$cert_choice" -lt 1 ] ||
+       [ "$cert_choice" -gt "${#cert_domains[@]}" ]; then
+        red "无效的证书选择"
+        sleep 1
+        return
+    fi
+    local cert_idx=$((cert_choice - 1))
+    domain="${cert_domains[$cert_idx]}"
+    cert_dir="${cert_paths[$cert_idx]}"
+    cert_file="$cert_dir/fullchain.pem"
+    key_file="$cert_dir/privkey.pem"
+    if [ ! -f "$cert_file" ] || [ ! -f "$key_file" ]; then
+        red "证书文件不存在"
+        sleep 1
+        return
+    fi
+    local cert_domain=""
+    cert_domain=$(
+        openssl x509 \
+            -in "$cert_file" \
+            -noout \
+            -ext subjectAltName 2>/dev/null |
+        sed 's/DNS://g' |
+        grep -oE '[A-Za-z0-9*.-]+\.[A-Za-z]{2,}' |
+        head -n 1
+    )
+    if [ -n "$cert_domain" ]; then
+        domain="$cert_domain"
+    fi
+    echo
+    green "已选择证书"
+    green "域名：$domain"
+    green "证书：$cert_file"
+    green "私钥：$key_file"
     echo
     read -rp "请输入用户名: " username
     if [ -z "$username" ]; then
@@ -2699,19 +2802,49 @@ add_central_user() {
         sleep 1
         return
     fi
-    uuid=$(cat /proc/sys/kernel/random/uuid)
     count=$(get_vps_count)
     if [ "$count" -le 0 ]; then
         red "当前没有已添加的 VPS"
         sleep 1
         return
     fi
+    user_path=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+    if [ "${#user_path}" -ne 16 ]; then
+        red "生成用户路径失败"
+        return
+    fi
+    while [ -e "$user_dir/$username" ]; do
+        user_path=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+    done
+    mkdir -p "$DATA_DIR"
+    local short_path_record="$DATA_DIR/subscription_short_path_${domain}"
+    if [ -s "$short_path_record" ]; then
+        short_path=$(head -n 1 "$short_path_record" | tr -cd 'A-Za-z0-9')
+    fi
+    if [ "${#short_path}" -ne 16 ]; then
+        short_path=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+        if [ "${#short_path}" -ne 16 ]; then
+            red "生成订阅短路径失败"
+            return
+        fi
+        printf '%s\n' "$short_path" > "$short_path_record"
+        chmod 600 "$short_path_record"
+    fi
+    local subscription_url="https://${domain}/${short_path}/${user_path}"
     echo
     green "用户名：$username"
     green "UUID：$uuid"
+    green "短路径：$short_path"
+    green "用户路径：$user_path"
+    green "订阅地址：$subscription_url"
     echo
-    local temp_dir
+    uuid=$(cat /proc/sys/kernel/random/uuid)
     temp_dir=$(mktemp -d)
+    if [ -z "$temp_dir" ] || [ ! -d "$temp_dir" ]; then
+        red "创建临时目录失败"
+        return
+    fi
+    mkdir -p "$temp_dir/nodes"
     for ((i=0; i<count; i++)); do
         name=$(get_vps_field "$i" "name")
         address=$(get_vps_field "$i" "wg_address")
@@ -2736,19 +2869,29 @@ add_central_user() {
 import json
 import sys
 try:
-    d=json.load(sys.stdin)
-    print(d.get("stdout",""), end="")
+    d = json.load(sys.stdin)
+    print(d.get("stdout", ""), end="")
 except Exception:
     pass
 ' 2>/dev/null)
-        if echo "$output" | grep -q "CENTRAL_USER_OK"; then
-            nodes=$(printf '%s\n' "$output" | sed -n '/^NODE_BEGIN$/,/^NODE_END$/p' | sed '1d;$d')
-            mkdir -p "$temp_dir/nodes"
+        if echo "$output" | grep -q "^CENTRAL_USER_OK$"; then
+            nodes=$(
+                printf '%s\n' "$output" |
+                sed -n '/^NODE_BEGIN$/,/^NODE_END$/p' |
+                sed '1d;$d'
+            )
+            if [ -z "$nodes" ]; then
+                red "$name：添加成功，但没有返回节点"
+                failed=1
+                continue
+            fi
             printf '%s\n' "$nodes" > "$temp_dir/nodes/$name"
             green "$name：添加成功"
         else
             red "$name：添加失败"
-            [ -n "$output" ] && echo "$output"
+            if [ -n "$output" ]; then
+                echo "$output"
+            fi
             failed=1
         fi
     done
@@ -2757,26 +2900,222 @@ except Exception:
         echo
         red "用户添加失败，未创建中央用户目录"
         echo
+
         read -rp "按回车返回..." _
         return
     fi
-    user_path="$username"
-    mkdir -p "$temp_dir/nodes"
+    local merged_file="$temp_dir/sub"
+    local node_file=""
+    local node_content=""
+
+    : > "$merged_file"
+
+    for node_file in "$temp_dir"/nodes/*; do
+        [ -f "$node_file" ] || continue
+        node_content=$(cat "$node_file")
+        if [ -n "$node_content" ]; then
+            printf '%s\n' "$node_content" >> "$merged_file"
+        fi
+    done
+    if [ ! -s "$merged_file" ]; then
+        rm -rf "$temp_dir"
+        red "合并节点失败：没有可用节点"
+        read -rp "按回车返回..." _
+        return
+    fi
+
+    local sub_base64="$temp_dir/sub.base64"
+    base64 -w 0 "$merged_file" > "$sub_base64"
+    if [ ! -s "$sub_base64" ]; then
+        rm -rf "$temp_dir"
+        red "生成 Base64 订阅失败"
+        read -rp "按回车返回..." _
+        return
+    fi
+
+    printf '\n' >> "$sub_base64"
+
+    user_path="$user_path"
     printf '%s\n' "$username" > "$temp_dir/username"
     printf '%s\n' "$uuid" > "$temp_dir/uuid"
     printf '%s\n' "$user_path" > "$temp_dir/path"
-    printf '%s\n' '{"vps":{},"upload":0,"download":0,"total":0,"period_upload":0,"period_download":0,"period_total":0}' > "$temp_dir/traffic.json"
-    chmod 600 "$temp_dir/username" "$temp_dir/uuid" "$temp_dir/path" "$temp_dir/traffic.json"
-    chmod 700 "$temp_dir/nodes"
-    mv "$temp_dir" "$user_dir/$username"
+    printf '%s\n' "$short_path" > "$temp_dir/short_path"
+    printf '%s\n' "$domain" > "$temp_dir/domain"
+    printf '%s\n' "$cert_file" > "$temp_dir/cert_file"
+    printf '%s\n' "$key_file" > "$temp_dir/key_file"
+    printf '%s\n' "$subscription_url" > "$temp_dir/subscription_url"
+    printf '%s\n' \
+        '{"vps":{},"upload":0,"download":0,"total":0,"period_upload":0,"period_download":0,"period_total":0}' \
+        > "$temp_dir/traffic.json"
+    cp -f "$sub_base64" "$temp_dir/sub"
+    chmod 600 \
+        "$temp_dir/username" \
+        "$temp_dir/uuid" \
+        "$temp_dir/path" \
+        "$temp_dir/short_path" \
+        "$temp_dir/domain" \
+        "$temp_dir/cert_file" \
+        "$temp_dir/key_file" \
+        "$temp_dir/subscription_url" \
+        "$temp_dir/traffic.json" \
+        "$temp_dir/sub"
+    chmod 700 "$temp_dir/nodes"    
+    cat > "$sub_service" <<'PY'
+#!/usr/bin/env python3
+import base64
+import json
+import os
+import re
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import unquote
+BASE_DIR = Path("/etc/central-vps")
+USER_DIR = BASE_DIR / "users"
+HOST = "127.0.0.1"
+PORT = 18088
+USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+def read_text(path):
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        return
+    def send_text(self, status, body, content_type="text/plain; charset=utf-8"):
+        data = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.end_headers()
+        self.wfile.write(data)
+    def do_GET(self):
+        prefix = "/sub/"
+        if not self.path.startswith(prefix):
+            self.send_text(404, "404")
+            return
+        username = unquote(self.path[len(prefix):].split("?", 1)[0])
+        if not USERNAME_RE.fullmatch(username):
+            self.send_text(404, "404")
+            return
+        user_dir = USER_DIR / username
+        sub_file = user_dir / "sub"
+        if not user_dir.is_dir() or not sub_file.is_file():
+            self.send_text(404, "404")
+            return
+        try:
+            content = sub_file.read_text(encoding="utf-8").strip()
+            if not content:
+                self.send_text(404, "404")
+                return
+            self.send_text(
+                200,
+                content + "\n",
+                "text/plain; charset=utf-8"
+            )
+        except Exception:
+            self.send_text(500, "500")
+def main():
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    server.serve_forever()
+if __name__ == "__main__":
+    main()
+PY
+    chmod 700 "$sub_service"
+    cat > "$sub_service_unit" <<EOF
+[Unit]
+Description=Central VPS Subscription Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 $sub_service
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now central-vps-subscription.service >/dev/null 2>&1 || true
+    mkdir -p "$nginx_user_dir"
+    local nginx_user_conf="$nginx_user_dir/${username}.conf"
+    cat > "$nginx_user_conf" <<EOF
+location = /${short_path}/${user_path} {
+    proxy_pass http://127.0.0.1:18080/sub/${username};
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_buffering off;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+}
+EOF
+    chmod 600 "$nginx_user_conf"
+    cat > "$nginx_main_conf" <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name ${domain};
+    return 301 https://\$host\$request_uri;
+}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+
+    server_name ${domain};
+
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    include ${nginx_user_dir}/*.conf;
+
+    location / {
+        return 404;
+    }
+}
+EOF
+    chmod 600 "$nginx_main_conf"
+    if ! nginx -t >/dev/null 2>&1; then
+        red "Nginx 配置检查失败"
+        rm -f "$nginx_user_conf"
+        rm -f "$nginx_main_conf"
+        rm -rf "$temp_dir"
+        echo
+        nginx -t 2>&1
+        echo
+        read -rp "按回车返回..." _
+        return
+    fi
+    systemctl reload nginx >/dev/null 2>&1 || {
+        red "Nginx 重载失败"
+        rm -rf "$temp_dir"
+        echo
+        read -rp "按回车返回..." _
+        return
+    }   
+    mv "$temp_dir" "$user_dir/$username"   
     echo
-    green "用户添加成功"
+    green "========================================"
+    green "           用户添加成功"
+    green "========================================"
+    echo
     green "用户名：$username"
     green "UUID：$uuid"
-    green "订阅路径：$user_path"
+    green "订阅地址：$subscription_url"
     echo
     read -rp "按回车返回..." _
 }
+
 
 delete_central_user() {
     local username="$1"
