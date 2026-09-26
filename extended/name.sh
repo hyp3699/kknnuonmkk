@@ -1628,9 +1628,9 @@ EOF
     fi
     xhttp_remark="${isp}xhttp"
     if [[ "$xhttp_tls" == "true" ]]; then
-        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&path=${xhttp_path}#${node_remark}"
+        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&path=${xhttp_path}#${node_remark}"
     else
-        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=none&type=xhttp&path=${xhttp_path}#${node_remark}"
+        url="vless://${uuid}@${server_ip}:${xhttp_port}?encryption=none&security=none&type=xhttp&alpn=h3&path=${xhttp_path}#${node_remark}"
     fi
     add_v2ray_api_user "vless-xhttp-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
