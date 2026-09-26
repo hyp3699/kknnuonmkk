@@ -1,4 +1,5 @@
 #!/bin/bash
+
 set -e
 export LANG=en_US.UTF-8
 re="\033[0m"
