@@ -683,10 +683,12 @@ delete_ipv6() {
     echo "========== 附加 IPv6 列表 ($IFACE) =========="
     local i=1
     while IFS= read -r ip; do
-        Purple "$i. $ip"
+        [ -z "$ip" ] && continue
+        echo -e "\033[35m$i.\033[0m $ip"
         ((i++))
     done < "$list_file"
     echo "============================================="
+
 
     read -p "输入要删除的编号: " NUM
     if ! [[ "$NUM" =~ ^[1-9][0-9]*$ ]]; then
