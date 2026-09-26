@@ -6276,6 +6276,10 @@ EOF
         {
 		  "name": "http-reality-user${inbound_number}",
           "uuid": "$uuid"
+        },
+		{
+          "name": "tttttt",
+          "uuid": "$uuid99"
         }
       ],
       "tls": {
@@ -6335,6 +6339,10 @@ EOF
         {
 		  "name": "grpc-reality-user${inbound_number}",
           "uuid": "$uuid"
+        },
+		{
+          "name": "tttttt",
+          "uuid": "$uuid99"
         }
       ],
       "tls": {
@@ -6414,6 +6422,10 @@ EOF
                 {
 				    "name": "anytls-user${inbound_number}",
                     "password":"$password"
+                },
+				{
+                    "name": "tttttt",
+                    "password": "$uuid99"
                 }
             ],
             "padding_scheme":[
@@ -6616,6 +6628,10 @@ EOF
         {
 		  "name": "vless-tcp-tls-user${inbound_number}",
           "uuid": "$uuid"
+        },
+		{
+          "name": "tttttt",
+          "uuid": "$uuid99"
         }
       ],
       "tls": {
@@ -6664,6 +6680,10 @@ EOF
 		  "name": "naive-user${inbound_number}",
           "username": "$uuid",
           "password": "$uuid"
+        },
+		{
+          "name": "tttttt",
+          "uuid": "$uuid99"
         }
       ],
       "tls": {
