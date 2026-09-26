@@ -1223,6 +1223,41 @@ open_vps_menu() {
     green "已退出 $name 管理菜单"
     read -rp "按 Enter 返回..." _
 }
+open_vps_ssh() {
+    local name="$1"
+    local address="$2"
+    if [ -z "$address" ]; then
+        red "VPS WireGuard 地址为空"
+        sleep 1
+        return
+    fi
+    if [ ! -f "$SSH_PRIVATE_KEY" ]; then
+        red "中央 VPS SSH 私钥不存在"
+        sleep 1
+        return
+    fi
+    clear
+    green "========================================"
+    green "       正在连接 $name ..."
+    green "========================================"
+    echo
+    yellow "连接地址：$address"
+    echo
+    ssh \
+        -tt \
+        -i "$SSH_PRIVATE_KEY" \
+        -o IdentitiesOnly=yes \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o GlobalKnownHostsFile=/dev/null \
+        -o ConnectTimeout=8 \
+        -o ServerAliveInterval=15 \
+        -o ServerAliveCountMax=3 \
+        root@"$address" 
+    echo
+    green "已退出 $name 管理菜单"
+    read -rp "按 Enter 返回..." _
+}
 init_ssh_key() {
     mkdir -p "$SSH_KEY_DIR"
     chmod 700 "$SSH_KEY_DIR"
@@ -1278,7 +1313,8 @@ PY
         green "2. 执行 VPS 命令"
         green "3. 重启 VPS"
         green "4. 打开 VPS sing-box菜单"
-        green "5. 删除 VPS"
+        green "5. 打开 VPS SSH"
+        green "s. 删除 VPS"
         echo
         green "0. 返回"
         echo
@@ -1305,6 +1341,10 @@ PY
                 open_vps_menu "$name" "$address"
                 ;;
             5)
+                clear
+                open_vps_ssh "$name" "$address"
+                ;;
+            s|S)
                 clear
                 red "========================================"
                 red "              删除 VPS"
