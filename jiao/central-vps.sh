@@ -3711,7 +3711,7 @@ case "${1:-}" in
         while true; do
             clear
             green "========================================"
-            green "          VPS 管理脚本"
+            green "          VPS 管理脚本1"
             green "========================================"
             echo
             green "1. 添加 VPS"
