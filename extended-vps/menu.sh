@@ -15,6 +15,7 @@ MODULES=(
 	nginx.sh
 	name.sh
 	cf.sh
+	sing-boxjc.sh
 	install.sh
 )
 
@@ -450,7 +451,7 @@ while true; do
 	    
 		99) 
            clear
-		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-boxjc.sh)
+		   main_menu
 		   ;;
 		0) exit 0 ;;
         *) red "无效的选项" ;;
