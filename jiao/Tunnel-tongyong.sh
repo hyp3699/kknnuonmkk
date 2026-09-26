@@ -668,7 +668,9 @@ add_ipv6() {
     fi
     read -p "按回车键继续..."
 }
-
+Purple() {
+    echo -e "\033[35m$1\033[0m"
+}
 delete_ipv6() {
     local config_file="$1"
     local list_file="$2"
@@ -679,7 +681,11 @@ delete_ipv6() {
     fi
 
     echo "========== 附加 IPv6 列表 ($IFACE) =========="
-    awk '{print "\033[32m" $0 "\033[0m  (编号: " NR ")"}' "$list_file"
+    local i=1
+    while IFS= read -r ip; do
+        Purple "$i. $ip"
+        ((i++))
+    done < "$list_file"
     echo "============================================="
 
     read -p "输入要删除的编号: " NUM
