@@ -1331,6 +1331,14 @@ PY
         fi
     done
 }
+
+create_shortcut() {
+    if [ -f "$LOCAL_SCRIPT" ]; then
+        chmod 755 "$LOCAL_SCRIPT"
+        ln -sf "$LOCAL_SCRIPT" /usr/bin/y
+    fi
+}
+
 delete_vps() {
     local name="$1"
     python3 - "$VPS_FILE" "$name" <<'PY'
@@ -2977,6 +2985,7 @@ delete_script() {
         ip link set "$WG_INTERFACE" down >/dev/null 2>&1 || true
         ip link del "$WG_INTERFACE" >/dev/null 2>&1 || true
     fi
+    rm -f /usr/bin/y
     rm -f /etc/systemd/system/central-vps.service
     systemctl daemon-reload
     systemctl reset-failed central-vps.service >/dev/null 2>&1 || true
