@@ -2677,7 +2677,8 @@ add_central_user() {
     local output=""
     local nodes=""
     local success_count=0
-    local user_dir="$DATA_DIR/users"
+    local users_dir="$DATA_DIR/users"
+    local user_dir=""
     local user_path=""
     local short_path=""
     local domain=""
@@ -2695,7 +2696,7 @@ add_central_user() {
     local sub_service_unit="/etc/systemd/system/central-vps-subscription.service"
     local sub_port="18088"
 
-    mkdir -p "$user_dir" "$DATA_DIR"
+    mkdir -p "$users_dir" "$DATA_DIR"
     echo
     green "================ 添加用户 ================"
     echo
@@ -2793,7 +2794,6 @@ add_central_user() {
         done
 
         echo
-
         read -rp "请选择证书 [1-${#cert_domains[@]}]: " cert_choice
 
         if ! [[ "$cert_choice" =~ ^[0-9]+$ ]] ||
@@ -2825,7 +2825,7 @@ add_central_user() {
                 -noout \
                 -ext subjectAltName 2>/dev/null |
             sed 's/DNS://g' |
-            grep -oE '[A-Za-z0-9*.-]+\.[A-Za-z]{2,}' |
+            grep -oE '[A-Za-z0-9.-]+\.[A-Za-z]{2,}' |
             head -n 1
         )
 
@@ -2854,7 +2854,9 @@ add_central_user() {
         return
     fi
 
-    if [ -d "$user_dir/$username" ]; then
+    user_dir="$users_dir/$username"
+
+    if [ -d "$user_dir" ]; then
         red "用户已存在"
         sleep 1
         return
@@ -2895,7 +2897,7 @@ add_central_user() {
                 path_exists=1
                 break
             fi
-        done < <(find "$user_dir" -mindepth 2 -maxdepth 2 -type f -name path 2>/dev/null)
+        done < <(find "$users_dir" -mindepth 2 -maxdepth 2 -type f -name path 2>/dev/null)
     done
 
     local short_path_record="$DATA_DIR/subscription_short_path_${domain}"
@@ -2964,10 +2966,9 @@ add_central_user() {
             python3 -c '
 import json
 import sys
-
 try:
-    d = json.load(sys.stdin)
-    print(d.get("stdout", ""), end="")
+    d=json.load(sys.stdin)
+    print(d.get("stdout",""),end="")
 except Exception:
     pass
 ' 2>/dev/null
@@ -3083,63 +3084,63 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
-BASE_DIR = Path("/etc/central-vps")
-USER_DIR = BASE_DIR / "data" / "users"
-HOST = "127.0.0.1"
-PORT = 18088
-USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+BASE_DIR=Path("/etc/central-vps")
+USER_DIR=BASE_DIR/"data"/"users"
+HOST="127.0.0.1"
+PORT=18088
+USERNAME_RE=re.compile(r"^[A-Za-z0-9._-]+$")
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
+    def log_message(self,format,*args):
         return
 
-    def send_text(self, status, body, content_type="text/plain; charset=utf-8"):
-        data = body.encode("utf-8")
+    def send_text(self,status,body,content_type="text/plain; charset=utf-8"):
+        data=body.encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-        self.send_header("Pragma", "no-cache")
+        self.send_header("Content-Type",content_type)
+        self.send_header("Content-Length",str(len(data)))
+        self.send_header("Cache-Control","no-store, no-cache, must-revalidate")
+        self.send_header("Pragma","no-cache")
         self.end_headers()
         self.wfile.write(data)
 
     def do_GET(self):
-        prefix = "/sub/"
+        prefix="/sub/"
 
         if not self.path.startswith(prefix):
-            self.send_text(404, "404")
+            self.send_text(404,"404")
             return
 
-        username = unquote(self.path[len(prefix):].split("?", 1)[0])
+        username=unquote(self.path[len(prefix):].split("?",1)[0])
 
         if not USERNAME_RE.fullmatch(username):
-            self.send_text(404, "404")
+            self.send_text(404,"404")
             return
 
-        user_dir = USER_DIR / username
-        sub_file = user_dir / "sub"
+        user_dir=USER_DIR/username
+        sub_file=user_dir/"sub"
 
         if not user_dir.is_dir() or not sub_file.is_file():
-            self.send_text(404, "404")
+            self.send_text(404,"404")
             return
 
         try:
-            content = sub_file.read_text(encoding="utf-8").strip()
+            content=sub_file.read_text(encoding="utf-8").strip()
 
             if not content:
-                self.send_text(404, "404")
+                self.send_text(404,"404")
                 return
 
-            self.send_text(200, content + "\n")
+            self.send_text(200,content+"\n")
         except Exception:
-            self.send_text(500, "500")
+            self.send_text(500,"500")
 
 def main():
-    USER_DIR.mkdir(parents=True, exist_ok=True)
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    USER_DIR.mkdir(parents=True,exist_ok=True)
+    server=ThreadingHTTPServer((HOST,PORT),Handler)
     server.serve_forever()
 
-if __name__ == "__main__":
+if __name__=="__main__":
     main()
 PY
 
@@ -3247,9 +3248,7 @@ EOF
         red "Nginx 配置检查失败"
         rm -f "$nginx_user_conf"
         rm -rf "$temp_dir"
-        echo
         nginx -t 2>&1
-        echo
         read -rp "按回车返回..." _
         return
     fi
@@ -3263,7 +3262,7 @@ EOF
         return
     fi
 
-    if [ -e "$user_dir/$username" ]; then
+    if [ -e "$user_dir" ]; then
         red "用户目录已经存在，拒绝覆盖"
         rm -f "$nginx_user_conf"
         rm -rf "$temp_dir"
@@ -3271,18 +3270,26 @@ EOF
         return
     fi
 
-    if ! mv "$temp_dir" "$user_dir/$username"; then
+    if ! mv "$temp_dir" "$user_dir"; then
         red "创建中央用户目录失败"
+        red "目标目录：$user_dir"
         rm -f "$nginx_user_conf"
         read -rp "按回车返回..." _
         return
     fi
 
-    if [ ! -s "$user_dir/$username/sub" ]; then
-        red "用户目录已创建，但订阅文件不存在"
-        rm -rf "$user_dir/$username"
+    temp_dir=""
+
+    if [ ! -d "$user_dir" ]; then
+        red "用户目录创建后不存在"
         rm -f "$nginx_user_conf"
-        read -rp "按回车返回..." _
+        return
+    fi
+
+    if [ ! -s "$user_dir/sub" ]; then
+        red "用户目录已创建，但订阅文件不存在"
+        rm -rf "$user_dir"
+        rm -f "$nginx_user_conf"
         return
     fi
 
@@ -3302,7 +3309,6 @@ EOF
 
     read -rp "按回车返回..." _
 }
-
 delete_central_user() {
     local username="$1"
     local count=0
