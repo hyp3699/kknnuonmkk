@@ -1196,17 +1196,31 @@ open_vps_menu() {
         sleep 1
         return
     fi
+    if [ ! -f "$SSH_PRIVATE_KEY" ]; then
+        red "SSH 私钥不存在"
+        sleep 1
+        return
+    fi
+    clear
+    green "========================================"
+    green "       正在连接 $name"
+    green "========================================"
     echo
-    green "正在连接 $name ..."
-    yellow "连接地址: $address"
+    yellow "WireGuard: $address"
     echo
     ssh \
+        -tt \
+        -i "$SSH_PRIVATE_KEY" \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o GlobalKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
         -o ConnectTimeout=8 \
         -o ServerAliveInterval=15 \
         -o ServerAliveCountMax=3 \
-        root@"$address" b
+        root@"$address" y
     echo
-    yellow "已退出 $name 管理菜单"
+    green "已退出 $name 管理菜单"
     read -rp "按 Enter 返回..." _
 }
 init_ssh_key() {
