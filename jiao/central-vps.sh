@@ -1218,7 +1218,7 @@ open_vps_menu() {
         -o ConnectTimeout=8 \
         -o ServerAliveInterval=15 \
         -o ServerAliveCountMax=3 \
-        root@"$address" y
+        root@"$address" sb
     echo
     green "已退出 $name 管理菜单"
     read -rp "按 Enter 返回..." _
