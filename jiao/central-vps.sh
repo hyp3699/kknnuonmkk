@@ -1176,6 +1176,28 @@ else:
 PY
 }
 
+open_vps_menu() {
+    local name="$1"
+    local address="$2"
+    if [ -z "$address" ]; then
+        red "VPS WireGuard 地址为空"
+        sleep 1
+        return
+    fi
+    echo
+    green "正在连接 $name ..."
+    yellow "连接地址: $address"
+    echo
+    ssh \
+        -o ConnectTimeout=8 \
+        -o ServerAliveInterval=15 \
+        -o ServerAliveCountMax=3 \
+        root@"$address" b
+    echo
+    yellow "已退出 $name 管理菜单"
+    read -rp "按 Enter 返回..." _
+}
+
 manage_single_vps() {
     local index="$1"
     local info name address token agent_token ipv4 action confirm
@@ -1216,7 +1238,8 @@ PY
         green "1. 查看 VPS 详细信息"
         green "2. 执行 VPS 命令"
         green "3. 重启 VPS"
-        green "4. 删除 VPS"
+        green "4. 打开 VPS sing-box菜单"
+        green "5. 删除 VPS"
         echo
         green "0. 返回"
         echo
@@ -1239,6 +1262,10 @@ PY
                 restart_vps "$name" "$address" "$agent_token"
                 ;;
             4)
+                clear
+                open_vps_menu "$name" "$address"
+                ;;
+            5)
                 clear
                 red "========================================"
                 red "              删除 VPS"
