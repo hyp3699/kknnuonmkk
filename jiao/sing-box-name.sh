@@ -67,7 +67,7 @@ init_traffic() {
             echo "错误：系统没有 curl 或 wget，无法安装 grpcurl"
             return 1
         fi
-        if ! tar -xzf "$grpcurl_tmp" -C "$grpcurl_dir" grpcurl; then
+        if ! tar --no-same-owner -xzf "$grpcurl_tmp" -C "$grpcurl_dir" grpcurl; then
             rm -f "$grpcurl_tmp"
             rm -rf "$grpcurl_dir"
             echo "错误：解压 grpcurl 失败"
