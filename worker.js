@@ -1,4 +1,4 @@
-const IPV6_LIST_URL='https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/CloudFlare-ipv6.txt';
+const IPV6_LIST_URL='https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/ipv6/CloudFlare-ipv6.txt';
 const WS_SUB_PROTOCOL='grpc';
 
 async function fetchIPv6List(count){
