@@ -3103,10 +3103,15 @@ install_singbox() {
 
 TAR="sing-box-linux-${ARCH}.tar.gz"
 URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
-curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && chmod +x "${work_dir}/sing-box-linux-${ARCH}" && mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box" && rm -f "${work_dir}/${TAR}"
 
-    chown root:root ${work_dir} && chmod +x ${work_dir}/${server_name}
-
+curl -fSL -o "${work_dir}/${TAR}" "$URL" && \
+tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && \
+chmod 755 "${work_dir}/sing-box" && \
+chown root:root "${work_dir}/sing-box" && \
+rm -f "${work_dir}/${TAR}"
+    
+chown root:root "${work_dir}/sing-box"
+chmod 755 "${work_dir}/sing-box"
     # 放行端口
     allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
