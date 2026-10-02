@@ -1708,6 +1708,7 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 CONF_DIR="/etc/port_manager"
 TARGET_PATH="/usr/local/bin/port_menu.sh"
+IFB_INTERFACE="ifb0"
 
 if [ "$EUID" -ne 0 ]; then
     echo -e "\033[31m[-] 错误: 请使用 root 权限运行此脚本\033[0m"
@@ -1736,6 +1737,25 @@ init_nft_table() {
     nft 'add chain inet port_manager postrouting { type filter hook postrouting priority 0; policy accept; }' 2>/dev/null || true
     nft 'add chain inet port_manager output { type filter hook output priority 0; policy accept; }' 2>/dev/null || true
     nft 'add chain inet port_manager input { type filter hook input priority 0; policy accept; }' 2>/dev/null || true
+}
+
+rebuild_nft_dispatch_rules() {
+    init_nft_table
+
+    nft flush chain inet port_manager input 2>/dev/null || true
+    nft flush chain inet port_manager output 2>/dev/null || true
+
+    for conf in "$CONF_DIR"/*.conf; do
+        [ -e "$conf" ] || continue
+        local p=$(basename "$conf" .conf)
+        source "$conf"
+        local CHAIN_NAME="LIMIT_P_${p}"
+
+        nft add rule inet port_manager input tcp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+        nft add rule inet port_manager input udp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+        nft add rule inet port_manager output tcp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+        nft add rule inet port_manager output udp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+    done
 }
 
 check_and_block() {
@@ -1809,8 +1829,64 @@ check_and_block() {
     done
 }
 
+init_ifb() {
+    if ! ip link show "$IFB_INTERFACE" >/dev/null 2>&1; then
+        if ! modprobe ifb 2>/dev/null; then
+            echo -e "\033[31m[-] 无法加载 ifb 内核模块！\033[0m"
+            return 1
+        fi
+    fi
+
+    if ! ip link show "$IFB_INTERFACE" >/dev/null 2>&1; then
+        if ! ip link add "$IFB_INTERFACE" type ifb 2>/dev/null; then
+            echo -e "\033[31m[-] 创建 IFB 接口失败！\033[0m"
+            return 1
+        fi
+    fi
+
+    if ! ip link set "$IFB_INTERFACE" up 2>/dev/null; then
+        echo -e "\033[31m[-] 启用 IFB 接口失败！\033[0m"
+        return 1
+    fi
+
+    if ! tc qdisc show dev "$INTERFACE" 2>/dev/null | grep -q "ingress"; then
+        if ! tc qdisc add dev "$INTERFACE" handle ffff: ingress 2>/dev/null; then
+            echo -e "\033[31m[-] 创建 ingress qdisc 失败！\033[0m"
+            return 1
+        fi
+    fi
+
+    tc filter del dev "$INTERFACE" parent ffff: 2>/dev/null || true
+
+    if ! tc filter add dev "$INTERFACE" parent ffff: protocol ip u32 match u32 0 0 action mirred egress redirect dev "$IFB_INTERFACE"; then
+        echo -e "\033[31m[-] 创建 IPv4 ingress 重定向规则失败！\033[0m"
+        return 1
+    fi
+
+    if ! tc filter add dev "$INTERFACE" parent ffff: protocol ipv6 u32 match u32 0 0 action mirred egress redirect dev "$IFB_INTERFACE"; then
+        echo -e "\033[31m[-] 创建 IPv6 ingress 重定向规则失败！\033[0m"
+        return 1
+    fi
+
+    return 0
+}
+
+init_flower() {
+    modprobe cls_flower 2>/dev/null || true
+    if [ ! -d /sys/module/cls_flower ]; then
+        echo -e "\033[31m[-] 系统缺少 cls_flower 内核模块，无法创建 IPv6 flower 限速规则！\033[0m"
+        return 1
+    fi
+    return 0
+}
+
 rebuild_tc_filters() {
-    tc filter del dev "$INTERFACE" parent 1:0 prio 1 2>/dev/null
+    local rc=0
+    local flower_checked=0
+    tc filter del dev "$INTERFACE" parent 1:0 prio 1 2>/dev/null || true
+    tc filter del dev "$INTERFACE" parent 1:0 prio 2 2>/dev/null || true
+    tc filter del dev "$IFB_INTERFACE" parent 1:0 prio 1 2>/dev/null || true
+    tc filter del dev "$IFB_INTERFACE" parent 1:0 prio 2 2>/dev/null || true
     for conf in "$CONF_DIR"/*.conf; do
         [ -e "$conf" ] || continue
         local p=$(basename "$conf" .conf)
@@ -1818,10 +1894,62 @@ rebuild_tc_filters() {
         
         if [ "$RATE" != "UNLIMITED" ]; then
             local HEX=$(printf "%x" "$p")
-            tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip dport "$p" 0xffff flowid 1:$HEX 2>/dev/null
-            tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip sport "$p" 0xffff flowid 1:$HEX 2>/dev/null
+
+            if [ "$flower_checked" -eq 0 ]; then
+                if ! init_flower; then
+                    rc=1
+                    flower_checked=1
+                else
+                    flower_checked=2
+                fi
+            fi
+            
+            if ! tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip protocol 6 0xff match ip sport "$p" 0xffff flowid 1:$HEX 2>/dev/null; then
+                echo -e "\033[31m[-] 端口 $p IPv4 TCP 上传 filter 创建失败！\033[0m"
+                rc=1
+            fi
+            
+            if ! tc filter add dev "$INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip protocol 17 0xff match ip sport "$p" 0xffff flowid 1:$HEX 2>/dev/null; then
+                echo -e "\033[31m[-] 端口 $p IPv4 UDP 上传 filter 创建失败！\033[0m"
+                rc=1
+            fi
+
+            if [ "$flower_checked" -eq 2 ]; then
+                if ! tc filter add dev "$INTERFACE" protocol ipv6 parent 1:0 prio 2 flower ip_proto tcp src_port "$p" flowid 1:$HEX 2>/dev/null; then
+                    echo -e "\033[31m[-] 端口 $p IPv6 TCP 上传 filter 创建失败！\033[0m"
+                    rc=1
+                fi
+                
+                if ! tc filter add dev "$INTERFACE" protocol ipv6 parent 1:0 prio 2 flower ip_proto udp src_port "$p" flowid 1:$HEX 2>/dev/null; then
+                    echo -e "\033[31m[-] 端口 $p IPv6 UDP 上传 filter 创建失败！\033[0m"
+                    rc=1
+                fi
+            fi
+            
+            if ! tc filter add dev "$IFB_INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip protocol 6 0xff match ip dport "$p" 0xffff flowid 1:$HEX 2>/dev/null; then
+                echo -e "\033[31m[-] 端口 $p IPv4 TCP 下载 filter 创建失败！\033[0m"
+                rc=1
+            fi
+            
+            if ! tc filter add dev "$IFB_INTERFACE" protocol ip parent 1:0 prio 1 u32 match ip protocol 17 0xff match ip dport "$p" 0xffff flowid 1:$HEX 2>/dev/null; then
+                echo -e "\033[31m[-] 端口 $p IPv4 UDP 下载 filter 创建失败！\033[0m"
+                rc=1
+            fi
+
+            if [ "$flower_checked" -eq 2 ]; then
+                if ! tc filter add dev "$IFB_INTERFACE" protocol ipv6 parent 1:0 prio 2 flower ip_proto tcp dst_port "$p" flowid 1:$HEX 2>/dev/null; then
+                    echo -e "\033[31m[-] 端口 $p IPv6 TCP 下载 filter 创建失败！\033[0m"
+                    rc=1
+                fi
+                
+                if ! tc filter add dev "$IFB_INTERFACE" protocol ipv6 parent 1:0 prio 2 flower ip_proto udp dst_port "$p" flowid 1:$HEX 2>/dev/null; then
+                    echo -e "\033[31m[-] 端口 $p IPv6 UDP 下载 filter 创建失败！\033[0m"
+                    rc=1
+                fi
+            fi
         fi
     done
+    return "$rc"
 }
 
 restore_rules_func() {
@@ -1832,9 +1960,51 @@ restore_rules_func() {
         INTERFACE=$(get_interface)
     done
 
-    tc qdisc add dev "$INTERFACE" root handle 1: htb default 30 2>/dev/null
-    tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit 2>/dev/null
-    tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit 2>/dev/null
+    if ! init_ifb; then
+        return 1
+    fi
+
+    if ! tc qdisc show dev "$INTERFACE" 2>/dev/null | grep -q "htb"; then
+        if ! tc qdisc add dev "$INTERFACE" root handle 1: htb default 30; then
+            echo -e "\033[31m[-] tc 出口 qdisc 创建失败！\033[0m"
+            return 1
+        fi
+    fi
+
+    if ! tc class show dev "$INTERFACE" 2>/dev/null | grep -q "class htb 1:1"; then
+        if ! tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit; then
+            echo -e "\033[31m[-] tc 出口根 class 创建失败！\033[0m"
+            return 1
+        fi
+    fi
+
+    if ! tc class show dev "$INTERFACE" 2>/dev/null | grep -q "class htb 1:30"; then
+        if ! tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit; then
+            echo -e "\033[31m[-] tc 出口默认 class 创建失败！\033[0m"
+            return 1
+        fi
+    fi
+
+    if ! tc qdisc show dev "$IFB_INTERFACE" 2>/dev/null | grep -q "htb"; then
+        if ! tc qdisc add dev "$IFB_INTERFACE" root handle 1: htb default 30; then
+            echo -e "\033[31m[-] tc 下载 qdisc 创建失败！\033[0m"
+            return 1
+        fi
+    fi
+
+    if ! tc class show dev "$IFB_INTERFACE" 2>/dev/null | grep -q "class htb 1:1"; then
+        if ! tc class add dev "$IFB_INTERFACE" parent 1: classid 1:1 htb rate 1000mbit; then
+            echo -e "\033[31m[-] tc 下载根 class 创建失败！\033[0m"
+            return 1
+        fi
+    fi
+
+    if ! tc class show dev "$IFB_INTERFACE" 2>/dev/null | grep -q "class htb 1:30"; then
+        if ! tc class add dev "$IFB_INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit; then
+            echo -e "\033[31m[-] tc 下载默认 class 创建失败！\033[0m"
+            return 1
+        fi
+    fi
 
     init_nft_table
 
@@ -1846,17 +2016,24 @@ restore_rules_func() {
         local CHAIN_NAME="LIMIT_P_${p}"
 
         if [ "$RATE" != "UNLIMITED" ]; then
-            tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$RATE" ceil "$RATE" 2>/dev/null || true
+            if ! tc class show dev "$INTERFACE" 2>/dev/null | grep -q "class htb 1:$HEX"; then
+                if ! tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$RATE" ceil "$RATE"; then
+                    echo -e "\033[31m[-] 端口 $p 上传限速 class 创建失败！\033[0m"
+                    return 1
+                fi
+            fi
+
+            if ! tc class show dev "$IFB_INTERFACE" 2>/dev/null | grep -q "class htb 1:$HEX"; then
+                if ! tc class add dev "$IFB_INTERFACE" parent 1:1 classid 1:$HEX htb rate "$RATE" ceil "$RATE"; then
+                    echo -e "\033[31m[-] 端口 $p 下载限速 class 创建失败！\033[0m"
+                    return 1
+                fi
+            fi
         fi
 
         nft add chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
         nft flush chain inet port_manager "$CHAIN_NAME"
         nft add rule inet port_manager "$CHAIN_NAME" counter accept
-
-        nft add rule inet port_manager input tcp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
-        nft add rule inet port_manager input udp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
-        nft add rule inet port_manager output tcp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
-        nft add rule inet port_manager output udp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
 
         if [ "$QUOTA" != "UNLIMITED" ]; then
             local LIMIT_BYTES=$(( QUOTA * 1048576 ))
@@ -1865,7 +2042,15 @@ restore_rules_func() {
             fi
         fi
     done
-    rebuild_tc_filters
+
+    rebuild_nft_dispatch_rules
+
+    if ! rebuild_tc_filters; then
+        echo -e "\033[31m[-] tc 上传/下载 filter 创建失败！\033[0m"
+        return 1
+    fi
+
+    return 0
 }
 
 if [ "$1" == "daemon" ]; then
@@ -1892,26 +2077,65 @@ apply_limit() {
 
     echo -e "RATE=\"$r\"\nQUOTA=\"$q\"\nRESET_MODE=\"$rm\"\nLAST_RESET_MONTH=\"$lm\"\nSTORED_TOTAL=\"0\"\nLAST_IPT_BYTES=\"0\"" > "$CONF_DIR/${p}.conf"
 
-    tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null
     if [ "$r" != "UNLIMITED" ]; then
-        if ! tc qdisc show dev "$INTERFACE" | grep -q "htb"; then
-            tc qdisc add dev "$INTERFACE" root handle 1: htb default 30
-            tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit
-            tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit
+        if ! init_ifb; then
+            return 1
         fi
-        tc class add dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$r" ceil "$r"
+
+        if ! tc qdisc show dev "$INTERFACE" | grep -q "htb"; then
+            if ! tc qdisc add dev "$INTERFACE" root handle 1: htb default 30; then
+                echo -e "\033[31m[-] tc 出口 qdisc 创建失败！\033[0m"
+                return 1
+            fi
+            if ! tc class add dev "$INTERFACE" parent 1: classid 1:1 htb rate 1000mbit; then
+                echo -e "\033[31m[-] tc 出口根 class 创建失败！\033[0m"
+                return 1
+            fi
+            if ! tc class add dev "$INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit; then
+                echo -e "\033[31m[-] tc 出口默认 class 创建失败！\033[0m"
+                return 1
+            fi
+        fi
+
+        if ! tc class replace dev "$INTERFACE" parent 1:1 classid 1:$HEX htb rate "$r" ceil "$r"; then
+            echo -e "\033[31m[-] 端口 $p 上传限速 class 创建失败！\033[0m"
+            return 1
+        fi
+
+        if ! tc qdisc show dev "$IFB_INTERFACE" | grep -q "htb"; then
+            if ! tc qdisc add dev "$IFB_INTERFACE" root handle 1: htb default 30; then
+                echo -e "\033[31m[-] tc 下载 qdisc 创建失败！\033[0m"
+                return 1
+            fi
+            if ! tc class add dev "$IFB_INTERFACE" parent 1: classid 1:1 htb rate 1000mbit; then
+                echo -e "\033[31m[-] tc 下载根 class 创建失败！\033[0m"
+                return 1
+            fi
+            if ! tc class add dev "$IFB_INTERFACE" parent 1:1 classid 1:30 htb rate 1000mbit ceil 1000mbit; then
+                echo -e "\033[31m[-] tc 下载默认 class 创建失败！\033[0m"
+                return 1
+            fi
+        fi
+
+        if ! tc class replace dev "$IFB_INTERFACE" parent 1:1 classid 1:$HEX htb rate "$r" ceil "$r"; then
+            echo -e "\033[31m[-] 端口 $p 下载限速 class 创建失败！\033[0m"
+            return 1
+        fi
     fi
-    rebuild_tc_filters
+
+    if ! rebuild_tc_filters; then
+        echo -e "\033[31m[-] 端口 $p tc 上传/下载 filter 创建失败！\033[0m"
+        return 1
+    fi
 
     init_nft_table
     nft add chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
     nft flush chain inet port_manager "$CHAIN_NAME"
     nft add rule inet port_manager "$CHAIN_NAME" counter accept
 
-    nft add rule inet port_manager input tcp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
-    nft add rule inet port_manager input udp dport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
-    nft add rule inet port_manager output tcp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
-    nft add rule inet port_manager output udp sport "$p" jump "$CHAIN_NAME" 2>/dev/null || true
+    rebuild_nft_dispatch_rules
+
+    return 0
 }
 
 remove_limit() {
@@ -1919,12 +2143,16 @@ remove_limit() {
     local HEX=$(printf "%x" "$p")
     local CHAIN_NAME="LIMIT_P_${p}"
 
-    tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null
     rm -f "$CONF_DIR/${p}.conf"
+
     rebuild_tc_filters
+
+    tc class del dev "$INTERFACE" classid 1:$HEX 2>/dev/null || true
+    tc class del dev "$IFB_INTERFACE" classid 1:$HEX 2>/dev/null || true
 
     nft flush chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
     nft delete chain inet port_manager "$CHAIN_NAME" 2>/dev/null || true
+    rebuild_nft_dispatch_rules
 }
 
 show_ports() {
@@ -1978,7 +2206,7 @@ show_ports() {
         local M_DISP="一次性"
         [ "$RESET_MODE" == "MONTHLY" ] && M_DISP="每月(1日00:01)"
         
-		printf " \033[31m%-6s\033[0m | %-8s | %-8s | %-8s | %-8s | %b\n" "$PORT" "$Q_DISP" "$R_DISP" "${USED_MB}MB" "$M_DISP" "$COLOR_STATUS"
+        printf " \033[31m%-6s\033[0m | %-8s | %-8s | %-8s | %-8s | %b\n" "$PORT" "$Q_DISP" "$R_DISP" "${USED_MB}MB" "$M_DISP" "$COLOR_STATUS"
     done
     
     if [ "$count" -eq 0 ]; then
@@ -2001,7 +2229,7 @@ while true; do
     echo -e "已设置的端口:\n"
     show_ports
     
-	reading "请输入选项 [0-4]: " choice
+    reading "请输入选项 [0-4]: " choice
     case $choice in
         1|2)
             if [ "$choice" == "2" ]; then
@@ -2016,24 +2244,41 @@ while true; do
                 read -p "请输入要【限制】的端口号 (如 443): " port
             fi
             
-            if [ -z "$port" ]; then
-                echo -e "\033[31m[-] 端口号不能为空！\033[0m"
+            if [ -z "$port" ] || ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                echo -e "\033[31m[-] 端口号必须是 1-65535 的数字！\033[0m"
                 read -p "按回车键继续..."
                 continue
             fi
 
             echo -e "\n\033[36m>>> 直接按回车跳过流量限制 <<<\033[0m"
-            read -p "请输入流量上限(MB): " quota
-            if [ -z "$quota" ]; then
-                quota="UNLIMITED"
-                echo -e " -> \033[33m已设为: 不限制流量\033[0m"
-            fi
+read -p "请输入流量上限(如 100=100MB，1gb=1GB): " quota
+if [ -z "$quota" ]; then
+    quota="UNLIMITED"
+    echo -e " -> \033[33m已设为: 不限制流量\033[0m"
+elif [[ "$quota" =~ ^[0-9]+$ ]]; then
+    quota="$quota"
+    echo -e " -> \033[32m已设为: ${quota} MB\033[0m"
+elif [[ "$quota" =~ ^([0-9]+)[mM][bB]$ ]]; then
+    quota="${BASH_REMATCH[1]}"
+    echo -e " -> \033[32m已设为: ${quota} MB\033[0m"
+elif [[ "$quota" =~ ^([0-9]+)[gG][bB]$ ]]; then
+    quota=$((BASH_REMATCH[1] * 1024))
+    echo -e " -> \033[32m已设为: $((quota / 1024)) GB\033[0m"
+else
+    echo -e "\033[31m[-] 流量上限格式错误！例如: 100、500mb、1gb\033[0m"
+    read -p "按回车键继续..."
+    continue
+fi
 
             echo -e "\n\033[36m>>> 直接输入数字即可 (默认单位 Mbps)，直接按回车跳过网速限制 <<<\033[0m"
             read -p "请输入网速上限(如输入 5 代表 5Mbps): " rate_num
             if [ -z "$rate_num" ]; then
                 rate="UNLIMITED"
                 echo -e " -> \033[33m已设为: 不限制网速\033[0m"
+            elif ! [[ "$rate_num" =~ ^[0-9]+$ ]] || [ "$rate_num" -le 0 ]; then
+                echo -e "\033[31m[-] 网速上限必须是大于 0 的数字！\033[0m"
+                read -p "按回车键继续..."
+                continue
             else
                 rate="${rate_num}mbit"
                 echo -e " -> \033[32m已设为: ${rate_num} Mbps\033[0m"
@@ -2049,12 +2294,20 @@ while true; do
                 echo -e " -> \033[33m已设为: 一次性限制 (用完即永久阻断)\033[0m"
             fi
             
-            apply_limit "$port" "$rate" "$quota" "$reset_mode"
-            echo -e "\n\033[32m[+] 端口 $port 限制配置成功！\033[0m"
+            if apply_limit "$port" "$rate" "$quota" "$reset_mode"; then
+                echo -e "\n\033[32m[+] 端口 $port 限制配置成功！\033[0m"
+            else
+                echo -e "\n\033[31m[-] 端口 $port 限制配置失败！\033[0m"
+            fi
             read -p "按回车键继续..."
             ;;
         3)
             read -p "请输入要删除限制的端口号: " port
+            if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+                echo -e "\033[31m[-] 端口号必须是 1-65535 的数字！\033[0m"
+                read -p "按回车键继续..."
+                continue
+            fi
             if [ -f "$CONF_DIR/${port}.conf" ]; then
                 remove_limit "$port"
                 echo -e "\033[32m[+] 端口 $port 限制已彻底移除！\033[0m"
@@ -2063,7 +2316,7 @@ while true; do
             fi
             read -p "按回车键继续..."
             ;;
-		4)
+        4)
             echo -e "\n\033[36m[+] 正在刷新端口流量统计与拦截状态...\033[0m"
             check_and_block
             restore_rules_func
@@ -2107,7 +2360,7 @@ SRVEOF
             rm -f /etc/systemd/system/restore_iptables.service
             bash /usr/local/bin/port_menu.sh menu
             sleep 1 && iptables_ssl
-            ;;                  
+            ;;
 9)
         yellow "正在扫描所有 nftables 端口规则..."
     local cleaned=0
