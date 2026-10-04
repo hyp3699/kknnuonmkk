@@ -4004,6 +4004,31 @@ hy2_port_hopping() {
     green "端口占用检查通过"
     green "${min_port}-${max_port} 全部未被 TCP/UDP 监听"
     echo
+    if ! new_url=$(python3 - "$old_url" "$min_port" "$max_port" <<'PY'
+import re
+import sys
+url = sys.argv[1]
+min_port = sys.argv[2]
+max_port = sys.argv[3]
+pattern = r'^(hysteria2://[^@]+@(?:\[[^\]]+\]|[^:/]+):[0-9]+)(?:,[0-9]+-[0-9]+)?(/.*)$'
+match = re.match(pattern, url)
+if not match:
+    sys.exit(1)
+base = match.group(1)
+suffix = match.group(2)
+print(f"{base},{min_port}-{max_port}{suffix}")
+PY
+    ); then
+        red "无法识别 Hysteria2 节点连接格式"
+        red "当前链接：$old_url"
+        sleep 2
+        return 1
+    fi
+    if [ -z "$new_url" ] || [ "$new_url" = "$old_url" ]; then
+        red "修改 Hysteria2 端口跳跃链接失败"
+        sleep 1
+        return 1
+    fi
     purple "正在设置 ${inbound_type}-${inbound_number} 端口跳跃规则..."
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
     [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && \
@@ -4046,21 +4071,6 @@ hy2_port_hopping() {
         systemctl start nftables >/dev/null 2>&1
     elif command -v rc-service >/dev/null 2>&1; then
         rc-update add nftables default 2>/dev/null
-    fi
-    if [[ "$old_url" =~ ^(hysteria2://[^@]+@\[[^]]+\]:[0-9]+),[0-9]+-[0-9]+(/.*)$ ]]; then
-        new_url="${BASH_REMATCH[1]},${min_port}-${max_port}${BASH_REMATCH[2]}"
-    elif [[ "$old_url" =~ ^(hysteria2://[^@]+@\[[^]]+\]:[0-9]+)(/.*)$ ]]; then
-        new_url="${BASH_REMATCH[1]},${min_port}-${max_port}${BASH_REMATCH[2]}"
-    else
-        red "无法识别 Hysteria2 节点连接格式"
-        red "当前链接：$old_url"
-        sleep 2
-        return 1
-    fi
-    if [ -z "$new_url" ] || [ "$new_url" = "$old_url" ]; then
-        red "修改 Hysteria2 端口跳跃链接失败"
-        sleep 1
-        return 1
     fi
     echo "$new_url" > "$url_file"
     update_sub_file
@@ -12366,7 +12376,7 @@ menu() {
    echo ""
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.5===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.6===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
