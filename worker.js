@@ -419,7 +419,7 @@ function generateVlessWsLink(uuid,server,path,sni){
 function generateVmessWsLink(uuid,server,path,sni){
     const config={
         v:"2",
-        ps:`${sni}-${server}`,
+        ps:server,
         add:server,
         port:"443",
         id:uuid,
@@ -1028,7 +1028,7 @@ export default{
                  * 6
                  */
                 const subscriptionUrl=
-                    `${url.origin}/${token}?${mode}`;
+                    `${url.origin}/${token}?${mode}&count=30`;
 
                 return new Response(
                     htmlPage(
