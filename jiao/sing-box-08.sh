@@ -1218,6 +1218,7 @@ jq -n \
                 protocol: "quic",
                 post_quantum: true,
 				edge_ip_version: 0,
+				grace_period: "3s",
 				datagram_version: "v3"
             }
         ]
@@ -1231,7 +1232,7 @@ token="$tunnel_token"
 # ── 获取 Tunnel 名称 ──
 tunnel_name=$(echo "$tunnel_data" |
     jq -r '.result.name // "-"')
-    tunnel_name=$(echo "$tunnel_data" | jq -r '.result.name // "-"')
+    
     zone_response=$(cf_call GET "/zones?per_page=500" 2>/dev/null)
     if [[ "$(echo "$zone_response" | jq -r '.success // false')" != "true" ]]; then
         red "获取 Cloudflare 域名失败！"
@@ -1924,6 +1925,7 @@ cf_create_tunnel() {
                     protocol: "quic",			
                     post_quantum: true,
                     edge_ip_version: 0,
+					grace_period: "3s",
                     datagram_version: "v3"
                 }
             ]
