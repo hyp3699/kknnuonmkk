@@ -2219,14 +2219,14 @@ manage_single_inbound() {
                 ;;
             hysteria2)
                 if hy2_port_hopping_enabled "$inbound_number"; then
-                    green "7. 端口跳跃（已开启）"
+                    green "6. 端口跳跃（已开启）"
                 else
-                    yellow "7. 端口跳跃（未开启）"
+                    yellow "6. 端口跳跃（未开启）"
                 fi
                 if hy2_obfs_enabled "$config_file" "$inbound_type" "$inbound_number"; then
-                    green "8. 混淆（已开启）"
+                    green "7. 混淆（已开启）"
                 else
-                    yellow "8. 混淆（未开启）"
+                    yellow "7. 混淆（未开启）"
                 fi
                 ;;
             vless-ws|vmess-ws|trojan-ws|vless-xhttp)
@@ -2268,6 +2268,13 @@ manage_single_inbound() {
         vless-ws|vmess-ws|trojan-ws|vless-xhttp)
             enable_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
+		hysteria2)
+                        manage_hy2_port_hopping_menu \
+                            "$config_file" \
+                            "$engine" \
+                            "$inbound_type" \
+                            "$inbound_number"
+                        ;;
         *)
             red "当前入站没有此功能"
             sleep 1
@@ -2280,6 +2287,13 @@ manage_single_inbound() {
         vless-ws|vmess-ws|trojan-ws|vless-xhttp)
             enable_ws_argo "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
+	    hysteria2)
+                        manage_hy2_obfs_menu \
+                            "$config_file" \
+                            "$engine" \
+                            "$inbound_type" \
+                            "$inbound_number"
+                        ;;
         *)
             red "当前入站没有此功能"
             sleep 1
