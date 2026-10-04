@@ -211,9 +211,6 @@ install_singbox() {
     local TAR
     local URL
     local nginx_port
-    local tuic_port
-    local uuid
-    local uuid99
     local username
     local password
     local fingerprint
@@ -249,9 +246,6 @@ install_singbox() {
     mkdir -p "${log_dir}"
 
     nginx_port=$(get_available_port)
-    tuic_port=$(get_available_port)
-    uuid=$(cat /proc/sys/kernel/random/uuid)
-    uuid99=$(cat /proc/sys/kernel/random/uuid)
     username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
     password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
