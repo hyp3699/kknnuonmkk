@@ -3825,15 +3825,10 @@ hy2_port_hopping() {
     local listen_port=""
     local min_port=""
     local max_port=""
-    local ip=""
-    local uuid=""
-    local key_path=""
-    local custom_sni=""
-    local url_param=""
-    local obfs_param=""
     local old_url=""
-    local old_obfs=""
-    local node_remark=""
+    local new_url=""
+    local url_head=""
+    local url_tail=""
     local hy2_link=""
     local hop_comment="Hysteria2_Hop_${inbound_number}"
     local check_cmds=("nft" "curl" "shuf" "python3")
@@ -3860,9 +3855,16 @@ hy2_port_hopping() {
         sleep 1
         return 1
     fi
-    if [ -f "$url_file" ]; then
-        old_url=$(cat "$url_file")
-        old_obfs=$(printf '%s' "$old_url" | grep -oP 'obfs=gecko&obfs-password=[^&#]+&obfs-min=[^&#]+&obfs-max=[^&#]+' | head -n1)
+    if [ ! -f "$url_file" ]; then
+        red "节点连接文件不存在：$url_file"
+        sleep 1
+        return 1
+    fi
+    old_url=$(cat "$url_file")
+    if [ -z "$old_url" ]; then
+        red "节点连接为空"
+        sleep 1
+        return 1
     fi
     clear
     green "================ Hysteria2 端口跳跃 ================"
@@ -3870,11 +3872,6 @@ hy2_port_hopping() {
     green "入站：${inbound_type}-${inbound_number}"
     green "配置：${config_file}"
     green "监听端口：${listen_port}"
-    if [ -n "$old_obfs" ]; then
-        green "检测到 Gecko 混淆：保留现有混淆参数"
-    else
-        yellow "未检测到 Gecko 混淆"
-    fi
     echo
     purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。"
     echo
@@ -3919,24 +3916,33 @@ hy2_port_hopping() {
     echo
     purple "正在设置 ${inbound_type}-${inbound_number} 端口跳跃规则..."
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
-    [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
+    [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && \
+        sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
     nft add table ip hysteria_nat 2>/dev/null
     nft 'add chain ip hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
     if nft list chain ip hysteria_nat prerouting >/dev/null 2>&1; then
-        for handle in $(nft -a list chain ip hysteria_nat prerouting 2>/dev/null | awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
+        for handle in $(nft -a list chain ip hysteria_nat prerouting 2>/dev/null |
+            awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
             nft delete rule ip hysteria_nat prerouting handle "$handle" 2>/dev/null
         done
     fi
-    nft add rule ip hysteria_nat prerouting udp dport "$min_port"-"$max_port" dnat to :"$listen_port" comment "$hop_comment" 2>/dev/null
+    nft add rule ip hysteria_nat prerouting \
+        udp dport "$min_port"-"$max_port" \
+        dnat to :"$listen_port" \
+        comment "$hop_comment" 2>/dev/null
     if [ -f /proc/net/if_inet6 ]; then
         nft add table ip6 hysteria_nat 2>/dev/null
         nft 'add chain ip6 hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
         if nft list chain ip6 hysteria_nat prerouting >/dev/null 2>&1; then
-            for handle in $(nft -a list chain ip6 hysteria_nat prerouting 2>/dev/null | awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
+            for handle in $(nft -a list chain ip6 hysteria_nat prerouting 2>/dev/null |
+                awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
                 nft delete rule ip6 hysteria_nat prerouting handle "$handle" 2>/dev/null
             done
         fi
-        nft add rule ip6 hysteria_nat prerouting udp dport "$min_port"-"$max_port" dnat to :"$listen_port" comment "$hop_comment" 2>/dev/null
+        nft add rule ip6 hysteria_nat prerouting \
+            udp dport "$min_port"-"$max_port" \
+            dnat to :"$listen_port" \
+            comment "$hop_comment" 2>/dev/null
     fi
     nft list ruleset > /etc/nftables.conf 2>/dev/null
     if command -v systemctl >/dev/null 2>&1; then
@@ -3945,43 +3951,19 @@ hy2_port_hopping() {
     elif command -v rc-service >/dev/null 2>&1; then
         rc-update add nftables default 2>/dev/null
     fi
-    if [ -f "$url_file" ]; then
-        uuid=$(grep -oP 'hysteria2://\K[^@]+' "$url_file" | head -n1)
-    fi
-    if [ -z "$uuid" ]; then
-        uuid=$(jq -r '.inbounds[0].users[0].password // .inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
-    fi
-    if [ -z "$uuid" ]; then
-        red "无法获取 Hysteria2 UUID/密码"
+    new_url=$(printf '%s' "$old_url" |
+        sed -E "s#^([^@]+@[^:]+:)[0-9]+(/.*)#\1${listen_port},${min_port}-${max_port}\2#")
+    if [ -z "$new_url" ] || [ "$new_url" = "$old_url" ]; then
+        red "修改 Hysteria2 端口跳跃链接失败"
         sleep 1
         return 1
     fi
-    ip=$(get_realip)
-    key_path=$(jq -r '.inbounds[0].tls.key_path // empty' "$config_file" 2>/dev/null)
-    if [[ "$key_path" =~ /root/cert/([^/]+)/ ]]; then
-        custom_sni="${BASH_REMATCH[1]}"
-        url_param="sni=${custom_sni}"
-    else
-        custom_sni="www.bing.com"
-        url_param="insecure=0&sni=www.bing.com"
-    fi
-    node_remark="${inbound_type}-${inbound_number}"
-    if [ -n "$old_obfs" ]; then
-        obfs_param="$old_obfs"
-    fi
-    if [ -n "$obfs_param" ]; then
-        echo "hysteria2://${uuid}@${ip}:${listen_port}?${url_param}&alpn=h3&${obfs_param}&mport=${listen_port},${min_port}-${max_port}#${node_remark}" > "$url_file"
-    else
-        echo "hysteria2://${uuid}@${ip}:${listen_port}?${url_param}&alpn=h3&mport=${listen_port},${min_port}-${max_port}#${node_remark}" > "$url_file"
-    fi
+    echo "$new_url" > "$url_file"
     update_sub_file
     systemctl reload sing-box
     hy2_link=$(cat "$url_file")
     echo
     green "Hysteria2-${inbound_number} 端口跳跃已开启"
-    if [ -n "$obfs_param" ]; then
-        green "已保留 Gecko 混淆参数"
-    fi
     green "$hy2_link"
     green "=================================================="
     purple "跳跃区间：$min_port-$max_port"
@@ -12170,7 +12152,7 @@ menu() {
    echo ""
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.3===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.4===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
