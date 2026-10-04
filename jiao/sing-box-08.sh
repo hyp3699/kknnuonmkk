@@ -7250,11 +7250,11 @@ manage_single_inbound() {
             enable_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
 		hysteria2)
-                        if hy2_port_hopping_enabled "$inbound_number"; then
-                            disable_hy2_port_hopping "$config_file" "$inbound_type" "$inbound_number"
-                        else
-                            enable_hy2_port_hopping "$config_file" "$inbound_type" "$inbound_number"
-                        fi
+                        manage_hy2_port_hopping_menu \
+                            "$config_file" \
+                            "$engine" \
+                            "$inbound_type" \
+                            "$inbound_number"
                         ;;
         *)
             red "当前入站没有此功能"
@@ -7269,11 +7269,11 @@ manage_single_inbound() {
             enable_ws_argo "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
 		hysteria2)
-                        if hy2_obfs_enabled "$config_file" "$inbound_type" "$inbound_number"; then
-                            disable_hy2_obfs "$config_file" "$inbound_type" "$inbound_number"
-                        else
-                            enable_hy2_obfs "$config_file" "$inbound_type" "$inbound_number"
-                        fi
+                        manage_hy2_obfs_menu \
+                            "$config_file" \
+                            "$engine" \
+                            "$inbound_type" \
+                            "$inbound_number"
                         ;;
         *)
             red "当前入站没有此功能"
