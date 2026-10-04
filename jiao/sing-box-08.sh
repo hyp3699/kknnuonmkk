@@ -7153,7 +7153,7 @@ show_limit() {
 manage_single_inbound() {
     local selected="$1"
     local config_file=""
-    local engine=""
+	local engine="sing-box"
     local inbound_type=""
     local inbound_number=""
     local traffic_user=""
