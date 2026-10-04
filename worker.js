@@ -82,10 +82,6 @@ async function fetchIPv4List(count){
 
         if(!value)continue;
 
-        /*
-         * 允许文件中存在日期、备注等内容。
-         * 从每行最后一个字段中寻找 IPv4。
-         */
         const parts=value.split(/\s+/);
         let ipv4='';
 
@@ -140,25 +136,16 @@ async function fetchDomainList(count){
 
         if(!domain)continue;
 
-        /*
-         * 去除可能存在的协议头
-         */
         domain=domain
             .replace(/^https?:\/\//i,'')
             .split('/')[0]
             .split(/\s+/)[0]
             .trim();
 
-        /*
-         * 去除可能存在的端口
-         */
         if(/^[^:]+:\d+$/.test(domain)){
             domain=domain.replace(/:\d+$/,'');
         }
 
-        /*
-         * 基本域名格式检查
-         */
         if(
             !/^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/.test(domain)
         ){
@@ -365,6 +352,291 @@ function validateConfig(uuid,type,path,sni){
 }
 
 /*
+ * ============================================================
+ * 直接解析 VMess / VLESS 节点
+ * ============================================================
+ *
+ * 支持：
+ *
+ * 1. 标准 VMess：
+ *    vmess://BASE64(JSON)
+ *
+ * 2. URL 型 VMess：
+ *    vmess://UUID@SERVER:443?type=ws&path=...&sni=...
+ *
+ * 3. VLESS：
+ *    vless://UUID@SERVER:443?type=xhttp&path=...&sni=...
+ *
+ * 提取：
+ *    uuid
+ *    path
+ *    sni
+ *    type
+ */
+function parseNodeLink(nodeLink){
+
+    nodeLink=String(nodeLink||'').trim();
+
+    if(!nodeLink){
+        throw new Error('节点链接不能为空');
+    }
+
+    /*
+     * 去除首尾空白以及可能存在的代码块
+     */
+    nodeLink=nodeLink
+        .replace(/^```[a-zA-Z]*\s*/,'')
+        .replace(/\s*```$/,'')
+        .trim();
+
+    /*
+     * ========================================================
+     * VMess
+     * ========================================================
+     */
+    if(/^vmess:\/\//i.test(nodeLink)){
+
+        const body=nodeLink.slice(8).trim();
+
+        /*
+         * ----------------------------------------------------
+         * 标准 VMess Base64 JSON
+         * ----------------------------------------------------
+         */
+        if(!body.includes('@')){
+
+            try{
+
+                const decodedBytes=base64UrlDecode(body);
+
+                const decodedText=
+                    new TextDecoder().decode(decodedBytes);
+
+                const config=JSON.parse(decodedText);
+
+                const uuid=String(
+                    config.id||
+                    config.uuid||
+                    ''
+                ).trim();
+
+                const path=String(
+                    config.path||
+                    ''
+                ).trim();
+
+                const sni=String(
+                    config.sni||
+                    config.host||
+                    ''
+                ).trim();
+
+                /*
+                 * VMess 的 net 一般是 ws。
+                 *
+                 * 这里逻辑类型仍然固定为 vmess，
+                 * 因为生成器根据 vmess 决定使用 VMess。
+                 */
+                const type='vmess';
+
+                if(!uuid){
+                    throw new Error('VMess 节点中没有 UUID');
+                }
+
+                if(!path){
+                    throw new Error('VMess 节点中没有路径');
+                }
+
+                if(!sni){
+                    throw new Error(
+                        'VMess 节点中没有 SNI/Host'
+                    );
+                }
+
+                return{
+                    uuid,
+                    type,
+                    path,
+                    sni
+                };
+
+            }catch(error){
+                /*
+                 * 如果不是标准 Base64，
+                 * 继续尝试 URL 型 VMess。
+                 */
+            }
+        }
+
+        /*
+         * ----------------------------------------------------
+         * URL 型 VMess
+         * ----------------------------------------------------
+         *
+         * 例如：
+         *
+         * vmess://UUID@[IPv6]:443?ed=2048
+         * &host=cdn.example.com
+         * &path=/xxx
+         * &sni=cdn.example.com
+         * &type=ws
+         */
+        try{
+
+            const parsed=new URL(nodeLink);
+
+            const uuid=
+                decodeURIComponent(
+                    parsed.username||''
+                ).trim();
+
+            const params=parsed.searchParams;
+
+            const path=String(
+                params.get('path')||
+                ''
+            ).trim();
+
+            const sni=String(
+                params.get('sni')||
+                params.get('host')||
+                ''
+            ).trim();
+
+            const type='vmess';
+
+            if(!uuid){
+                throw new Error(
+                    'VMess 节点中没有 UUID'
+                );
+            }
+
+            if(!path){
+                throw new Error(
+                    'VMess 节点中没有路径'
+                );
+            }
+
+            if(!sni){
+                throw new Error(
+                    'VMess 节点中没有 SNI/Host'
+                );
+            }
+
+            return{
+                uuid,
+                type,
+                path,
+                sni
+            };
+
+        }catch(error){
+
+            if(
+                error.message&&
+                !error.message.includes('Invalid URL')
+            ){
+                throw error;
+            }
+
+            throw new Error(
+                'VMess 节点链接格式无法解析'
+            );
+        }
+    }
+
+    /*
+     * ========================================================
+     * VLESS
+     * ========================================================
+     */
+    if(/^vless:\/\//i.test(nodeLink)){
+
+        try{
+
+            const parsed=new URL(nodeLink);
+
+            const uuid=
+                decodeURIComponent(
+                    parsed.username||''
+                ).trim();
+
+            const params=parsed.searchParams;
+
+            const path=String(
+                params.get('path')||
+                ''
+            ).trim();
+
+            const sni=String(
+                params.get('sni')||
+                params.get('host')||
+                ''
+            ).trim();
+
+            const transport=String(
+                params.get('type')||
+                ''
+            ).trim().toLowerCase();
+
+            /*
+             * VLESS + type=xhttp
+             * 需要进入 XHTTP 生成器。
+             *
+             * 其它 VLESS transport，
+             * 当前脚本统一按照 VLESS WS 生成。
+             */
+            const type=
+                transport==='xhttp'
+                    ?'xhttp'
+                    :'vless';
+
+            if(!uuid){
+                throw new Error(
+                    'VLESS 节点中没有 UUID'
+                );
+            }
+
+            if(!path){
+                throw new Error(
+                    'VLESS 节点中没有路径'
+                );
+            }
+
+            if(!sni){
+                throw new Error(
+                    'VLESS 节点中没有 SNI/Host'
+                );
+            }
+
+            return{
+                uuid,
+                type,
+                path,
+                sni
+            };
+
+        }catch(error){
+
+            if(
+                error.message&&
+                !error.message.includes('Invalid URL')
+            ){
+                throw error;
+            }
+
+            throw new Error(
+                'VLESS 节点链接格式无法解析'
+            );
+        }
+    }
+
+    throw new Error(
+        '只支持 vmess:// 和 vless:// 节点链接'
+    );
+}
+
+/*
  * 服务器地址格式
  *
  * IPv4：
@@ -419,7 +691,15 @@ function generateVlessWsLink(uuid,server,path,sni){
 function generateVmessWsLink(uuid,server,path,sni){
     const config={
         v:"2",
+
+        /*
+         * 节点名称只显示 server。
+         *
+         * 不再：
+         * ${sni}-${server}
+         */
         ps:server,
+
         add:server,
         port:"443",
         id:uuid,
@@ -467,10 +747,6 @@ function validateMode(mode){
         .toLowerCase()
         .replace(/[^y46]/g,'');
 
-    /*
-     * 去重并固定顺序：
-     * y -> 4 -> 6
-     */
     let result='';
 
     if(mode.includes('y')){
@@ -555,7 +831,9 @@ async function generateSubscription(
     const result=[];
 
     for(const server of servers){
+
         if(type==='xhttp'){
+
             result.push(
                 generateXhttpLink(
                     uuid,
@@ -564,7 +842,9 @@ async function generateSubscription(
                     sni
                 )
             );
+
         }else if(type==='vless'){
+
             result.push(
                 generateVlessWsLink(
                     uuid,
@@ -573,7 +853,9 @@ async function generateSubscription(
                     sni
                 )
             );
+
         }else{
+
             result.push(
                 generateVmessWsLink(
                     uuid,
@@ -595,6 +877,7 @@ function htmlPage(message='',result=''){
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>IPv6</title>
+
 <style>
 body{
     margin:0;
@@ -626,6 +909,23 @@ select{
     border-radius:8px;
     font-size:14px;
     background:white
+}
+
+.node-link{
+    margin-top:15px;
+}
+
+.node-link-title{
+    font-size:14px;
+    font-weight:bold;
+    margin-bottom:6px
+}
+
+.node-link-hint{
+    font-size:12px;
+    color:#777;
+    margin-top:6px;
+    line-height:1.5
 }
 
 .address-options{
@@ -677,26 +977,50 @@ textarea{
     resize:vertical
 }
 
+.node-input{
+    min-height:100px
+}
+
 .result{
     height:100px
 }
 </style>
 </head>
+
 <body>
+
 <div class="container">
 
 <h2>IPv6</h2>
 
 <form method="POST">
 
+<div class="node-link">
+
+<div class="node-link-title">
+直接解析节点
+</div>
+
+<textarea
+    class="node-input"
+    name="node_link"
+    placeholder="粘贴 vmess:// 或 vless:// 节点链接，可自动提取 UUID、路径、SNI、类型"
+></textarea>
+
+<div class="node-link-hint">
+填写节点链接后，下面的 UUID、类型、路径、域名会自动从节点中提取。
+如果不填写节点链接，也可以继续手动填写。
+</div>
+
+</div>
+
 <input
     name="uuid"
     placeholder="UUID"
-    required
 >
 
-<select name="type" required>
-    <option value="" disabled selected>
+<select name="type">
+    <option value="" selected>
         请选择类型
     </option>
     <option value="xhttp">XHTTP</option>
@@ -707,13 +1031,11 @@ textarea{
 <input
     name="path"
     placeholder="路径"
-    required
 >
 
 <input
     name="sni"
     placeholder="域名"
-    required
 >
 
 <div class="address-options">
@@ -769,6 +1091,7 @@ ${result?`
 `:''}
 
 </div>
+
 </body>
 </html>`;
 }
@@ -802,15 +1125,19 @@ export default{
         const url=new URL(request.url);
 
         /*
+         * ====================================================
          * 订阅请求
+         * ====================================================
          *
          * 支持：
+         *
          * /TOKEN?6
          * /TOKEN?46
          * /TOKEN?y6
          * /TOKEN?y46
          *
          * 也兼容：
+         *
          * /TOKEN?count=30&y46
          */
         if(
@@ -841,7 +1168,7 @@ export default{
                 );
 
                 /*
-                 * count 保持原来的功能
+                 * count 保持原功能
                  */
                 const countValue=
                     url.searchParams.get('count');
@@ -862,13 +1189,6 @@ export default{
 
                 /*
                  * 获取地址组合
-                 *
-                 * ?6
-                 * ?46
-                 * ?y46
-                 *
-                 * URLSearchParams 对 ?y46
-                 * 会把 y46 当作 key。
                  */
                 let mode='';
 
@@ -882,9 +1202,11 @@ export default{
                 }
 
                 /*
-                 * 没有指定时默认 IPv6
+                 * 默认 IPv6
                  */
-                mode=validateMode(mode||'6');
+                mode=validateMode(
+                    mode||'6'
+                );
 
                 const result=await generateSubscription(
                     validated.uuid,
@@ -947,7 +1269,9 @@ export default{
         }
 
         /*
+         * ====================================================
          * 创建订阅
+         * ====================================================
          */
         if(request.method==='POST'){
 
@@ -955,11 +1279,20 @@ export default{
 
                 const form=await request.formData();
 
-                const uuid=String(
+                /*
+                 * =================================================
+                 * 先获取直接粘贴的节点
+                 * =================================================
+                 */
+                const nodeLink=String(
+                    form.get('node_link')||''
+                ).trim();
+
+                let uuid=String(
                     form.get('uuid')||''
                 ).trim();
 
-                const type=String(
+                let type=String(
                     form.get('type')||''
                 ).trim().toLowerCase();
 
@@ -967,9 +1300,25 @@ export default{
                     form.get('path')||''
                 ).trim();
 
-                const sni=String(
+                let sni=String(
                     form.get('sni')||''
                 ).trim();
+
+                /*
+                 * 如果填写节点链接，
+                 * 自动解析并覆盖手动输入内容。
+                 */
+                if(nodeLink){
+
+                    const parsed=parseNodeLink(
+                        nodeLink
+                    );
+
+                    uuid=parsed.uuid;
+                    type=parsed.type;
+                    path=parsed.path;
+                    sni=parsed.sni;
+                }
 
                 /*
                  * 获取复选框
@@ -992,10 +1341,12 @@ export default{
                 }
 
                 /*
-                 * 如果用户一个都没选，
-                 * 自动使用 IPv6
+                 * 一个都没选：
+                 * 默认 IPv6
                  */
-                mode=validateMode(mode||'6');
+                mode=validateMode(
+                    mode||'6'
+                );
 
                 if(!path.startsWith('/')){
                     path='/'+path;
@@ -1009,9 +1360,10 @@ export default{
                 );
 
                 /*
-                 * 将地址模式保存到 Token
+                 * 保留地址模式到 Token。
                  *
-                 * Token 本身仍然保持 AES-GCM 加密。
+                 * 订阅 URL 本身也带 mode，
+                 * GET 时仍然以 URL 参数为准。
                  */
                 config.mode=mode;
 
@@ -1021,11 +1373,17 @@ export default{
                 );
 
                 /*
-                 * 生成非常短的订阅地址
+                 * =================================================
+                 * 生成订阅地址
+                 * =================================================
                  *
-                 * y46
-                 * 46
-                 * 6
+                 * 例如：
+                 *
+                 * https://example.com/TOKEN?6&count=30
+                 *
+                 * https://example.com/TOKEN?46&count=30
+                 *
+                 * https://example.com/TOKEN?y46&count=30
                  */
                 const subscriptionUrl=
                     `${url.origin}/${token}?${mode}&count=30`;
