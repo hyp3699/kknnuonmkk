@@ -4078,8 +4078,9 @@ PY
     hy2_link=$(cat "$url_file")
     echo
     green "Hysteria2-${inbound_number} 端口跳跃已开启"
+	echo
     green "$hy2_link"
-    green "=================================================="
+	echo
     purple "跳跃区间：$min_port-$max_port"
     purple "端口数量：$((max_port - min_port + 1))"
     echo
@@ -4164,7 +4165,8 @@ disable_hy2_port_hopping() {
     hy2_link=$(cat "$url_file")
     echo
     green "[✔] ${inbound_type}-${inbound_number} 端口跳跃已关闭"
-    green "$hy2_link"
+    echo
+	green "$hy2_link"
     echo
     read -n 1 -s -r -p "按任意键返回..."
     echo
@@ -4282,12 +4284,9 @@ PY
     update_sub_file
     systemctl reload sing-box
     hy2_link=$(cat "$url_file")
-    echo
-    green "=================================================="
     green "${inbound_type}-${inbound_number} Hysteria2 Gecko 混淆已开启"
-    green "=================================================="
+    echo
     green "$hy2_link"
-    green "=================================================="
 	echo
     read -n 1 -s -r -p "按任意键返回..."
     echo
@@ -4380,14 +4379,9 @@ PY
         hy2_link=$(cat "$url_file")
     fi
     systemctl reload sing-box
-    echo
-    green "=================================================="
     green "${inbound_type}-${inbound_number} Hysteria2 Gecko 混淆已关闭"
-    green "=================================================="
-    if [ -n "$hy2_link" ]; then
-        green "$hy2_link"
-    fi
-    green "=================================================="
+    echo
+    green "$hy2_link"
     echo
     read -n 1 -s -r -p "按任意键返回..."
     echo
