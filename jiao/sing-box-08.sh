@@ -3839,6 +3839,7 @@ hy2_port_hopping() {
     local recommend_start=""
     local recommend_end=""
     local found_count=0
+    local occupied_ports=""
     if [ "$engine" != "sing-box" ] || [ "$inbound_type" != "hysteria2" ]; then
         red "当前入站不是 Hysteria2"
         sleep 1
@@ -3904,8 +3905,6 @@ hy2_port_hopping() {
             awk '
             {
                 addr=$5
-
-                # IPv4: 0.0.0.0:1234 / 127.0.0.1:1234
                 if (addr ~ /:[0-9]+$/) {
                     sub(/^.*:/, "", addr)
                     if (addr ~ /^[0-9]+$/)
@@ -3920,7 +3919,6 @@ hy2_port_hopping() {
             awk -v p=":$check_port" '
             {
                 addr=$5
-
                 if (addr ~ p"$") {
                     found=1
                     exit
@@ -3934,9 +3932,12 @@ hy2_port_hopping() {
     purple "正在从 10000 开始寻找连续 100 个未占用的端口..."
     occupied_ports=$(get_occupied_ports)
     recommend_start=""
+    recommend_end=""
+    found_count=0
     for ((port=10000; port<=65436; port++)); do
         if printf '%s\n' "$occupied_ports" | grep -qx "$port"; then
             found_count=0
+            recommend_start=""
             continue
         fi
         if [ "$found_count" -eq 0 ]; then
@@ -3944,7 +3945,7 @@ hy2_port_hopping() {
         fi
         found_count=$((found_count + 1))
         if [ "$found_count" -eq 100 ]; then
-            recommend_end=$((port))
+            recommend_end="$port"
             break
         fi
     done
@@ -4046,8 +4047,16 @@ hy2_port_hopping() {
     elif command -v rc-service >/dev/null 2>&1; then
         rc-update add nftables default 2>/dev/null
     fi
-    new_url=$(printf '%s' "$old_url" |
-        sed -E "s#^([^@]+@[^:]+:)[0-9]+(/.*)#\1${listen_port},${min_port}-${max_port}\2#")
+    if [[ "$old_url" =~ ^(hysteria2://[^@]+@\[[^]]+\]:[0-9]+),[0-9]+-[0-9]+(/.*)$ ]]; then
+        new_url="${BASH_REMATCH[1]},${min_port}-${max_port}${BASH_REMATCH[2]}"
+    elif [[ "$old_url" =~ ^(hysteria2://[^@]+@\[[^]]+\]:[0-9]+)(/.*)$ ]]; then
+        new_url="${BASH_REMATCH[1]},${min_port}-${max_port}${BASH_REMATCH[2]}"
+    else
+        red "无法识别 Hysteria2 节点连接格式"
+        red "当前链接：$old_url"
+        sleep 2
+        return 1
+    fi
     if [ -z "$new_url" ] || [ "$new_url" = "$old_url" ]; then
         red "修改 Hysteria2 端口跳跃链接失败"
         sleep 1
@@ -4064,8 +4073,8 @@ hy2_port_hopping() {
     purple "跳跃区间：$min_port-$max_port"
     purple "端口数量：$((max_port - min_port + 1))"
     echo
-    sleep 1
-    return 0
+    read -n 1 -s -r -p "按任意键返回..."
+    echo
 }
 disable_hy2_port_hopping() {
     local config_file="$1"
@@ -4147,7 +4156,8 @@ disable_hy2_port_hopping() {
     green "[✔] ${inbound_type}-${inbound_number} 端口跳跃已关闭"
     green "$hy2_link"
     echo
-    sleep 1
+    read -n 1 -s -r -p "按任意键返回..."
+    echo
 }
 modify_hy2_obfs() {
     local config_file="$1"
@@ -4268,8 +4278,9 @@ PY
     green "=================================================="
     green "$hy2_link"
     green "=================================================="
+	echo
+    read -n 1 -s -r -p "按任意键返回..."
     echo
-    sleep 1
 }
 disable_hy2_obfs() {
     local config_file="$1"
@@ -4368,7 +4379,8 @@ PY
     fi
     green "=================================================="
     echo
-    sleep 1
+    read -n 1 -s -r -p "按任意键返回..."
+    echo
 }
 # 优化并设置 DNS 
 optimize_dns() {
