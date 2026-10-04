@@ -3829,13 +3829,16 @@ hy2_port_hopping() {
     local max_port=""
     local old_url=""
     local new_url=""
-    local url_head=""
-    local url_tail=""
     local hy2_link=""
     local hop_comment="Hysteria2_Hop_${inbound_number}"
-    local check_cmds=("nft" "curl" "shuf" "python3")
-    local install_pkgs=("nftables" "curl" "coreutils" "python3")
+    local check_cmds=("nft" "curl" "shuf" "python3" "ss")
+    local install_pkgs=("nftables" "curl" "coreutils" "python3" "iproute2")
     local i
+    local port
+    local occupied_port=""
+    local recommend_start=""
+    local recommend_end=""
+    local found_count=0
     if [ "$engine" != "sing-box" ] || [ "$inbound_type" != "hysteria2" ]; then
         red "当前入站不是 Hysteria2"
         sleep 1
@@ -3875,7 +3878,7 @@ hy2_port_hopping() {
     green "配置：${config_file}"
     green "监听端口：${listen_port}"
     echo
-    purple "端口跳跃需确保跳跃区间的端口没有被占用，NAT机请注意可用端口范围。"
+    purple "端口跳跃可以设置任意数量的连续端口。"
     echo
     for i in "${!check_cmds[@]}"; do
         if ! command -v "${check_cmds[$i]}" >/dev/null 2>&1; then
@@ -3896,32 +3899,119 @@ hy2_port_hopping() {
             return 1
         fi
     done
+    get_occupied_ports() {
+        ss -H -lntup 2>/dev/null |
+            awk '
+            {
+                addr=$5
+
+                # IPv4: 0.0.0.0:1234 / 127.0.0.1:1234
+                if (addr ~ /:[0-9]+$/) {
+                    sub(/^.*:/, "", addr)
+                    if (addr ~ /^[0-9]+$/)
+                        print addr
+                }
+            }' |
+            sort -n -u
+    }
+    is_port_occupied() {
+        local check_port="$1"
+        ss -H -lntup 2>/dev/null |
+            awk -v p=":$check_port" '
+            {
+                addr=$5
+
+                if (addr ~ p"$") {
+                    found=1
+                    exit
+                }
+            }
+            END {
+                exit(found ? 0 : 1)
+            }'
+    }
+    echo
+    purple "正在从 10000 开始寻找连续 100 个未占用的端口..."
+    occupied_ports=$(get_occupied_ports)
+    recommend_start=""
+    for ((port=10000; port<=65436; port++)); do
+        if printf '%s\n' "$occupied_ports" | grep -qx "$port"; then
+            found_count=0
+            continue
+        fi
+        if [ "$found_count" -eq 0 ]; then
+            recommend_start="$port"
+        fi
+        found_count=$((found_count + 1))
+        if [ "$found_count" -eq 100 ]; then
+            recommend_end=$((port))
+            break
+        fi
+    done
+    if [ -n "$recommend_start" ] && [ -n "$recommend_end" ]; then
+        green "推荐端口：${recommend_start}-${recommend_end}"
+        green "共 100 个连续未占用端口"
+    else
+        yellow "未找到连续 100 个完全未占用的端口"
+    fi
+    echo
     reading "请输入跳跃起始端口: " min_port
     while [ -z "$min_port" ]; do
         red "不能为空，请重新输入: "
         read -r min_port
     done
-    if ! [[ "$min_port" =~ ^[0-9]+$ ]] || [ "$min_port" -lt 1 ] || [ "$min_port" -gt 65535 ]; then
+    if ! [[ "$min_port" =~ ^[0-9]+$ ]] ||
+       [ "$min_port" -lt 1 ] ||
+       [ "$min_port" -gt 65535 ]; then
         red "起始端口无效"
         sleep 1
         return 1
     fi
     yellow "起始端口为：$min_port"
-    reading "请输入跳跃结束端口 (需大于起始端口，回车默认+100): " max_port
-    [ -z "$max_port" ] && max_port=$((min_port + 100))
-    if ! [[ "$max_port" =~ ^[0-9]+$ ]] || [ "$max_port" -gt 65535 ] || [ "$max_port" -le "$min_port" ]; then
-        red "结束端口无效，必须大于起始端口且不能超过 65535"
+    reading "请输入跳跃结束端口: " max_port
+    while [ -z "$max_port" ]; do
+        red "不能为空，请重新输入: "
+        read -r max_port
+    done
+    if ! [[ "$max_port" =~ ^[0-9]+$ ]] ||
+       [ "$max_port" -lt 1 ] ||
+       [ "$max_port" -gt 65535 ] ||
+       [ "$max_port" -lt "$min_port" ]; then
+        red "结束端口无效，必须大于或等于起始端口，且不能超过 65535"
         sleep 1
         return 1
     fi
     yellow "结束端口为：$max_port"
+    echo
+    purple "正在检查 ${min_port}-${max_port} 端口占用情况..."
+    occupied_port=""
+    occupied_ports=$(get_occupied_ports)
+    for ((port=min_port; port<=max_port; port++)); do
+        if printf '%s\n' "$occupied_ports" | grep -qx "$port"; then
+            occupied_port="$port"
+            break
+        fi
+    done
+    if [ -n "$occupied_port" ]; then
+        red "端口区间存在占用！"
+        red "端口 ${occupied_port} 已被 TCP/UDP 服务占用"
+        yellow "请修改跳跃起始/结束端口后重新设置"
+        echo
+        sleep 2
+        return 1
+    fi
+    green "端口占用检查通过"
+    green "${min_port}-${max_port} 全部未被 TCP/UDP 监听"
     echo
     purple "正在设置 ${inbound_type}-${inbound_number} 端口跳跃规则..."
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
     [ -f /proc/sys/net/ipv6/conf/all/forwarding ] && \
         sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1
     nft add table ip hysteria_nat 2>/dev/null
-    nft 'add chain ip hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
+    nft 'add chain ip hysteria_nat prerouting {
+        type nat hook prerouting priority -100;
+        policy accept;
+    }' 2>/dev/null
     if nft list chain ip hysteria_nat prerouting >/dev/null 2>&1; then
         for handle in $(nft -a list chain ip hysteria_nat prerouting 2>/dev/null |
             awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
@@ -3934,7 +4024,10 @@ hy2_port_hopping() {
         comment "$hop_comment" 2>/dev/null
     if [ -f /proc/net/if_inet6 ]; then
         nft add table ip6 hysteria_nat 2>/dev/null
-        nft 'add chain ip6 hysteria_nat prerouting { type nat hook prerouting priority -100; policy accept; }' 2>/dev/null
+        nft 'add chain ip6 hysteria_nat prerouting {
+            type nat hook prerouting priority -100;
+            policy accept;
+        }' 2>/dev/null
         if nft list chain ip6 hysteria_nat prerouting >/dev/null 2>&1; then
             for handle in $(nft -a list chain ip6 hysteria_nat prerouting 2>/dev/null |
                 awk -v c="$hop_comment" '$0 ~ c {print $NF}'); do
@@ -3969,6 +4062,7 @@ hy2_port_hopping() {
     green "$hy2_link"
     green "=================================================="
     purple "跳跃区间：$min_port-$max_port"
+    purple "端口数量：$((max_port - min_port + 1))"
     echo
     sleep 1
     return 0
