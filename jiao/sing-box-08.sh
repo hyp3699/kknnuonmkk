@@ -132,6 +132,7 @@ config_dir="${conf_dir}/config.json"
 client_dir="${work_dir}/url.txt"
 export CFIP=${CFIP:-'cf.877774.xyz'} 
 export CFPORT=${CFPORT:-'443'} 
+nginx_port=$(get_available_port)
 username=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 15)
 password=$(< /dev/urandom tr -dc 'A-Za-z0-9' | head -c 24)
 
@@ -3113,7 +3114,7 @@ rm -f "${work_dir}/${TAR}"
 chown root:root "${work_dir}/sing-box"
 chmod 755 "${work_dir}/sing-box"
     # 放行端口
-    allow_port $nginx_port/tcp $tuic_port/udp > /dev/null 2>&1
+    allow_port $nginx_port/tcp > /dev/null 2>&1
     openssl ecparam -genkey -name prime256v1 -out "${work_dir}/private.key"
     openssl req -new -x509 -days 3650 -key "${work_dir}/private.key" -out "${work_dir}/cert.pem" -subj "/CN=bing.com"
     fingerprint=$(openssl x509 -noout -fingerprint -sha256 -in "${work_dir}/cert.pem" | cut -d'=' -f2 | sed 's/:/%3A/g')
