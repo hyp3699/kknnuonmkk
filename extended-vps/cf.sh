@@ -916,6 +916,7 @@ jq -n \
                 protocol: "quic",
                 post_quantum: true,
 				edge_ip_version: 0,
+				grace_period: "3s",
 				datagram_version: "v3"
             }
         ]
@@ -1621,6 +1622,7 @@ cf_create_tunnel() {
                     protocol: "quic",			
                     post_quantum: true,
                     edge_ip_version: 0,
+					grace_period: "3s",
                     datagram_version: "v3"
                 }
             ]
