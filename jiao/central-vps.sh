@@ -1499,17 +1499,51 @@ delete_vps() {
     python3 - "$VPS_FILE" "$name" <<'PY'
 import json
 import sys
-p,name=sys.argv[1:]
-with open(p,encoding="utf-8") as f:
-    data=json.load(f)
-data["vps"]=[x for x in data.get("vps",[]) if x.get("name")!=name]
-with open(p,"w",encoding="utf-8") as f:
-    json.dump(data,f,ensure_ascii=False,indent=2)
+p, name = sys.argv[1:]
+with open(p, encoding="utf-8") as f:
+    data = json.load(f)
+data["vps"] = [
+    x for x in data.get("vps", [])
+    if x.get("name") != name
+]
+with open(p, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
 PY
     chmod 600 "$VPS_FILE"
+    local users_dir="/etc/central-vps/data/users"
+    local sub_dir="/etc/central-vps-sub"
+    if [ -d "$users_dir" ]; then
+        for user_dir in "$users_dir"/*; do
+            [ -d "$user_dir" ] || continue
+            local username
+            username=$(basename "$user_dir")
+            local nodes_dir="$user_dir/nodes"
+            local node_file="$nodes_dir/$name"
+            [ -f "$node_file" ] || continue
+            rm -f "$node_file"
+            local merged_file="$user_dir/merged_nodes.txt"
+            : > "$merged_file"
+            if [ -d "$nodes_dir" ]; then
+                for node in "$nodes_dir"/*; do
+                    [ -f "$node" ] || continue
+                    cat "$node" >> "$merged_file"
+                    printf '\n' >> "$merged_file"
+                done
+            fi
+            local subscription_file="$sub_dir/$username"
+            mkdir -p "$sub_dir"
+            if [ -s "$merged_file" ]; then
+                base64 -w 0 "$merged_file" > "$subscription_file"
+            else
+                rm -f "$subscription_file"
+            fi
+            chmod 600 "$merged_file" 2>/dev/null || true
+            [ -f "$subscription_file" ] && chmod 600 "$subscription_file"
+        done
+    fi
+    rebuild_wg_config
 }
 delete_vps_menu() {
-    # 性能优化：同上，大幅削减 CPU 峰值开销
     local vps_list
     vps_list=$(python3 - "$VPS_FILE" <<'PY'
 import json
