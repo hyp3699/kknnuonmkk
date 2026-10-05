@@ -1504,10 +1504,7 @@ import sys
 p, name = sys.argv[1:]
 with open(p, encoding="utf-8") as f:
     data = json.load(f)
-data["vps"] = [
-    v for v in data.get("vps", [])
-    if v.get("name") != name
-]
+data["vps"] = [v for v in data.get("vps", []) if v.get("name") != name]
 with open(p, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 PY
@@ -1519,7 +1516,6 @@ PY
             username=$(basename "$central_user_dir")
             local node_file="$central_user_dir/nodes/$name"
             [ -f "$node_file" ] || continue
-            echo
             rm -f "$node_file"
             local merged_file="$central_user_dir/merged_nodes.txt"
             local subscription_file="$subscription_dir/$username"
@@ -1530,7 +1526,6 @@ PY
             : > "$merged_file"
             for remaining_node in "$central_user_dir"/nodes/*; do
                 [ -f "$remaining_node" ] || continue
-
                 cat "$remaining_node" >> "$merged_file"
                 node_count=$((node_count + 1))
             done
@@ -1538,12 +1533,10 @@ PY
             chmod 600 "$merged_file"
             if ! base64 -w 0 "$merged_file" > "$subscription_file"; then
                 red "用户 $username 订阅重新生成失败"
-                rm -f "$subscription_file"
                 continue
             fi
             if [ ! -s "$subscription_file" ]; then
                 red "用户 $username 订阅生成为空"
-                rm -f "$subscription_file"
                 continue
             fi
             chmod 644 "$subscription_file"
@@ -3786,7 +3779,7 @@ case "${1:-}" in
         while true; do
             clear
             green "========================================"
-            green "          VPS 管理脚本4"
+            green "          VPS 管理脚本100"
             green "========================================"
             echo
             green "1. 添加 VPS"
