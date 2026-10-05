@@ -3378,6 +3378,8 @@ delete_central_user() {
     local returncode=0
     local failed=0
     local user_dir="$DATA_DIR/users/$username"
+    local nodes_dir="$user_dir/nodes"
+    local node_file=""
 
     if [ -z "$username" ]; then
         red "用户名不能为空"
@@ -3403,42 +3405,45 @@ delete_central_user() {
         read -rp "输入 y 确认删除: " confirm
         [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return 1
     fi
+
     count=$(get_vps_count)
 
-    if [ "$count" -le 0 ]; then
-        if [ "$mode" = "update" ]; then
-            red "当前没有 VPS，无法更新用户"
-            return 1
-        fi
-        rm -rf "$user_dir"
-        green "用户已删除"
-        sleep 1
-        return 0
-    fi
+    if [ -d "$nodes_dir" ]; then
+        for node_file in "$nodes_dir"/*; do
+            [ -f "$node_file" ] || continue
 
-    for ((i=0; i<count; i++)); do
-        name=$(get_vps_field "$i" "name")
-        address=$(get_vps_field "$i" "wg_address")
-        token=$(get_vps_field "$i" "agent_token")
+            name=$(basename "$node_file")
+            address=""
+            token=""
 
-        if [ -z "$address" ] || [ -z "$token" ]; then
-            red "$name：VPS信息不完整"
-            failed=1
-            continue
-        fi
+            for ((i=0; i<count; i++)); do
+                local vps_name
+                vps_name=$(get_vps_field "$i" "name")
 
-        green "正在删除：$name"
-        result=$(agent_request \
-        "$address" \
-        "$token" \
-        POST \
-        "/api/command" \
-        "SB_LOAD_ONLY=1 source /etc/sing-box/sb.sh && delete_user \"$username\" 1 0") || {
-                red "$name：请求失败"
-                failed=1
-                continue
-            }
-        returncode=$(echo "$result" | python3 -c '
+                if [ "$vps_name" = "$name" ]; then
+                    address=$(get_vps_field "$i" "wg_address")
+                    token=$(get_vps_field "$i" "agent_token")
+                    break
+                fi
+            done
+
+            [ -n "$address" ] || continue
+            [ -n "$token" ] || continue
+
+            green "正在删除：$name"
+
+            result=$(agent_request \
+                "$address" \
+                "$token" \
+                POST \
+                "/api/command" \
+                "SB_LOAD_ONLY=1 source /etc/sing-box/sb.sh && delete_user \"$username\" 1 0") || {
+                    red "$name：请求失败"
+                    failed=1
+                    continue
+                }
+
+            returncode=$(echo "$result" | python3 -c '
 import json
 import sys
 try:
@@ -3447,7 +3452,8 @@ try:
 except Exception:
     print(1)
 ' 2>/dev/null)
-        output=$(echo "$result" | python3 -c '
+
+            output=$(echo "$result" | python3 -c '
 import json
 import sys
 try:
@@ -3459,15 +3465,18 @@ try:
 except Exception:
     pass
 ' 2>/dev/null)
-        if [ "$returncode" -eq 0 ]; then
-    green "$name：删除成功"
-    else
-    red "$name：删除失败"
-    [ -n "$output" ] && echo "$output"
-    yellow "$name：远程返回码 $returncode"
-    failed=1
+
+            if [ "$returncode" -eq 0 ]; then
+                green "$name：删除成功"
+            else
+                red "$name：删除失败"
+                [ -n "$output" ] && echo "$output"
+                yellow "$name：远程返回码 $returncode"
+                failed=1
+            fi
+        done
     fi
-    done
+
     if [ "$failed" -ne 0 ]; then
         echo
         red "部分 VPS 删除失败"
@@ -3475,6 +3484,7 @@ except Exception:
         read -rp "按回车返回..." _
         return 1
     fi
+
     if [ "$mode" = "update" ]; then
         echo
         green "========================================"
@@ -3484,15 +3494,18 @@ except Exception:
         echo
         return 0
     fi
+
     rm -f "/etc/nginx/conf.d/central_vps_users/$username.conf"
     rm -f "/etc/central-vps-sub/$username"
     rm -rf "$user_dir"
     systemctl reload nginx
+
     echo
     green "========================================"
     green " 用户已删除：$username"
     green "========================================"
     echo
+
     sleep 1
     return 0
 }
