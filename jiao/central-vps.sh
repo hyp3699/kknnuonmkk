@@ -1496,6 +1496,8 @@ create_shortcut() {
 
 delete_vps() {
     local name="$1"
+    local users_dir="/etc/central-vps/data/users"
+    local subscription_dir="/etc/central-vps-sub"
     python3 - "$VPS_FILE" "$name" <<'PY'
 import json
 import sys
@@ -1503,42 +1505,48 @@ p, name = sys.argv[1:]
 with open(p, encoding="utf-8") as f:
     data = json.load(f)
 data["vps"] = [
-    x for x in data.get("vps", [])
-    if x.get("name") != name
+    v for v in data.get("vps", [])
+    if v.get("name") != name
 ]
 with open(p, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
 PY
     chmod 600 "$VPS_FILE"
-    local users_dir="/etc/central-vps/data/users"
-    local sub_dir="/etc/central-vps-sub"
     if [ -d "$users_dir" ]; then
-        for user_dir in "$users_dir"/*; do
-            [ -d "$user_dir" ] || continue
+        for central_user_dir in "$users_dir"/*; do
+            [ -d "$central_user_dir" ] || continue
             local username
-            username=$(basename "$user_dir")
-            local nodes_dir="$user_dir/nodes"
-            local node_file="$nodes_dir/$name"
+            username=$(basename "$central_user_dir")
+            local node_file="$central_user_dir/nodes/$name"
             [ -f "$node_file" ] || continue
+            echo
             rm -f "$node_file"
-            local merged_file="$user_dir/merged_nodes.txt"
+            local merged_file="$central_user_dir/merged_nodes.txt"
+            local subscription_file="$subscription_dir/$username"
+            local remaining_node
+            local node_count=0
+            mkdir -p "$subscription_dir"
+            chmod 755 "$subscription_dir"
             : > "$merged_file"
-            if [ -d "$nodes_dir" ]; then
-                for node in "$nodes_dir"/*; do
-                    [ -f "$node" ] || continue
-                    cat "$node" >> "$merged_file"
-                    printf '\n' >> "$merged_file"
-                done
-            fi
-            local subscription_file="$sub_dir/$username"
-            mkdir -p "$sub_dir"
-            if [ -s "$merged_file" ]; then
-                base64 -w 0 "$merged_file" > "$subscription_file"
-            else
+            for remaining_node in "$central_user_dir"/nodes/*; do
+                [ -f "$remaining_node" ] || continue
+
+                cat "$remaining_node" >> "$merged_file"
+                node_count=$((node_count + 1))
+            done
+            sed -i '/^[[:space:]]*$/d' "$merged_file"
+            chmod 600 "$merged_file"
+            if ! base64 -w 0 "$merged_file" > "$subscription_file"; then
+                red "用户 $username 订阅重新生成失败"
                 rm -f "$subscription_file"
+                continue
             fi
-            chmod 600 "$merged_file" 2>/dev/null || true
-            [ -f "$subscription_file" ] && chmod 600 "$subscription_file"
+            if [ ! -s "$subscription_file" ]; then
+                red "用户 $username 订阅生成为空"
+                rm -f "$subscription_file"
+                continue
+            fi
+            chmod 644 "$subscription_file"
         done
     fi
     rebuild_wg_config
