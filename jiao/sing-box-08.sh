@@ -5282,6 +5282,12 @@ modify_inbound_port() {
     allow_port "$new_port/tcp" >/dev/null 2>&1
     allow_port "$new_port/udp" >/dev/null 2>&1
     systemctl reload sing-box
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    if [ -f "$url_file" ]; then
+        sed -i -E \
+            "s#(@(\[[^]]+\]|[^:/?#]+):)[0-9]+(\?)#\1${new_port}\3#g" \
+            "$url_file"
+    fi
     green "新端口：${new_port}"
     sleep 3
 }
@@ -12370,7 +12376,7 @@ menu() {
    echo ""
    green "Github地址: ${purple}https://github.com/eooce/sing-box${re}\n"
    green "${purple}快捷命令sb或者b${re}  清屏 clear"
-   purple "=== 老王sing-box四合一安装脚本 1.6===\n"
+   purple "=== 老王sing-box四合一安装脚本 1.7===\n"
    printf "${purple}--Nginx 状态: %s${re}\n" "$(to_chinese "$nginx_status")"
    singbox_start_time=$(systemctl show -p ExecMainStartTimestamp --value sing-box 2>/dev/null)
    if [ -n "$singbox_start_time" ]; then
