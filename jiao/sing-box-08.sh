@@ -7089,9 +7089,9 @@ EOF
     fi
     node_remark="${isp}vless_ws"
     if [[ "$vless_tls" == "true" ]]; then
-    url="vless://${uuid}@${server_ip}:${vless_ws_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"
+    url="vless://${uuid}@${server_ip}:${vless_ws_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&path=${vless_path}?ed=2048#${node_remark}"
     else
-    url="vless://${uuid}@${server_ip}:${vless_ws_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=none&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"
+    url="vless://${uuid}@${server_ip}:${vless_ws_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=none&type=ws&path=${vless_path}?ed=2048#${node_remark}"
     fi
     add_v2ray_api_user "vless-ws-user${inbound_number}"
     url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
