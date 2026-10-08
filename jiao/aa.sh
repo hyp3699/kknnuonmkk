@@ -965,10 +965,9 @@ while true; do
    green "8. 切换优先ipv4/ipv6"
    green "9. fanout"
    green "10. 三网回程测试"
-   green "11. BBR3"
-   green "12. 其他ipv6隧道"
-   green "13. journald内存占用修改"
-   green "14. 自动结束ssh孤儿进程"
+   green "11. 其他ipv6隧道"
+   green "12. journald内存占用修改"
+   green "13. 自动结束ssh孤儿进程"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -1088,15 +1087,11 @@ while true; do
 		10) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/zhanghanyun/backtrace/main/install.sh)
 		    ;;
-		11)  
-		   clear
-		   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/bbr.sh)
-		   ;;
-		12) 
+		11) 
 		    bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/Tunnel-tongyong.sh)
 		    ;;
 
-		13)
+		12)
     read -p "请输入 journald 日志限制大小 (例如 16M, 32M) [默认 16M]: " size
     size=${size:-16M}
     read -p "请输入 journald 内存限制大小 (例如 32M, 64M) [默认 64M]: " mem
@@ -1127,7 +1122,7 @@ EOF
     echo
     sudo journalctl --disk-usage
     ;;
-	    14) 
+	    13) 
 		    Configure_ssh_cleanup
 		    ;;
         0)
