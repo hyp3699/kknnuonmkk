@@ -988,7 +988,7 @@ fi
             cdn_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
             ;;
 		vless-xhttp)
-            cdn_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&host=${domain}&path=${ws_path}#${node_remark_enc}"
+            cdn_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=${ws_path}#${node_remark_enc}"
             ;;
         *)
             red "当前入站类型不支持 CDN：$inbound_type"
@@ -1098,7 +1098,7 @@ enable_ws_argo() {
             fi
             node_remark="${isp}Tunnel-vless-xhttp"
             node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
-            argo_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&alpn=h3&host=${domain}&path=${ws_path}#${node_remark_enc}"
+            argo_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=${ws_path}#${node_remark_enc}"
             ;;
         *)
             red "当前入站类型不支持 Tunnel：${inbound_type}"
