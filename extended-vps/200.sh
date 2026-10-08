@@ -1222,6 +1222,12 @@ modify_inbound_port() {
     allow_port "$new_port/tcp" >/dev/null 2>&1
     allow_port "$new_port/udp" >/dev/null 2>&1
     systemctl reload sing-box
+    local url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    if [ -f "$url_file" ]; then
+        sed -i -E \
+            "s#(@(\[[^]]+\]|[^:/?#]+):)[0-9]+(\?)#\1${new_port}\3#g" \
+            "$url_file"
+    fi
     green "新端口：${new_port}"
     sleep 3
 }
