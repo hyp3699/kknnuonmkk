@@ -1905,7 +1905,7 @@ EOF
         mv -f "${config_file}.tmp" "$config_file"
         vmess_tls="true"
     fi
-    vless_remark="${isp}vless_ws"
+    node_remark="${isp}vless_ws"
     if [[ "$vless_tls" == "true" ]]; then
     url="vless://${uuid}@${server_ip}:${vless_ws_port}?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&path=/asasbsbs-vless?ed=2048#${node_remark}"
     else
