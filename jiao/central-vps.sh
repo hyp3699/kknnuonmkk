@@ -1630,14 +1630,14 @@ singbox_install_remote() {
     local address="$1"
     local token="$2"
     local result
-    result=$(agent_request "$address" "$token" POST "/api/command" 'printf "1\n" | bash <(curl -Ls http://cfsb.133134.xyz)' ) || return 1
+    result=$(agent_request "$address" "$token" POST "/api/command" 'printf "1\n" | bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-08.sh)' ) || return 1
     echo "$result"
 }
 singbox_uninstall_remote() {
     local address="$1"
     local token="$2"
     local result
-    result=$(agent_request "$address" "$token" POST "/api/command" 'printf "2\ny\nn\n" | bash <(curl -Ls http://cfsb.133134.xyz)' ) || return 1
+    result=$(agent_request "$address" "$token" POST "/api/command" 'printf "2\ny\nn\n" | bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-08.sh)' ) || return 1
     echo "$result"
 }
 singbox_show_status() {
