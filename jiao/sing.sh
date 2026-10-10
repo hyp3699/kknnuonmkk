@@ -262,7 +262,7 @@ update_v2rayapi() {
 update_xhttp_v2rayapi() {
     local tag="$1"
     [ -z "$tag" ] && return
-    local url="https://github.com/hyp3699/sssssssssssiiii/releases/download/${tag}/sing-box-linux-${ARCH}.tar.gz"
+    local url="https://github.com/hyp3699/sssssssssssiiii/releases/download/${tag}/sing-box-linux-amd64.tar.gz"
     local tmp
     local new_sb
     tmp=$(mktemp -d)
