@@ -62,7 +62,7 @@ get_latest_xhttp_v2rayapi() {
     jq -r '[.[] |
         select(.prerelease==false) |
         select(.draft==false) |
-        select(.tag_name | endswith("-xhttp"))
+        select(.tag_name | endswith("-xhttp-limiter"))
     ][0].tag_name'
 }
 get_latest_argo() {
