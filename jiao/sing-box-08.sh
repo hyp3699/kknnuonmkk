@@ -3272,7 +3272,7 @@ EOF
 
 # 创建快捷指令（自动下载脚本到本地保存）
 create_shortcut() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/fanout/main/sb.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-08.sh"
     local local_file="$work_dir/sb.sh"
     if [ ! -s "$local_file" ]; then
         mkdir -p "$work_dir"
@@ -8204,7 +8204,7 @@ PY
 
 #更新脚本
 update_script() {
-    local remote_url="https://raw.githubusercontent.com/hyp3699/fanout/main/sb.sh"
+    local remote_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/sing-box-08.sh"
     local local_file="$work_dir/sb.sh"
     local traffic_url="https://raw.githubusercontent.com/hyp3699/kknnuonmkk/refs/heads/main/jiao/sing-box-name.sh"
     local traffic_file="/etc/sing-box/sing-box-name.sh"
@@ -11207,71 +11207,23 @@ warp_manage() {
     esac
 }
 
-#把fanout socks出站添加到sing-box出站
+#fanout socks
 extract_fanout_socks() {
     if [ ! -d "/var/lib/fanout" ] || ! command -v f &> /dev/null; then
         echo "检测到 fanout 尚未安装，正在为您执行安装..."
-        bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
+        bash <(curl -fsSL https://raw.githubusercontent.com/hyp3699/fanout/main/install.sh)
+        hash -r
+        if ! command -v f &> /dev/null; then
+            echo "fanout 安装失败，请检查网络或日志。"
+            read -p "按回车键返回主菜单..."
+            warp_manage
+            return
+        fi
         echo ""
         echo "----------------------------------------"
-        read -p "安装已完成，快捷命令f已创建, 按回车键返回主菜单..."
+        read -p "安装已完成，快捷命令 f 已创建，按回车键进入 fanout 菜单..."
     fi
-
-    local input_file="/var/lib/fanout/xray.json"
-    local output_file="/etc/sing-box/conf/outbounds.json"
-
-    if ! command -v jq &> /dev/null; then
-        echo "错误: 未找到 jq 工具。请先安装 (例如执行: apt install jq)"
-        return 1
-    fi
-
-    if [ ! -f "$input_file" ]; then
-        echo "错误: 找不到 $input_file，请确保 fanout 已成功配置节点。"
-        return 1
-    fi
-    mkdir -p "$(dirname "$output_file")"
-    local new_fanout_nodes
-    new_fanout_nodes=$(jq '[
-      .outbounds[]? | 
-      select(.protocol == "socks" and (.tag | tostring | test("fanout-"))) |
-      . as $item |
-      $item.settings.servers[0].port as $port |
-      {
-        type: "socks",
-        tag: ("fanout-" + ($port | tostring)),
-        server: $item.settings.servers[0].address,
-        server_port: $port,
-        username: $item.settings.servers[0].users[0].user,
-        password: $item.settings.servers[0].users[0].pass
-      }
-    ]' "$input_file")
-
-    if [ -f "$output_file" ]; then
-        jq --argjson new_nodes "$new_fanout_nodes" '
-          .outbounds as $old |
-          if $old then
-            .outbounds = [
-              $old[]? | select(
-                type != "object" or 
-                (has("tag") | not) or 
-                (.tag | tostring | test("^fanout-") | not)
-              )
-            ] + $new_nodes
-          else
-            .outbounds = $new_nodes
-          end
-        ' "$output_file" > "${output_file}.tmp" && mv "${output_file}.tmp" "$output_file"
-    else
-        echo "{\"outbounds\": $new_nodes}" > "$output_file"
-    fi
-
-    if [ $? -eq 0 ]; then
-        echo "更新成功！已同步至 $output_file"
-        echo "当前文件中共有 $(jq '.outbounds | length' "$output_file") 个出站节点。"
-    else
-        echo "更新失败，请检查配置文件格式。"
-        return 1
-    fi
+    f
     sleep 1; warp_manage
 }
 
