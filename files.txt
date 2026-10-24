@@ -1,12 +1,8 @@
 # SYNC_CRON=0 0 * * *
 # 自定义名字   自定义格式   描述           URL  不自定义名字用-代替
--          -          sing-box       https://github.com/SagerNet/sing-box/releases/download/v1.14.1/sing-box-1.14.1-linux-amd64.tar.gz
-jjoo       json          自用          https://16441.kstore.space/jjoo.json
 -          -          一键梭哈脚本      https://suoha.psai.eu.org/suoha.sh
 -          -     Sing-box全家桶隧道     https://raw.githubusercontent.com/fscarmen/sing-box/main/sing-box.sh
 -          -     WARP添加IPv4/IPv6网络    https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh
 sing-box1.sh    -    佬王sing-box脚本     https://raw.githubusercontent.com/eooce/Sing-box/main/sing-box.sh
 -          -          SSH工具箱        https://raw.githubusercontent.com/eooce/ssh_tool/main/ssh_tool.sh
--          -          nekobox         https://github.com/MatsuriDayo/NekoBoxForAndroid/releases/download/1.4.2/NekoBox-1.4.2-arm64-v8a.apk
--          -          Exclave         https://github.com/ExclaveNetwork/Exclave/releases/download/0.17.56/Exclave-0.17.53-arm64-v8a.apk
-     
+
