@@ -3416,7 +3416,35 @@ EOF
         fi
     fi
 }
-       
+
+# nginx 开机自启 + 异常退出自动重启
+ensure_nginx_autostart() {
+    command -v nginx >/dev/null 2>&1 || return 1
+    if command -v systemctl >/dev/null 2>&1; then
+        mkdir -p /etc/systemd/system/nginx.service.d
+        cat > /etc/systemd/system/nginx.service.d/override.conf << 'EOF'
+[Unit]
+StartLimitIntervalSec=0
+
+[Service]
+Restart=always
+RestartSec=5
+EOF
+        systemctl daemon-reload
+        systemctl enable nginx >/dev/null 2>&1
+        systemctl restart nginx >/dev/null 2>&1
+    elif command -v rc-update >/dev/null 2>&1; then
+        rc-update add nginx default >/dev/null 2>&1
+        mkdir -p /etc/conf.d
+        grep -q '^supervisor=' /etc/conf.d/nginx 2>/dev/null || cat >> /etc/conf.d/nginx << 'EOF'
+supervisor=supervise-daemon
+respawn_delay=5
+respawn_max=0
+EOF
+        rc-service nginx restart >/dev/null 2>&1
+    fi
+}
+
 # 通用服务管理函数
 manage_service() {
     local service_name="$1"
@@ -12312,6 +12340,7 @@ chmod 700 "$TRAFFIC_SCRIPT"
                 sleep 5
                 
                 add_nginx_conf
+				ensure_nginx_autostart
 				create_shortcut
 				setup_vps_traffic_stats
             fi
