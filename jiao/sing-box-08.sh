@@ -3188,6 +3188,26 @@ cat > "${conf_dir}/outbounds.json" << EOF
       "tag": "warp-40000",
       "server": "127.0.0.1",
       "server_port": 40000
+    },
+	{
+      "type": "direct",
+      "tag": "优先IPv4",
+      "domain_resolver": { "server": "local", "strategy": "prefer_ipv4" }
+    },
+    {
+      "type": "direct",
+      "tag": "优先IPv6",
+      "domain_resolver": { "server": "local", "strategy": "prefer_ipv6" }
+    },
+    {
+      "type": "direct",
+      "tag": "仅IPv4",
+      "domain_resolver": { "server": "local", "strategy": "ipv4_only" }
+    },
+    {
+      "type": "direct",
+      "tag": "仅IPv6",
+      "domain_resolver": { "server": "local", "strategy": "ipv6_only" }
     }
   ]
 }
