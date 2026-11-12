@@ -428,11 +428,15 @@ cf_call() {
     local endpoint="$2"
     local data="${3:-}"
     local args=(
-        -sS -f
-        --connect-timeout 10 --max-time 30
+        -sS
+        --connect-timeout 10 --max-time "${CF_MAX_TIME:-45}"
         -X "$method"
         -H "Content-Type: application/json"
     )
+    # CF_NOFAIL=1 时保留 4xx/5xx 的返回内容，方便显示 Cloudflare 的错误原因
+    [[ "${CF_NOFAIL:-0}" == "1" ]] || args+=(-f)
+    # 只有 GET 是幂等的，超时/网络错误自动重试；POST/PUT/DELETE 不重试，避免重复创建
+    [[ "$method" == "GET" ]] && args+=(--retry 2 --retry-delay 2)
     if [[ -n "${CF_TOKEN:-}" ]]; then
         args+=(-H "Authorization: Bearer $CF_TOKEN")
     else
@@ -1301,7 +1305,6 @@ if [[ "$is_local_tunnel" == "1" ]]; then
 else
     yellow "未检测到当前服务器的 Cloudflare Tunnel，正在创建..."
     if ! cf_create_tunnel; then
-        red "Cloudflare Tunnel 创建失败！"
         return 1
     fi
     tunnel_token="$argo_auth"
@@ -2058,16 +2061,37 @@ cf_create_tunnel() {
             name: $name,
             config_src: "cloudflare"
         }')
-    create_response=$(cf_call POST \
+    create_response=$(CF_NOFAIL=1 CF_MAX_TIME=90 cf_call POST \
         "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel" \
         "$tunnel_data")
     if [[ -z "$create_response" ]]; then
-        red "Cloudflare Tunnel 创建失败！"
-        return 1
+        # 请求超时不代表没建成：Cloudflare 可能已经创建，按名字查一下，避免重复建
+        yellow "创建请求无响应，正在确认 Tunnel 是否已创建..."
+        sleep 3
+        local _found_id
+        _found_id=$(cf_call GET "/accounts/${CF_ACCOUNT_ID}/cfd_tunnel?name=${tunnel_name}&is_deleted=false" 2>/dev/null |
+            jq -r '.result[0].id // empty' 2>/dev/null)
+        if [[ -n "$_found_id" ]]; then
+            green "Tunnel 已在 Cloudflare 创建成功：$tunnel_name"
+            create_response=$(jq -n --arg id "$_found_id" '{success: true, result: {id: $id}}')
+        else
+            red "Cloudflare Tunnel 创建失败：连接 api.cloudflare.com 超时"
+            yellow "请检查本机到 Cloudflare API 的网络：curl -m 20 -sS https://api.cloudflare.com/client/v4/ips | head -c 200"
+            return 1
+        fi
     fi
-    if [[ "$(echo "$create_response" | jq -r '.success // false')" != "true" ]]; then
+    if [[ "$(echo "$create_response" | jq -r '.success // false' 2>/dev/null)" != "true" ]]; then
         red "Cloudflare Tunnel 创建失败！"
-        echo "$create_response" | jq -r '.errors[]?.message // empty'
+        local _err
+        _err=$(echo "$create_response" | jq -r '.errors[]? | "  [\(.code)] \(.message)"' 2>/dev/null)
+        if [[ -n "$_err" ]]; then
+            echo "$_err"
+            if echo "$_err" | grep -qiE 'auth|permission|10000|9109'; then
+                yellow "  Token 需要「账户 → Cloudflare Tunnel → 编辑」权限"
+            fi
+        else
+            echo "  $(echo "$create_response" | head -c 300)"
+        fi
         return 1
     fi
     tunnel_id=$(echo "$create_response" | jq -r '.result.id // empty')
