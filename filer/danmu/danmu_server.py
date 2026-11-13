@@ -6,7 +6,7 @@
 流程：360影视搜剧名拿到各平台播放页 -> 直接拉平台自己的弹幕
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1)
 """
-VERSION = "1.1.0"  # 1.1.0: 返回 OK影视/FongMi JSON 列表格式
+VERSION = "1.2.0"  # 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, time, json, zlib, html, threading
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -278,7 +278,10 @@ def danmu():
         print("[danmu] err", name, epid, repr(e), flush=True)
         items = []
     base = request.host_url.rstrip("/")
-    res = [{"name": label, "url": f"{base}/xml?site={site}&u={quote(url, safe='')}"} for label, site, url in items]
+    proxy = [{"name": label + " [代理]", "url": f"{base}/xml?site={site}&u={quote(url, safe='')}"} for label, site, url in items]
+    # FongMi 5.8.x 内置腾讯/爱奇艺/芒果/B站抓取器：直接给平台页面地址，手机直连分段加载，最稳
+    native = [] if arg("native") == "0" else [{"name": label, "url": url.split("?")[0] if site == "qq" else url} for label, site, url in items]
+    res = native + proxy
     print("[danmu]", name, epid, "->", [x["name"] for x in res], flush=True)
     return jsonify(res)
 
