@@ -1,5 +1,5 @@
 { 
-  "spider": "http://itv666.cc/aowu/config.webp",
+  "spider": "https://fmsc525.oss-cn-hangzhou.aliyuncs.com/upload/235/20261111/04d7de872fa893cd2cf6139cab519da0.png;md5;6870d54372a2b98ee6f327bae3541dbd",
   "danmaku": "http://127.0.0.1:2525/danmu?name={name}&epid={episode}",
   "sites": [
     {
