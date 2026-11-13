@@ -19,10 +19,13 @@ elif command -v yum >/dev/null; then
   yum install -y python3 curl
 fi
 
+OLD_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" 2>/dev/null || { [ -f "$APP_DIR/danmu_server.py" ] && echo "旧版(无版本号)" || echo "未安装"; })
 echo "[2/4] 下载弹幕服务 + 依赖"
 mkdir -p "$APP_DIR"
 curl -fsSL "$SRC" -o "$APP_DIR/danmu_server.py"
 python3 -m venv "$APP_DIR/venv"
+NEW_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" || echo "未知")
+echo "    版本：$OLD_VER -> $NEW_VER"
 "$APP_DIR/venv/bin/pip" install -q --upgrade pip flask requests
 
 echo "[3/4] 注册 systemd 开机自启"
@@ -47,8 +50,9 @@ command -v ufw >/dev/null && ufw allow $PORT/tcp >/dev/null 2>&1 || true
 command -v firewall-cmd >/dev/null && { firewall-cmd --permanent --add-port=$PORT/tcp >/dev/null 2>&1; firewall-cmd --reload >/dev/null 2>&1; } || true
 
 sleep 2
+RUN_VER=$(curl -s "http://127.0.0.1:$PORT/version" 2>/dev/null)
 if curl -s "http://127.0.0.1:$PORT/" | grep -q ok; then
-  echo "✅ 弹幕服务已启动：http://$(curl -s4 ifconfig.me 2>/dev/null || echo 你的IP):$PORT/danmu?name=狂飙&epid=第1集"
+  echo "✅ 弹幕服务已启动，运行版本 v${RUN_VER:-?}：http://$(curl -s4 ifconfig.me 2>/dev/null || echo 你的IP):$PORT/danmu?name=狂飙&episode=第1集"
 else
   echo "❌ 启动失败，查看日志：journalctl -u danmu -n 50"
 fi
