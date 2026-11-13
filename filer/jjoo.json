@@ -1,750 +1,631 @@
-{
+{ 
   "danmaku": "http://54.206.164.99:2525/danmu?name={name}&epid={episode}",
   "sites": [
     {
       "key": "电影天堂",
       "name": "电影天堂",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 0,
+      "api": "http://caiji.dyttzyapi.com/api.php/provide/vod/from/dyttm3u8/at/xml/",
       "searchable": 1,
       "quickSearch": 1,
-      "ext": {
-        "api": "http://caiji.dyttzyapi.com/api.php/provide/vod/from/dyttm3u8/at/xml/",
-        "playurl": "json:https://vip.dyttzyplay.com/?url=",
-        "categories": [
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "剧情片",
-          "战争片",
-          "国产剧",
-          "香港剧",
-          "韩国剧",
-          "欧美剧",
-          "记录片",
-          "台湾剧",
-          "日本剧",
-          "海外剧",
-          "泰国剧",
-          "大陆综艺",
-          "港台综艺",
-          "日韩综艺",
-          "欧美综艺",
-          "国产动漫",
-          "日韩动漫",
-          "欧美动漫",
-          "港台动漫",
-          "伦理片",
-          "短剧",
-          "动画片"
-        ],
-        "type": 0
-      }
+      "categories": [
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "剧情片",
+        "战争片",
+        "国产剧",
+        "香港剧",
+        "韩国剧",
+        "欧美剧",
+        "记录片",
+        "台湾剧",
+        "日本剧",
+        "海外剧",
+        "泰国剧",
+        "大陆综艺",
+        "港台综艺",
+        "日韩综艺",
+        "欧美综艺",
+        "国产动漫",
+        "日韩动漫",
+        "欧美动漫",
+        "港台动漫",
+        "伦理片",
+        "短剧",
+        "动画片"
+      ],
+      "playurl": "json:https://vip.dyttzyplay.com/?url="
     },
     {
       "key": "豆瓣资源",
       "name": "豆瓣资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://caiji.dbzy5.com/api.php/provide/vod/from/dbm3u8/at/josn/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://caiji.dbzy5.com/api.php/provide/vod/from/dbm3u8/at/josn/"
-      }
+      "filterable": 0
     },
     {
       "key": "牛Y",
       "name": "牛Y┃影视",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://api.niuniuzy.me/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 1,
-      "ext": {
-        "api": "https://api.niuniuzy.me/api.php/provide/vod/",
-        "categories": [
-          "4K电影",
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "港台三级",
-          "韩国伦理",
-          "日本伦理",
-          "西方伦理",
-          "剧情片",
-          "战争片",
-          "国产剧",
-          "欧美剧",
-          "韩剧",
-          "日剧",
-          "港剧",
-          "台剧",
-          "泰剧",
-          "海外剧",
-          "纪录片",
-          "大陆综艺",
-          "日韩综艺",
-          "港台综艺",
-          "欧美综艺",
-          "国产动漫",
-          "日韩动漫",
-          "欧美动漫",
-          "动画片",
-          "港台动漫",
-          "海外动漫",
-          "演唱会",
-          "体育赛事",
-          "篮球",
-          "足球",
-          "预告片",
-          "爽文短剧",
-          "影视解说"
-        ]
-      }
+      "categories": [
+        "4K电影",
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "港台三级",
+        "韩国伦理",
+        "日本伦理",
+        "西方伦理",
+        "剧情片",
+        "战争片",
+        "国产剧",
+        "欧美剧",
+        "韩剧",
+        "日剧",
+        "港剧",
+        "台剧",
+        "泰剧",
+        "海外剧",
+        "纪录片",
+        "大陆综艺",
+        "日韩综艺",
+        "港台综艺",
+        "欧美综艺",
+        "国产动漫",
+        "日韩动漫",
+        "欧美动漫",
+        "动画片",
+        "港台动漫",
+        "海外动漫",
+        "演唱会",
+        "体育赛事",
+        "篮球",
+        "足球",
+        "预告片",
+        "爽文短剧",
+        "影视解说"
+      ]
     },
     {
       "key": "高清资源网",
       "name": "高清┃2K",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://api.1080zyku.com/inc/apijson.php",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 1,
-      "ext": {
-        "api": "https://api.1080zyku.com/inc/apijson.php",
-        "playurl": "json:http://jx.84jia.com/m3u8ts.php?url=",
-        "categories": [
-          "动作片",
-          "国产剧",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "剧情片",
-          "倫理片",
-          "战争片",
-          "记录片",
-          "欧美剧",
-          "日本剧",
-          "泰国剧",
-          "韩国剧",
-          "台湾剧",
-          "香港剧",
-          "大陆综艺",
-          "港台综艺",
-          "日韩综艺",
-          "欧美综艺",
-          "国产动漫",
-          "日韩动漫",
-          "欧美动漫"
-        ]
-      }
+      "playurl": "json:http://jx.84jia.com/m3u8ts.php?url=",
+      "categories": [
+        "动作片",
+        "国产剧",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "剧情片",
+        "倫理片",
+        "战争片",
+        "记录片",
+        "欧美剧",
+        "日本剧",
+        "泰国剧",
+        "韩国剧",
+        "台湾剧",
+        "香港剧",
+        "大陆综艺",
+        "港台综艺",
+        "日韩综艺",
+        "欧美综艺",
+        "国产动漫",
+        "日韩动漫",
+        "欧美动漫"
+      ]
     },
     {
       "key": "极速资源lz",
       "name": "急速┃影视",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://cj.lziapi.com/api.php/provide/vod/from/lzm3u8/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 1,
-      "ext": {
-        "api": "https://cj.lziapi.com/api.php/provide/vod/from/lzm3u8/?ac=list",
-        "categories": [
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "剧情片",
-          "伦理片",
-          "战争片",
-          "国产剧",
-          "香港剧",
-          "韩国剧",
-          "欧美剧",
-          "记录片",
-          "台湾剧",
-          "日本剧",
-          "海外剧",
-          "泰国剧",
-          "大陆综艺",
-          "港台综艺",
-          "日韩综艺",
-          "欧美综艺",
-          "国产动漫",
-          "日韩动漫",
-          "欧美动漫",
-          "港台动漫",
-          "海外动漫",
-          "电影解说"
-        ]
-      }
+      "categories": [
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "剧情片",
+        "伦理片",
+        "战争片",
+        "国产剧",
+        "香港剧",
+        "韩国剧",
+        "欧美剧",
+        "记录片",
+        "台湾剧",
+        "日本剧",
+        "海外剧",
+        "泰国剧",
+        "大陆综艺",
+        "港台综艺",
+        "日韩综艺",
+        "欧美综艺",
+        "国产动漫",
+        "日韩动漫",
+        "欧美动漫",
+        "港台动漫",
+        "海外动漫",
+        "电影解说"
+      ]
     },
     {
       "key": "索尼采集",
       "name": "索尼采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://suoniapi.com/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://suoniapi.com/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "无尽采集",
       "name": "无尽采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://wjzyapi.com/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://wjzyapi.com/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "速播采集",
       "name": "速播采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://subocj.com/api.php/provide/vod/at/json",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://subocj.com/api.php/provide/vod/at/json"
-      }
+      "filterable": 0
     },
     {
       "key": "百度云采集",
       "name": "百度云采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://api.apibdzy.com/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 0,
-      "ext": {
-        "api": "https://api.apibdzy.com/api.php/provide/vod/?ac=list",
-        "categories": [
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "剧情片",
-          "伦理片",
-          "战争片",
-          "大陆剧",
-          "欧美剧",
-          "韩剧",
-          "日剧",
-          "港澳剧",
-          "台湾剧",
-          "泰剧",
-          "其他剧",
-          "泰国剧",
-          "大陆综艺",
-          "港台综艺",
-          "日韩综艺",
-          "欧美综艺",
-          "国产动漫",
-          "日韩动漫",
-          "欧美动漫",
-          "动画电影",
-          "伦理"
-        ]
-      }
+      "categories": [
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "剧情片",
+        "伦理片",
+        "战争片",
+        "大陆剧",
+        "欧美剧",
+        "韩剧",
+        "日剧",
+        "港澳剧",
+        "台湾剧",
+        "泰剧",
+        "其他剧",
+        "泰国剧",
+        "大陆综艺",
+        "港台综艺",
+        "日韩综艺",
+        "欧美综艺",
+        "国产动漫",
+        "日韩动漫",
+        "欧美动漫",
+        "动画电影",
+        "伦理"
+      ]
     },
     {
       "key": "新浪资源采集",
       "name": "新浪资源采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://api.xinlangapi.com/xinlangapi.php/provide/vod/josn",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://api.xinlangapi.com/xinlangapi.php/provide/vod/josn"
-      }
+      "filterable": 0
     },
     {
       "key": "卧龙资源采集",
       "name": "卧龙资源采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://collect.wolongzy.cc/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://collect.wolongzy.cc/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "CK资源采集",
       "name": "CK资源采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://ckzy.me/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://ckzy.me/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "鸭鸭资源采集",
       "name": "鸭鸭资源采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://cj.yayazy.net/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://cj.yayazy.net/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "非凡",
       "name": "非凡",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 0,
+      "api": "http://api.ffzyapi.com/api.php/provide/vod/at/xml/",
       "searchable": 1,
       "changeable": 1,
-      "ext": {
-        "api": "http://api.ffzyapi.com/api.php/provide/vod/at/xml/",
-        "categories": [
-          "国产动漫",
-          "日韩动漫",
-          "国产剧",
-          "韩国剧",
-          "日本剧",
-          "伦理片",
-          "动漫片",
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "剧情片",
-          "战争片",
-          "香港剧",
-          "欧美剧",
-          "记录片",
-          "台湾剧",
-          "海外剧",
-          "泰国剧",
-          "大陆综艺",
-          "港台综艺",
-          "日韩综艺",
-          "欧美综艺",
-          "欧美动漫",
-          "港台动漫",
-          "海外动漫"
-        ],
-        "type": 0
-      },
-      "quickSearch": 1
+      "categories": [
+        "国产动漫",
+        "日韩动漫",
+        "国产剧",
+        "韩国剧",
+        "日本剧",
+        "伦理片",
+        "动漫片",
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "剧情片",
+        "战争片",
+        "香港剧",
+        "欧美剧",
+        "记录片",
+        "台湾剧",
+        "海外剧",
+        "泰国剧",
+        "大陆综艺",
+        "港台综艺",
+        "日韩综艺",
+        "欧美综艺",
+        "欧美动漫",
+        "港台动漫",
+        "海外动漫"
+      ]
     },
     {
       "key": "爱奇艺资源采集",
       "name": "爱奇艺资源采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://iqiyizyapi.com/api.php/provide/vod",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://iqiyizyapi.com/api.php/provide/vod"
-      }
+      "filterable": 0
     },
     {
       "key": "猫眼资源采集",
       "name": "猫眼资源采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://api.maoyanapi.top/api.php/provide/vod/at/json",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://api.maoyanapi.top/api.php/provide/vod/at/json"
-      }
+      "filterable": 0
     },
     {
       "key": "虎牙资源网",
       "name": "虎牙资源网",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://www.huyaapi.com/api.php/provide/vod/at/json",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://www.huyaapi.com/api.php/provide/vod/at/json"
-      }
+      "filterable": 0
     },
     {
       "key": "魔都资源网",
       "name": "魔都资源网",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://www.mdzyapi.com/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://www.mdzyapi.com/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "量子资源",
       "name": "量子资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://cj.lziapi.com/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://cj.lziapi.com/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "光速资源",
       "name": "🎀光速┃采集",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "http://api.guangsuapi.com/api.php/provide/vod/",
       "searchable": 1,
       "changeable": 1,
-      "ext": {
-        "api": "http://api.guangsuapi.com/api.php/provide/vod/",
-        "categories": [
-          "电影",
-          "电视剧",
-          "综艺",
-          "动漫",
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "剧情片",
-          "恐怖片",
-          "战争片",
-          "大陆剧",
-          "欧美剧",
-          "港澳剧",
-          "韩剧",
-          "动漫电影",
-          "日剧",
-          "台湾剧",
-          "泰剧",
-          "记录片",
-          "伦理片",
-          "体育赛事",
-          "短剧"
-        ]
-      },
-      "quickSearch": 1
+      "categories": [
+        "电影",
+        "电视剧",
+        "综艺",
+        "动漫",
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "剧情片",
+        "恐怖片",
+        "战争片",
+        "大陆剧",
+        "欧美剧",
+        "港澳剧",
+        "韩剧",
+        "动漫电影",
+        "日剧",
+        "台湾剧",
+        "泰剧",
+        "记录片",
+        "伦理片",
+        "体育赛事",
+        "短剧"
+      ]
     },
     {
       "key": "360资源",
       "name": "360资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://360zyzz.com/api.php/provide/vod/at/json",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://360zyzz.com/api.php/provide/vod/at/json"
-      }
+      "filterable": 0
     },
     {
       "key": "优质资源库",
       "name": "优质资源库",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://api.yzzy-api.com/inc/apijson.php?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://api.yzzy-api.com/inc/apijson.php?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "OK资源",
       "name": "OK资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://api.okzyw.net/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://api.okzyw.net/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "建安解析",
       "name": "建安解析",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "http://154.219.117.232:9981/jacloudapi.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "http://154.219.117.232:9981/jacloudapi.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "小绵羊资源",
       "name": "小绵羊资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://vs.okcdn100.top/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://vs.okcdn100.top/api.php/provide/vod/"
-      }
+      "filterable": 0
     },
     {
       "key": "快车资源",
       "name": "快车资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://caiji.kuaichezy.org/api.php/provide/vod/?ac=list",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://caiji.kuaichezy.org/api.php/provide/vod/?ac=list"
-      }
+      "filterable": 0
     },
     {
       "key": "豪华资源",
       "name": "豪华资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
-      "ext": {
-        "api": "https://hhzyapi.com/api.php/provide/vod/from/hhm3u8/at/json"
-      },
-      "searchable": 1,
-      "quickSearch": 1
+      "type": 1,
+      "api": "https://hhzyapi.com/api.php/provide/vod/from/hhm3u8/at/json"
     },
     {
       "key": "茅台",
       "name": "茅台资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 0,
+      "api": "https://caiji.maotaizy.cc/api.php/provide/vod/from/mtm3u8/at/xml/",
       "searchable": 1,
       "changeable": 1,
-      "ext": {
-        "api": "https://caiji.maotaizy.cc/api.php/provide/vod/from/mtm3u8/at/xml/",
-        "playurl": "json:https://mtjiexi.cc:966/?url=",
-        "categories": [
-          "古装仙侠",
-          "穿越现代",
-          "反转爽剧",
-          "言情总裁",
-          "现代都市",
-          "悬疑烧脑",
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "剧情片",
-          "伦理片",
-          "战争片",
-          "纪录片",
-          "动漫电影",
-          "国产剧",
-          "香港剧",
-          "韩剧",
-          "欧美剧",
-          "台湾剧",
-          "日本剧",
-          "海外剧",
-          "泰国剧",
-          "大陆综艺",
-          "港台综艺",
-          "日韩综艺",
-          "欧美综艺",
-          "演唱会",
-          "国产动漫",
-          "日本动漫",
-          "欧美动漫",
-          "海外动漫",
-          "伦理片",
-          "体育赛事"
-        ],
-        "type": 0
-      },
-      "quickSearch": 1
+      "categories": [
+        "古装仙侠",
+        "穿越现代",
+        "反转爽剧",
+        "言情总裁",
+        "现代都市",
+        "悬疑烧脑",
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "剧情片",
+        "伦理片",
+        "战争片",
+        "纪录片",
+        "动漫电影",
+        "国产剧",
+        "香港剧",
+        "韩剧",
+        "欧美剧",
+        "台湾剧",
+        "日本剧",
+        "海外剧",
+        "泰国剧",
+        "大陆综艺",
+        "港台综艺",
+        "日韩综艺",
+        "欧美综艺",
+        "演唱会",
+        "国产动漫",
+        "日本动漫",
+        "欧美动漫",
+        "海外动漫",
+        "伦理片",
+        "体育赛事"
+      ],
+      "playurl": "json:https://mtjiexi.cc:966/?url="
     },
     {
       "key": "艾旦影视",
       "name": "🍊艾旦海外",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://lovedan.net/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
-      "ext": {
-        "api": "https://lovedan.net/api.php/provide/vod/",
-        "categories": [
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "犯罪片",
-          "战争片",
-          "剧情片",
-          "动画电影",
-          "国产剧",
-          "港台剧",
-          "日韩剧",
-          "欧美剧",
-          "海外剧",
-          "三级伦理",
-          "网红主播",
-          "日韩综艺",
-          "港台综艺",
-          "欧美综艺",
-          "大陆综艺",
-          "国产动漫",
-          "日韩动漫",
-          "欧美动漫",
-          "海外动漫",
-          "海外抖音",
-          "影视解说",
-          "港台三级",
-          "韩国伦理",
-          "西方伦理",
-          "日本伦理",
-          "直播"
-        ]
-      }
+      "categories": [
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "犯罪片",
+        "战争片",
+        "剧情片",
+        "动画电影",
+        "国产剧",
+        "港台剧",
+        "日韩剧",
+        "欧美剧",
+        "海外剧",
+        "三级伦理",
+        "网红主播",
+        "日韩综艺",
+        "港台综艺",
+        "欧美综艺",
+        "大陆综艺",
+        "国产动漫",
+        "日韩动漫",
+        "欧美动漫",
+        "海外动漫",
+        "海外抖音",
+        "影视解说",
+        "港台三级",
+        "韩国伦理",
+        "西方伦理",
+        "日本伦理",
+        "直播"
+      ]
     },
     {
       "key": "奥卡",
       "name": "奥卡",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://aosikazy.com/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://aosikazy.com/api.php/provide/vod/"
-      }
+      "filterable": 0
     },
     {
       "key": "金鹰资源",
       "name": "金鹰资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://jyzyapi.com/provide/vod/from/jinyingm3u8/at/json/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://jyzyapi.com/provide/vod/from/jinyingm3u8/at/json/"
-      }
+      "filterable": 0
     },
     {
       "key": "红牛资源",
       "name": "红牛资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://www.hongniuzy2.com/api.php/provide/vod/from/hnm3u8/at/josn/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://www.hongniuzy2.com/api.php/provide/vod/from/hnm3u8/at/josn/"
-      }
+      "filterable": 0
     },
     {
       "key": "闪电⚡影视m3u8",
       "name": "闪电⚡影视",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://xsd.sdzyapi.com/api.php/provide/vod?ac=list",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 1,
-      "ext": {
-        "api": "https://xsd.sdzyapi.com/api.php/provide/vod?ac=list",
-        "categories": [
-          "Netflix自制剧",
-          "伦理",
-          "港台三级",
-          "韩国伦理",
-          "西方伦理",
-          "日本伦理",
-          "两性课堂",
-          "写真热舞",
-          "动作片",
-          "喜剧片",
-          "爱情片",
-          "科幻片",
-          "恐怖片",
-          "剧情片",
-          "战争片",
-          "国产剧",
-          "欧美剧",
-          "韩剧",
-          "日剧",
-          "港剧",
-          "台剧"
-        ]
-      }
+      "categories": [
+        "Netflix自制剧",
+        "伦理",
+        "港台三级",
+        "韩国伦理",
+        "西方伦理",
+        "日本伦理",
+        "两性课堂",
+        "写真热舞",
+        "动作片",
+        "喜剧片",
+        "爱情片",
+        "科幻片",
+        "恐怖片",
+        "剧情片",
+        "战争片",
+        "国产剧",
+        "欧美剧",
+        "韩剧",
+        "日剧",
+        "港剧",
+        "台剧"
+      ]
     },
     {
       "key": "极速资源",
       "name": "极速资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://jszyapi.com/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://jszyapi.com/api.php/provide/vod/"
-      }
+      "filterable": 0
     },
     {
       "key": "飘零影院",
       "name": "飘零影院",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://p2100.net/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://p2100.net/api.php/provide/vod/"
-      }
+      "filterable": 0
     },
     {
       "key": "如意资源",
       "name": "如意资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://cj.rycjapi.com/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://cj.rycjapi.com/api.php/provide/vod/"
-      }
+      "filterable": 0
     },
     {
       "key": "白狐资源",
       "name": "白狐资源",
-      "type": 3,
-      "api": "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/maccms_dm.js",
+      "type": 1,
+      "api": "https://baihuzy.com/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
-      "filterable": 0,
-      "ext": {
-        "api": "https://baihuzy.com/api.php/provide/vod/"
-      }
+      "filterable": 0
     },
     {
       "key": "fh资源",
@@ -1080,6 +961,7 @@
       "quickSearch": 1,
       "filterable": 0
     },
+
     {
       "key": "1",
       "name": "🔞火速",
