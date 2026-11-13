@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-免 key 弹幕服务：/danmu?name=剧名&epid=第N集  -> B站格式 XML
+免 key 弹幕服务（OK影视/FongMi 格式）
+/danmu?name=剧名&episode=第N集 -> [{"name","url"}]，url 指向 /xml 返回 B站格式 XML
 流程：360影视搜剧名拿到各平台播放页 -> 直接拉平台自己的弹幕
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1)
 """
 import os, re, time, json, zlib, html, threading
 from concurrent.futures import ThreadPoolExecutor
 import requests
-from flask import Flask, request, Response
+from flask import Flask, request, Response, jsonify
+from urllib.parse import quote
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
 S = requests.Session()
@@ -17,6 +19,7 @@ POOL = ThreadPoolExecutor(16)
 CACHE, CACHE_TTL, LOCK = {}, 6 * 3600, threading.Lock()
 MAX_DM = int(os.environ.get("MAX_DM", "8000"))
 app = Flask(__name__)
+app.json.ensure_ascii = False
 
 def get(url, **kw):
     kw.setdefault("timeout", 12)
@@ -222,41 +225,73 @@ def to_xml(dms):
     return "\n".join(out)
 
 EMPTY = '<?xml version="1.0" encoding="UTF-8"?><i></i>'
+SITE_NAME = {"qq": "腾讯", "qiyi": "爱奇艺", "imgo": "芒果", "bilibili1": "B站"}
 
-def build(name, epid):
+def resolve(name, epid):
+    """返回 [(显示名, site, 平台播放页)]，不拉弹幕，很快"""
     ep = ep_num(epid)
+    out = []
     for row in search360(name)[:3]:
         site, url = pick_url(row, ep)
-        if not url:
-            continue
-        print(flush=True, *[f"[danmu] {name} {epid} -> {row.get('titleTxt')} {site} {url}"])
-        dms = FETCH[site](url)
-        if dms:
-            return to_xml(dms)
-    return EMPTY
+        if url:
+            label = f"{row.get('titleTxt')} {epid or ''} [{SITE_NAME.get(site, site)}]".replace("  ", " ")
+            out.append((label, site, url))
+    return out
 
-@app.route("/danmu")
-def danmu():
-    name = (request.args.get("name") or "").strip()
-    epid = request.args.get("epid") or request.args.get("episode") or ""
-    if not name:
-        return Response(EMPTY, mimetype="application/xml")
-    key = (name, epid)
+def xml_for(site, url):
+    key = (site, url)
     with LOCK:
         hit = CACHE.get(key)
     if hit and time.time() - hit[0] < CACHE_TTL:
-        return Response(hit[1], mimetype="application/xml")
-    try:
-        xml = build(name, epid)
-    except Exception as e:
-        print("[danmu] err", name, epid, repr(e), flush=True)
-        xml = EMPTY
-    if xml != EMPTY:
+        return hit[1]
+    dms = FETCH[site](url)
+    xml = to_xml(dms) if dms else EMPTY
+    if dms:
         with LOCK:
             CACHE[key] = (time.time(), xml)
             if len(CACHE) > 500:
                 CACHE.pop(next(iter(CACHE)))
-    return Response(xml, mimetype="application/xml")
+    return xml
+
+def arg(k, *alts):
+    for x in (k,) + alts:
+        v = request.values.get(x)
+        if v:
+            return v.strip()
+    return ""
+
+# OK影视 / FongMi 弹幕接口：返回 JSON 数组 [{"name":..., "url": 弹幕XML地址}]
+# 配置写法：  "danmaku": "http://你的IP:2525/danmu?name={name}&episode={episode}"
+@app.route("/danmu", methods=["GET", "POST"])
+@app.route("/danmaku", methods=["GET", "POST"])
+def danmu():
+    name, epid = arg("name"), arg("episode", "epid")
+    if not name:
+        return jsonify([])
+    if arg("fmt") == "xml":  # 兼容：直接要 XML
+        r = resolve(name, epid)
+        return Response(xml_for(r[0][1], r[0][2]) if r else EMPTY, mimetype="application/xml")
+    try:
+        items = resolve(name, epid)
+    except Exception as e:
+        print("[danmu] err", name, epid, repr(e), flush=True)
+        items = []
+    base = request.host_url.rstrip("/")
+    res = [{"name": label, "url": f"{base}/xml?site={site}&u={quote(url, safe='')}"} for label, site, url in items]
+    print("[danmu]", name, epid, "->", [x["name"] for x in res], flush=True)
+    return jsonify(res)
+
+@app.route("/xml")
+def xml():
+    site, url = arg("site"), arg("u")
+    if site not in FETCH or not url:
+        return Response(EMPTY, mimetype="application/xml")
+    try:
+        x = xml_for(site, url)
+    except Exception as e:
+        print("[xml] err", site, url, repr(e), flush=True)
+        x = EMPTY
+    return Response(x, mimetype="application/xml")
 
 @app.route("/")
 def root():
