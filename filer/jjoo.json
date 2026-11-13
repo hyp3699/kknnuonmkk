@@ -1,5 +1,6 @@
-{
+{ 
   "spider": "http://itv666.cc/aowu/config.webp",
+  "danmaku": "http://127.0.0.1:2525/danmu?name={name}&epid={episode}",
   "sites": [
     {
       "key": "电影天堂",
