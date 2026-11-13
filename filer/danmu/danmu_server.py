@@ -4,10 +4,10 @@
 免 key 弹幕服务（OK影视/FongMi 格式）
 /danmu?name=剧名&episode=第N集 -> [{"name","url"}]，url 指向 /xml 返回 B站格式 XML
 流程：360影视搜剧名拿到各平台播放页 -> 直接拉平台自己的弹幕
-支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1)
+支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
 """
-VERSION = "1.2.0"  # 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
-import os, re, time, json, zlib, html, threading
+VERSION = "1.3.0"  # 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+import os, re, time, json, zlib, html, threading, base64, hashlib
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from flask import Flask, request, Response, jsonify
@@ -95,7 +95,7 @@ def bili_episodes(url):
     return [f"https://www.bilibili.com/bangumi/play/ep{e['id']}" for e in (r.get("episodes") or [])] or [url]
 
 EXPAND = {"qiyi": iqiyi_episodes, "imgo": mgtv_episodes, "bilibili1": bili_episodes}
-SUPPORTED = ("qq", "qiyi", "imgo", "bilibili1")
+SUPPORTED = ("qq", "qiyi", "imgo", "bilibili1", "youku")
 
 def pick_url(row, ep):
     """返回 (site, url)"""
@@ -208,7 +208,67 @@ def dm_bili(url):
         out.append((float(f[0]), int(f[1]), int(f[3]), html.unescape(txt)))
     return out
 
-FETCH = {"qq": dm_qq, "qiyi": dm_qiyi, "imgo": dm_imgo, "bilibili1": dm_bili}
+YK = {"cna": None, "tk": None, "ts": 0}
+YK_LOCK = threading.Lock()
+
+def yk_vid(url):
+    m = re.search(r"id_([A-Za-z0-9=]+)\.html", url) or re.search(r"vid=([A-Za-z0-9=%]+)", url)
+    return m.group(1).replace("%3D", "=").replace("%3d", "=") if m else None
+
+def yk_token(force=False):
+    with YK_LOCK:
+        if force or not YK["tk"] or time.time() - YK["ts"] > 1800:
+            YK["cna"] = get("https://log.mmstat.com/eg.js").headers.get("etag", "").strip('"') or YK["cna"] or ""
+            S.cookies.set("cna", YK["cna"], domain=".youku.com")
+            get("https://acs.youku.com/h5/mtop.com.youku.aplatform.weakget/1.0/", params={"jsv": "2.5.1", "appKey": "24679788"})
+            YK["tk"] = S.cookies.get("_m_h5_tk", domain=".youku.com") or S.cookies.get("_m_h5_tk")
+            YK["ts"] = time.time()
+        return YK["cna"], YK["tk"]
+
+def yk_seg(vid, mat, retry=True):
+    cna, tk = yk_token()
+    msg = {"ctime": int(time.time() * 1000), "ctype": 10004, "cver": "v1.0", "guid": cna, "mat": mat, "mcount": 1, "pid": 0, "sver": "3.1.0", "type": 1, "vid": vid}
+    b = base64.b64encode(json.dumps(msg, separators=(",", ":")).encode()).decode()
+    msg["msg"] = b
+    msg["sign"] = hashlib.md5((b + "MkmC9SoIw6xCkSKHhJ7b5D2r51kBiREr").encode()).hexdigest()
+    data = json.dumps(msg, separators=(",", ":"))
+    t = str(int(time.time() * 1000))
+    sign = hashlib.md5(f"{(tk or '').split('_')[0]}&{t}&24679788&{data}".encode()).hexdigest()
+    j = S.post("https://acs.youku.com/h5/mopen.youku.danmu.list/1.0/", timeout=12, data={"data": data},
+               headers={"Referer": "https://v.youku.com"},
+               params={"jsv": "2.5.6", "appKey": "24679788", "t": t, "sign": sign, "api": "mopen.youku.danmu.list", "v": "1.0",
+                       "type": "originaljson", "dataType": "jsonp", "timeout": "20000", "jsonpIncPrefix": "utility"}).json()
+    res = (j.get("data") or {}).get("result")
+    if not res:
+        if retry and any("TOKEN" in str(x) for x in j.get("ret") or []):
+            yk_token(force=True)
+            return yk_seg(vid, mat, False)
+        return []
+    return (json.loads(res).get("data") or {}).get("result") or []
+
+def dm_youku(url):
+    vid = yk_vid(url)
+    info = get("https://openapi.youku.com/v2/videos/show.json", params={"client_id": "53e6cc67237fc59a", "video_id": vid, "package": "com.huawei.hwvplayer.youku", "ext": "show"}).json()
+    minutes = int(float(info.get("duration") or 3600) // 60) + 1
+    yk_token()
+    def one(i):
+        try:
+            return yk_seg(vid, i)
+        except Exception:
+            return []
+    out = []
+    for lst in POOL.map(one, range(minutes)):
+        for b in lst:
+            color, mode = 0xFFFFFF, 1
+            try:
+                pr = json.loads(b.get("propertis") or "{}")
+                color = int(pr.get("color", color))
+            except Exception:
+                pass
+            out.append((int(b.get("playat", 0)) / 1000, mode, color, b.get("content", "")))
+    return out
+
+FETCH = {"qq": dm_qq, "qiyi": dm_qiyi, "imgo": dm_imgo, "bilibili1": dm_bili, "youku": dm_youku}
 
 # ---------------- 输出 ----------------
 def to_xml(dms):
@@ -226,7 +286,7 @@ def to_xml(dms):
     return "\n".join(out)
 
 EMPTY = '<?xml version="1.0" encoding="UTF-8"?><i></i>'
-SITE_NAME = {"qq": "腾讯", "qiyi": "爱奇艺", "imgo": "芒果", "bilibili1": "B站"}
+SITE_NAME = {"qq": "腾讯", "qiyi": "爱奇艺", "imgo": "芒果", "bilibili1": "B站", "youku": "优酷"}
 
 def resolve(name, epid):
     """返回 [(显示名, site, 平台播放页)]，不拉弹幕，很快"""
@@ -280,7 +340,7 @@ def danmu():
     base = request.host_url.rstrip("/")
     proxy = [{"name": label + " [代理]", "url": f"{base}/xml?site={site}&u={quote(url, safe='')}"} for label, site, url in items]
     # FongMi 5.8.x 内置腾讯/爱奇艺/芒果/B站抓取器：直接给平台页面地址，手机直连分段加载，最稳
-    native = [] if arg("native") == "0" else [{"name": label, "url": url.split("?")[0] if site == "qq" else url} for label, site, url in items]
+    native = [] if arg("native") == "0" else [{"name": label, "url": url.split("?")[0] if site == "qq" else (f"https://v.youku.com/v_show/id_{yk_vid(url)}.html" if site == "youku" else url)} for label, site, url in items]
     res = native + proxy
     print("[danmu]", name, epid, "->", [x["name"] for x in res], flush=True)
     return jsonify(res)
