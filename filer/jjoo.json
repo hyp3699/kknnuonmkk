@@ -1,5 +1,5 @@
 { 
-  "danmaku": "http://56.69.168.157:2525/danmu?name={name}&epid={episode}",
+  "danmaku": "http://54.206.164.99:2525/danmu?name={name}&epid={episode}",
   "sites": [
     {
       "key": "电影天堂",
