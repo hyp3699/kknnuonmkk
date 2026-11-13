@@ -6,6 +6,7 @@
 流程：360影视搜剧名拿到各平台播放页 -> 直接拉平台自己的弹幕
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1)
 """
+VERSION = "1.1.0"  # 1.1.0: 返回 OK影视/FongMi JSON 列表格式
 import os, re, time, json, zlib, html, threading
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -295,7 +296,11 @@ def xml():
 
 @app.route("/")
 def root():
-    return "danmu ok"
+    return f"danmu ok v{VERSION}"
+
+@app.route("/version")
+def version():
+    return VERSION
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "2525")), threaded=True)
