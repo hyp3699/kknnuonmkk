@@ -574,15 +574,6 @@
       "filterable": 0
     },
     {
-      "key": "飘零影院",
-      "name": "飘零影院",
-      "type": 1,
-      "api": "https://p2100.net/api.php/provide/vod/",
-      "searchable": 1,
-      "quickSearch": 1,
-      "filterable": 0
-    },
-    {
       "key": "如意资源",
       "name": "如意资源",
       "type": 1,
@@ -702,15 +693,6 @@
       "quickSearch": 0
     },
     {
-      "key": "百万资源站",
-      "name": "🔞百万资源站",
-      "type": 1,
-      "api": "https://api.bwzyz.com/api.php/provide/vod/at/json/",
-      "searchable": 1,
-      "quickSearch": 1,
-      "filterable": 0
-    },
-    {
       "key": "桃花资源",
       "name": "🔞桃花资源",
       "type": 0,
@@ -746,14 +728,6 @@
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 1
-    },
-    {
-      "key": "avdb",
-      "name": "🔞avdb",
-      "type": 4,
-      "api": "http://zhangqun1818.serv00.net/228_1.php",
-      "searchable": 0,
-      "changeable": 0
     },
     {
       "key": "番茄资源",
@@ -832,14 +806,6 @@
       "name": "🔞越南资源",
       "type": 1,
       "api": "https://api.sexnguon.com/api.php/provide/vod/?ac=list",
-      "searchable": 1,
-      "quickSearch": 0
-    },
-    {
-      "key": "丝袜资源",
-      "name": "🔞丝袜资源",
-      "type": 1,
-      "api": "https://www.siwazyw.tv/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 0
     },
