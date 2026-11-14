@@ -40,15 +40,6 @@
       "playurl": "json:https://vip.dyttzyplay.com/?url="
     },
     {
-      "key": "豆瓣资源",
-      "name": "豆瓣资源",
-      "type": 1,
-      "api": "https://caiji.dbzy5.com/api.php/provide/vod/from/dbm3u8/at/josn/",
-      "searchable": 1,
-      "quickSearch": 1,
-      "filterable": 0
-    },
-    {
       "key": "牛Y",
       "name": "牛Y┃影视",
       "type": 1,
@@ -244,15 +235,6 @@
       "filterable": 0
     },
     {
-      "key": "卧龙资源采集",
-      "name": "卧龙资源采集",
-      "type": 1,
-      "api": "https://collect.wolongzy.cc/api.php/provide/vod/?ac=list",
-      "searchable": 1,
-      "quickSearch": 1,
-      "filterable": 0
-    },
-    {
       "key": "CK资源采集",
       "name": "CK资源采集",
       "type": 1,
@@ -417,15 +399,6 @@
       "name": "建安解析",
       "type": 1,
       "api": "http://154.219.117.232:9981/jacloudapi.php/provide/vod/?ac=list",
-      "searchable": 1,
-      "quickSearch": 1,
-      "filterable": 0
-    },
-    {
-      "key": "小绵羊资源",
-      "name": "小绵羊资源",
-      "type": 1,
-      "api": "https://vs.okcdn100.top/api.php/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 0
@@ -619,15 +592,6 @@
       "filterable": 0
     },
     {
-      "key": "白狐资源",
-      "name": "白狐资源",
-      "type": 1,
-      "api": "https://baihuzy.com/api.php/provide/vod/",
-      "searchable": 1,
-      "quickSearch": 1,
-      "filterable": 0
-    },
-    {
       "key": "fh资源",
       "name": "🔞FH采集",
       "type": 1,
@@ -640,15 +604,6 @@
       "name": "🔞精品资源",
       "type": 1,
       "api": "https://www.jingpinx.com/api.php/provide/vod/?ac=list"
-    },
-    {
-      "key": "香蕉资源网",
-      "name": "🔞香蕉资源(翻墙)",
-      "type": 1,
-      "api": "https://www.xiangjiaozyw.com/api.php/provide/vod/?ac=list",
-      "playurl": "json:https://xxb-player.com/player.php/?url=",
-      "searchable": 1,
-      "quickSearch": 1
     },
     {
       "key": "醒吧",
@@ -664,15 +619,6 @@
       "name": "🔞黑料资源",
       "type": 1,
       "api": "https://www.heiliaozyapi.com/api.php/provide/vod/",
-      "searchable": 1,
-      "changeable": 1
-    },
-    {
-      "key": "91资源",
-      "name": "🔞91资源",
-      "type": 1,
-      "api": "https://91jpzyw.com/api.php/provide/vod/at/json/",
-      "playurl": "json:https://91jpplayer.top/?url=",
       "searchable": 1,
       "changeable": 1
     },
@@ -783,15 +729,6 @@
       "filterable": 0
     },
     {
-      "key": "🔞幸资源站",
-      "name": "🔞幸资源站",
-      "type": 1,
-      "api": "https://xzybb1.com/api.php/provide/vod/?ac=list",
-      "searchable": 1,
-      "filterable": 0,
-      "changeable": 1
-    },
-    {
       "key": "Jkun资源",
       "name": "🔞Jkun资源",
       "type": 1,
@@ -891,14 +828,6 @@
       "filterable": 0
     },
     {
-      "key": "优异资源",
-      "name": "🔞优异资源",
-      "type": 1,
-      "api": "https://a.uezy.pw/api.php/provide/vod/",
-      "searchable": 1,
-      "quickSearch": 0
-    },
-    {
       "key": "越南资源",
       "name": "🔞越南资源",
       "type": 1,
@@ -948,15 +877,6 @@
       "type": 1,
       "api": "https://lbapi9.com/api.php/provide/vod/",
       "playUrl": "json:https://player.77lehuo.com/aliplayer/?url=",
-      "searchable": 1,
-      "quickSearch": 1,
-      "filterable": 0
-    },
-    {
-      "key": "小鸡资源",
-      "name": "🔞小鸡资源",
-      "type": 1,
-      "api": "https://api.xjzyapi.xyz/provide/vod/",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 0
