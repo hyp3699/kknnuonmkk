@@ -3,7 +3,7 @@
 
 1. 按链接去重（忽略 http/https、www、大小写、末尾斜杠、ac=list、/at/格式、/from/线路）
 2. 从 GitHub 搜 TVBox 配置，提取 type 0/1 采集站，测试能出列表 + 能搜索才加入
-3. 已有站连续 3 次「确定失效」（域名不存在 / 被停放成网页 / 404）才删除；
+3. 已有站连续 6 次「确定失效」（域名不存在 / 被停放成网页 / 404）才删除；
    超时、连不上、Cloudflare 这类可能只是屏蔽海外的不计入
 """
 import base64, json, os, re, socket, sys, time
@@ -19,7 +19,7 @@ UA = "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safar
 TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 MAX_NEW = int(os.environ.get("MAX_NEW", "50"))        # 每次最多新增
 MAX_FILES = int(os.environ.get("MAX_FILES", "400"))   # 每次最多读取的配置文件
-FAIL_LIMIT = 3
+FAIL_LIMIT = 6
 QUERIES = [
     '"api.php/provide/vod" "searchable" extension:json',
     '"provide/vod" "quickSearch" extension:json',
