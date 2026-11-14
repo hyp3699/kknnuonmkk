@@ -5,11 +5,16 @@
 /danmu?name=剧名&episode=第N集 -> [{"name","url"}]，url 指向 /xml 返回 B站格式 XML
 流程：360影视搜剧名拿到各平台播放页 -> 直接拉平台自己的弹幕
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
+      巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.3.0"  # 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
-import os, re, time, json, zlib, html, threading, base64, hashlib
+VERSION = "1.4.0"  # 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+import os, re, time, json, zlib, html, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
+try:
+    import zhconv
+except Exception:
+    zhconv = None
 from flask import Flask, request, Response, jsonify
 from urllib.parse import quote
 
@@ -39,7 +44,9 @@ def ep_num(s):
 
 def search360(name):
     j = get("https://api.so.360kan.com/index", params={"force_v": 1, "kw": name, "from": "", "pageno": 1, "v_ap": 1, "tab": "all"}).json()
-    rows = (j.get("data") or {}).get("longData", {}).get("rows") or []
+    data = j.get("data") if isinstance(j, dict) else None
+    ld = data.get("longData") if isinstance(data, dict) else None
+    rows = (ld.get("rows") if isinstance(ld, dict) else None) or []
     rows = [r for r in rows if str(r.get("cat_id")) in ("1", "2", "3", "4")]
     n = norm(name)
     exact = [r for r in rows if norm(r.get("titleTxt")) == n]
@@ -268,7 +275,123 @@ def dm_youku(url):
             out.append((int(b.get("playat", 0)) / 1000, mode, color, b.get("content", "")))
     return out
 
-FETCH = {"qq": dm_qq, "qiyi": dm_qiyi, "imgo": dm_imgo, "bilibili1": dm_bili, "youku": dm_youku}
+# ---------------- 巴哈姆特动画疯（台湾，动漫） ----------------
+def to_tw(s):
+    return zhconv.convert(s, "zh-tw") if zhconv else s
+
+def baha_search(name, ep):
+    """返回 (标题, videoSn) 或 None；只接受标题完全匹配（繁简互转后）"""
+    out = []
+    for kw in dict.fromkeys([to_tw(name), name]):
+        j = get("https://api.gamer.com.tw/mobile_app/anime/v1/search.php", params={"kw": kw}).json()
+        n = norm(to_tw(name))
+        for a in j.get("anime") or []:
+            if norm(to_tw(a.get("title", ""))) == n:
+                out.append(a)
+        if out:
+            break
+    if not out:
+        return None
+    a = out[0]
+    info = get("https://api.gamer.com.tw/anime/v1/video.php", params={"videoSn": a["video_sn"]}).json().get("data") or {}
+    eps = ((info.get("anime") or {}).get("episodes") or {}).get("0") or []
+    if not eps:
+        return a["title"], a["video_sn"]
+    want = ep or 1
+    hit = next((e for e in eps if str(e.get("episode")) == str(want)), None)
+    if not hit and len(eps) >= want:
+        hit = eps[want - 1]
+    return (a["title"], hit["videoSn"]) if hit else None
+
+def dm_baha(url):
+    sn = re.search(r"sn=(\d+)", url).group(1)
+    lst = (get("https://api.gamer.com.tw/anime/v1/danmu.php", params={"videoSn": sn, "geo": "TW,HK"}).json().get("data") or {}).get("danmu") or []
+    out = []
+    for b in lst:
+        try:
+            color = int((b.get("color") or "#FFFFFF").lstrip("#"), 16)
+        except Exception:
+            color = 0xFFFFFF
+        out.append((int(b.get("time", 0)) / 10, {1: 5, 2: 4}.get(b.get("position"), 1), color, b.get("text", "")))
+    return out
+
+# ---------------- B站搬运视频（台综/港综等） ----------------
+WBI_TAB = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+           37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52]
+WBI = {"key": None, "ts": 0}
+BH = {"Referer": "https://www.bilibili.com/"}
+
+def wbi_key():
+    if not WBI["key"] or time.time() - WBI["ts"] > 6 * 3600:
+        if not S.cookies.get("buvid3"):
+            get("https://www.bilibili.com/", headers=BH)
+        img = get("https://api.bilibili.com/x/web-interface/nav", headers=BH).json()["data"]["wbi_img"]
+        raw = img["img_url"].rsplit("/", 1)[1].split(".")[0] + img["sub_url"].rsplit("/", 1)[1].split(".")[0]
+        WBI["key"], WBI["ts"] = "".join(raw[i] for i in WBI_TAB)[:32], time.time()
+    return WBI["key"]
+
+def bili_search_video(kw):
+    params = {"search_type": "video", "keyword": kw, "wts": int(time.time())}
+    params = {k: re.sub(r"[!'()*]", "", str(v)) for k, v in sorted(params.items())}
+    params["w_rid"] = hashlib.md5((urllib.parse.urlencode(params) + wbi_key()).encode()).hexdigest()
+    j = get("https://api.bilibili.com/x/web-interface/wbi/search/type", params=params, headers=BH).json()
+    return (j.get("data") or {}).get("result") or []
+
+def ep_hints(epid):
+    """把 OK影视 的集名变成标题里可能出现的写法：日期 20261107 -> 2026.11.07/2026-11-07/20261107/1107；EP626 -> 626"""
+    e = epid or ""
+    m = re.search(r"(20\d{2})[.\-/年]?(\d{2})[.\-/月]?(\d{2})", e)
+    if m:
+        y, mo, d = m.groups()
+        return [f"{y}.{mo}.{d}", f"{y}-{mo}-{d}", f"{y}{mo}{d}", f"{y}/{mo}/{d}", f"{mo}{d}"], f"{y}.{mo}.{d}"
+    n = ep_num(e)
+    if n:
+        return [f"EP{n}", f"E{n}", f"第{n}集", f"第{n}期", f" {n}"], str(n)
+    return [], ""
+
+def biliv_find(name, epid):
+    hints, q = ep_hints(epid)
+    n_s, n_t = norm(name), norm(to_tw(name))
+    best = None
+    results = []
+    for kw in dict.fromkeys([f"{name} {q}".strip(), name]):
+        for _ in range(2):  # B站搜索偶尔首次返回空，重试一次
+            results = bili_search_video(kw)
+            if results:
+                break
+            time.sleep(0.5)
+        if results:
+            break
+    for v in results:
+        title = html.unescape(re.sub(r"<.*?>", "", v.get("title", "")))
+        t = norm(title)
+        if n_s not in t and n_t not in t:
+            continue
+        if hints and not any(h.strip().lower() in title.lower() for h in hints):
+            continue
+        if not best or (v.get("danmaku") or 0) > (best[2] or 0):
+            best = (title, v.get("bvid"), v.get("danmaku"))
+    return best
+
+def dm_biliv(url):
+    bvid = re.search(r"(BV[0-9A-Za-z]{10})", url).group(1)
+    p = re.search(r"[?&]p=(\d+)", url)
+    pages = (get("https://api.bilibili.com/x/web-interface/view", params={"bvid": bvid}, headers=BH).json().get("data") or {}).get("pages") or []
+    if not pages:
+        return []
+    cid = pages[int(p.group(1)) - 1 if p and int(p.group(1)) <= len(pages) else 0]["cid"]
+    c = get(f"https://comment.bilibili.com/{cid}.xml").content
+    try:
+        c = zlib.decompress(c, -15)
+    except Exception:
+        pass
+    out = []
+    for pp, txt in re.findall(r'<d p="([^"]+)">(.*?)</d>', c.decode("utf-8", "ignore"), re.S):
+        f = pp.split(",")
+        out.append((float(f[0]), int(f[1]), int(f[3]), html.unescape(txt)))
+    return out
+
+FETCH = {"qq": dm_qq, "qiyi": dm_qiyi, "imgo": dm_imgo, "bilibili1": dm_bili, "youku": dm_youku, "baha": dm_baha, "biliv": dm_biliv}
 
 # ---------------- 输出 ----------------
 def to_xml(dms):
@@ -286,17 +409,43 @@ def to_xml(dms):
     return "\n".join(out)
 
 EMPTY = '<?xml version="1.0" encoding="UTF-8"?><i></i>'
-SITE_NAME = {"qq": "腾讯", "qiyi": "爱奇艺", "imgo": "芒果", "bilibili1": "B站", "youku": "优酷"}
+SITE_NAME = {"qq": "腾讯", "qiyi": "爱奇艺", "imgo": "芒果", "bilibili1": "B站", "youku": "优酷", "baha": "巴哈姆特", "biliv": "B站搬运"}
 
 def resolve(name, epid):
     """返回 [(显示名, site, 平台播放页)]，不拉弹幕，很快"""
     ep = ep_num(epid)
     out = []
-    for row in search360(name)[:3]:
-        site, url = pick_url(row, ep)
+    try:
+        rows = search360(name)[:3]
+    except Exception as e:
+        print("360 err", repr(e), flush=True)
+        rows = []
+    for row in rows:
+        try:
+            site, url = pick_url(row, ep)
+        except Exception as e:
+            print("pick err", repr(e), flush=True)
+            continue
         if url:
             label = f"{row.get('titleTxt')} {epid or ''} [{SITE_NAME.get(site, site)}]".replace("  ", " ")
             out.append((label, site, url))
+    cats = {str(r.get("cat_id")) for r in rows}
+    # 动漫或 360 搜不到：再查巴哈姆特（台湾）
+    if not out or "4" in cats:
+        try:
+            b = baha_search(name, ep)
+            if b:
+                out.append((f"{b[0]} {epid or ''} [巴哈姆特]".replace("  ", " "), "baha", f"https://ani.gamer.com.tw/animeVideo.php?sn={b[1]}"))
+        except Exception as e:
+            print("baha err", repr(e), flush=True)
+    # 综艺或仍然没有：查 B站搬运视频（台综/港综大多在这里有弹幕）
+    if not out or "3" in cats:
+        try:
+            v = biliv_find(name, epid)
+            if v:
+                out.append((f"{v[0][:40]} [B站搬运]", "biliv", f"https://www.bilibili.com/video/{v[1]}"))
+        except Exception as e:
+            print("biliv err", repr(e), flush=True)
     return out
 
 def xml_for(site, url):
@@ -340,7 +489,7 @@ def danmu():
     base = request.host_url.rstrip("/")
     proxy = [{"name": label + " [代理]", "url": f"{base}/xml?site={site}&u={quote(url, safe='')}"} for label, site, url in items]
     # FongMi 5.8.x 内置腾讯/爱奇艺/芒果/B站抓取器：直接给平台页面地址，手机直连分段加载，最稳
-    native = [] if arg("native") == "0" else [{"name": label, "url": url.split("?")[0] if site == "qq" else (f"https://v.youku.com/v_show/id_{yk_vid(url)}.html" if site == "youku" else url)} for label, site, url in items]
+    native = [] if arg("native") == "0" else [{"name": label, "url": url.split("?")[0] if site == "qq" else (f"https://v.youku.com/v_show/id_{yk_vid(url)}.html" if site == "youku" else url)} for label, site, url in items if site != "baha"]
     res = native + proxy
     print("[danmu]", name, epid, "->", [x["name"] for x in res], flush=True)
     return jsonify(res)
