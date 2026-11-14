@@ -211,7 +211,7 @@ def gh_search():
             items = (d or {}).get("items", [])
             for i in items:
                 files.append(f'{i["repository"]["full_name"]}/{i["path"]}')
-            time.sleep(7)  # code search 限 10 次/分钟
+            time.sleep(12)  # code search 限 10 次/分钟
             if len(items) < 100:
                 break
     # 代码搜索命中的仓库补查更新时间
