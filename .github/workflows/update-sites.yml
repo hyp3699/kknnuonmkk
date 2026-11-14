@@ -2,7 +2,7 @@ name: 更新采集站
 
 on:
   schedule:
-    - cron: "0 20 * * *"   # 每天北京时间 04:00
+    - cron: "0 20 */2 * *"   # 每 2 天一次，北京时间 04:00
   workflow_dispatch:
     inputs:
       max_new:
