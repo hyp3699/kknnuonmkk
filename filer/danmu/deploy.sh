@@ -1,126 +1,59 @@
 #!/usr/bin/env bash
-# 在你自己的 VPS 上一键部署弹幕服务（端口 2525），完全不碰 9763.kstore.vip
+# 免 key 弹幕服务一键部署（端口 2525）
+# 数据直接取自 腾讯视频 / 爱奇艺 / 芒果TV / B站，不需要任何 AppId
 # 一键安装：
-#   curl -fsSL https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/deploy.sh | sudo APPID=你的AppId APPSECRET=你的AppSecret bash
+#   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/deploy.sh)
 set -e
+[ "$(id -u)" = 0 ] || { echo "请用 root 运行（sudo -i 后再执行）"; exit 1; }
 
 APP_DIR=/opt/danmu
-PORT=2525
+PORT=${PORT:-2525}
+SRC=https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/danmu_server.py
 
-echo "[1/5] 安装依赖"
+echo "[1/4] 安装 Python"
 if command -v apt >/dev/null; then
-  apt update -y && apt install -y python3 python3-pip python3-venv
+  apt update -y && apt install -y python3 python3-venv curl
+elif command -v dnf >/dev/null; then
+  dnf install -y python3 curl
 elif command -v yum >/dev/null; then
-  yum install -y python3 python3-pip
+  yum install -y python3 curl
 fi
 
-echo "[2/5] 建虚拟环境 + Flask"
+OLD_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" 2>/dev/null || { [ -f "$APP_DIR/danmu_server.py" ] && echo "旧版(无版本号)" || echo "未安装"; })
+echo "[2/4] 下载弹幕服务 + 依赖"
 mkdir -p "$APP_DIR"
+curl -fsSL "$SRC" -o "$APP_DIR/danmu_server.py"
 python3 -m venv "$APP_DIR/venv"
+NEW_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" || echo "未知")
+echo "    版本：$OLD_VER -> $NEW_VER"
 "$APP_DIR/venv/bin/pip" install -q --upgrade pip flask requests zhconv
 
-echo "[3/5] 写入弹幕服务"
-cat > "$APP_DIR/danmu_server.py" <<'PY'
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-import os, time, hashlib, base64, re, html
-import requests
-from flask import Flask, request, Response
-
-APPID     = os.environ.get("APPID", "")
-APPSECRET = os.environ.get("APPSECRET", "")
-BASE      = "https://api.dandanplay.net"
-UA        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) danmu/1.0"
-app = Flask(__name__)
-
-def dd_headers(path):
-    ts = str(int(time.time()))
-    sig = base64.b64encode(hashlib.sha256((APPID+ts+path+APPSECRET).encode()).digest()).decode()
-    return {"X-AppId":APPID,"X-Timestamp":ts,"X-Signature":sig,"Accept":"application/json","User-Agent":UA}
-
-def dd_get(path, params=None):
-    r = requests.get(BASE+path, params=params or {}, headers=dd_headers(path), timeout=15)
-    r.raise_for_status(); return r.json()
-
-def ep_number(s):
-    m = re.search(r"\d+", s or ""); return int(m.group()) if m else None
-
-def find_episode(name, epid):
-    animes = (dd_get("/api/v2/search/episodes", {"anime":name}).get("animes") or [])
-    if not animes: return None
-    want = ep_number(epid)
-    animes.sort(key=lambda a: 0 if a.get("animeTitle")==name else 1)
-    for a in animes:
-        eps = a.get("episodes") or []
-        if not eps: continue
-        if want is not None:
-            for e in eps:
-                if ep_number(e.get("episodeTitle","")) == want: return e["episodeId"]
-            if 1 <= want <= len(eps): return eps[want-1]["episodeId"]
-        return eps[0]["episodeId"]
-    return None
-
-def fetch_comments(eid):
-    return dd_get(f"/api/v2/comment/{eid}", {"withRelated":"true","chConvert":"0"}).get("comments") or []
-
-def to_xml(comments):
-    out = ['<?xml version="1.0" encoding="UTF-8"?>','<i>']
-    for c in comments:
-        p = (c.get("p") or "").split(",")
-        if len(p) < 3: continue
-        out.append(f'<d p="{p[0]},{p[1]},25,{p[2]},{int(time.time())},0,0,0">{html.escape(c.get("m",""),quote=False)}</d>')
-    out.append('</i>'); return "\n".join(out)
-
-EMPTY = '<?xml version="1.0" encoding="UTF-8"?><i></i>'
-
-@app.route("/danmu")
-def danmu():
-    name = request.args.get("name","").strip()
-    epid = request.args.get("episode") or request.args.get("epid") or ""
-    if not name: return Response(EMPTY, mimetype="application/xml")
-    try:
-        eid = find_episode(name, epid)
-        xml = to_xml(fetch_comments(eid)) if eid else EMPTY
-    except Exception as e:
-        print("err", e); xml = EMPTY
-    return Response(xml, mimetype="application/xml")
-
-@app.route("/")
-def root(): return "danmu ok"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT","2525")))
-PY
-
-echo "[4/5] 配置 dandanplay AppId（免费申请：https://doc.dandanplay.com/open/）"
-if [ -n "$APPID" ] && [ -n "$APPSECRET" ]; then
-  printf 'APPID=%s\nAPPSECRET=%s\nPORT=%s\n' "$APPID" "$APPSECRET" "$PORT" > /etc/danmu.env
-elif [ ! -f /etc/danmu.env ]; then
-  printf 'APPID=在这里填你的AppId\nAPPSECRET=在这里填你的AppSecret\nPORT=%s\n' "$PORT" > /etc/danmu.env
-  echo ">> 已生成 /etc/danmu.env，填好 AppId 后执行 systemctl restart danmu"
-fi
-chmod 600 /etc/danmu.env
-
-echo "[5/5] 注册 systemd 开机自启"
+echo "[3/4] 注册 systemd 开机自启"
 cat > /etc/systemd/system/danmu.service <<UNIT
 [Unit]
-Description=Danmu server
-After=network.target
+Description=Danmu server (no key)
+After=network-online.target
 [Service]
-EnvironmentFile=/etc/danmu.env
+Environment=PORT=$PORT
 ExecStart=$APP_DIR/venv/bin/python $APP_DIR/danmu_server.py
 Restart=always
+RestartSec=3
 [Install]
 WantedBy=multi-user.target
 UNIT
-
 systemctl daemon-reload
-systemctl enable danmu
+systemctl enable danmu >/dev/null 2>&1
 systemctl restart danmu
 
-# 放行端口（有防火墙就开）
-command -v ufw >/dev/null && ufw allow $PORT/tcp || true
-command -v firewall-cmd >/dev/null && { firewall-cmd --permanent --add-port=$PORT/tcp; firewall-cmd --reload; } || true
+echo "[4/4] 放行端口 $PORT"
+command -v ufw >/dev/null && ufw allow $PORT/tcp >/dev/null 2>&1 || true
+command -v firewall-cmd >/dev/null && { firewall-cmd --permanent --add-port=$PORT/tcp >/dev/null 2>&1; firewall-cmd --reload >/dev/null 2>&1; } || true
 
-echo "完成。测试： curl 'http://127.0.0.1:$PORT/danmu?name=狂飙&epid=第1集'"
-echo "注意：云厂商安全组里也要放行 $PORT 端口。"
+sleep 2
+RUN_VER=$(curl -s "http://127.0.0.1:$PORT/version" 2>/dev/null)
+if curl -s "http://127.0.0.1:$PORT/" | grep -q ok; then
+  echo "✅ 弹幕服务已启动，运行版本 v${RUN_VER:-?}：http://$(curl -s4 ifconfig.me 2>/dev/null || echo 你的IP):$PORT/danmu?name=狂飙&episode=第1集"
+else
+  echo "❌ 启动失败，查看日志：journalctl -u danmu -n 50"
+fi
+echo "提示：云厂商安全组也要放行 $PORT 端口。更新：重新执行本命令即可。"
