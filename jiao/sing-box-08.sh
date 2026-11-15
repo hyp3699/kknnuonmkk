@@ -3361,7 +3361,7 @@ install_singbox() {
 TAR="sing-box-linux-${ARCH}.tar.gz"
 URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
 if ! { curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && { [ ! -f "${work_dir}/sing-box-linux-${ARCH}" ] || mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box"; } && chmod +x "${work_dir}/sing-box"; }; then
-	rm -f "${work_dir}/${TAR}"
+    rm -f "${work_dir}/${TAR}"
     red "sing-box 下载或解压失败"
     return 1
 fi
@@ -4029,6 +4029,12 @@ uninstall_singbox() {
                 systemctl disable "${server_name}"
                 
                 systemctl stop singbox-traffic.service 2>/dev/null || true
+                # 清理 CF 官方临时隧道及守护
+                for _qt in /etc/systemd/system/cf-quick-*.service /etc/systemd/system/cf-quick-watchdog.timer; do
+                    [ -f "$_qt" ] || continue
+                    systemctl disable --now "$(basename "$_qt")" 2>/dev/null || true
+                    rm -f "$_qt"
+                done
                 systemctl disable singbox-traffic.service 2>/dev/null || true
                 rm -f /etc/systemd/system/singbox-traffic.service
                 # 流量统计一并清掉，否则卸载后它还在跑。
@@ -5827,6 +5833,386 @@ enable_ws_argo() {
     green "============================================"
     read -rp "按回车返回..." _
 }
+# ══════════════ Cloudflare 官方临时隧道 (trycloudflare) ══════════════
+# 节点地址使用与 CDN 节点相同的优选域名 ${CFIP}:443
+QT_DIR="${work_dir}/quick"
+QT_BIN="${work_dir}/cloudflared"
+QT_WATCHDOG="${QT_DIR}/watchdog.sh"
+qt_install_cloudflared() {
+    if [ -x "$QT_BIN" ] && "$QT_BIN" --version >/dev/null 2>&1; then
+        return 0
+    fi
+    local arch
+    case "$(uname -m)" in
+        x86_64|amd64) arch="amd64" ;;
+        aarch64|arm64) arch="arm64" ;;
+        armv7l|armv7) arch="arm" ;;
+        i386|i686) arch="386" ;;
+        *) red "不支持的架构: $(uname -m)"; return 1 ;;
+    esac
+    yellow "正在下载 Cloudflare 官方 cloudflared (${arch})..."
+    if ! curl -fSL --connect-timeout 10 --max-time 180 -o "${QT_BIN}.tmp" \
+        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}"; then
+        rm -f "${QT_BIN}.tmp"
+        red "cloudflared 下载失败"
+        return 1
+    fi
+    chmod +x "${QT_BIN}.tmp" && mv -f "${QT_BIN}.tmp" "$QT_BIN"
+    "$QT_BIN" --version >/dev/null 2>&1 || { red "cloudflared 无法运行"; return 1; }
+    green "cloudflared 安装完成: $("$QT_BIN" --version 2>/dev/null | head -n1)"
+}
+qt_name() { echo "cf-quick-${1}-${2}"; }   # $1 inbound_type  $2 inbound_number
+qt_exists() { [ -f "/etc/systemd/system/$(qt_name "$1" "$2").service" ]; }
+qt_get_domain() {
+    local log="${QT_DIR}/$(qt_name "$1" "$2").log"
+    [ -f "$log" ] || return 1
+    grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | tail -n1 | sed 's#https://##'
+}
+# 从链接文件中删除临时隧道链接（vmess 备注在 base64 里，需解码判断）
+qt_strip_url() {
+    local url_file="$1" tmp line dec
+    [ -f "$url_file" ] || return 0
+    tmp=$(mktemp)
+    while IFS= read -r line; do
+        [[ "$line" == *QuickTunnel-* ]] && continue
+        if [[ "$line" == vmess://* ]]; then
+            dec=$(printf '%s' "${line#vmess://}" | base64 -d 2>/dev/null)
+            [[ "$dec" == *QuickTunnel-* ]] && continue
+        fi
+        echo "$line" >> "$tmp"
+    done < "$url_file"
+    mv -f "$tmp" "$url_file"
+}
+# 按当前临时域名重写节点链接（隧道每次启动都会由 systemd ExecStartPost 自动调用）
+qt_refresh_url() {
+    local config_file="$1" inbound_type="$2" inbound_number="$3"
+    local domain="" i uuid password ws_path node_remark node_remark_enc qt_url url_file
+    for i in $(seq 1 40); do
+        domain=$(qt_get_domain "$inbound_type" "$inbound_number")
+        [ -n "$domain" ] && break
+        sleep 1
+    done
+    [ -z "$domain" ] && { red "40 秒内未获取到临时隧道域名"; return 1; }
+    [ -z "${isp:-}" ] && isp="🌐"
+    uuid=$(jq -r '.inbounds[0].users[0].uuid // empty' "$config_file" 2>/dev/null)
+    password=$(jq -r '.inbounds[0].users[0].password // empty' "$config_file" 2>/dev/null)
+    ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
+    { [ -z "$ws_path" ] || [ "$ws_path" = "null" ]; } && ws_path="/"
+    [[ "$ws_path" != /* ]] && ws_path="/$ws_path"
+    node_remark="${isp}QuickTunnel-${inbound_type}"
+    node_remark_enc=$(printf '%s' "$node_remark" | jq -sRr @uri)
+    case "$inbound_type" in
+        vless-ws)
+            qt_url="vless://${uuid}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&encryption=none&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}" ;;
+        vmess-ws)
+            local vm="{ \"v\": \"2\", \"ps\": \"${node_remark}\", \"add\": \"${CFIP}\", \"port\": \"443\", \"id\": \"${uuid}\", \"aid\": \"0\", \"encryption\": \"auto\", \"net\": \"ws\", \"type\": \"auto\", \"host\": \"${domain}\", \"path\": \"${ws_path}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${domain}\", \"alpn\": \"\", \"fp\": \"firefox\", \"allowInsecure\": false }"
+            qt_url="vmess://$(printf '%s' "$vm" | base64 -w0)" ;;
+        trojan-ws)
+            qt_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}" ;;
+        vless-xhttp)
+            qt_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=${ws_path}#${node_remark_enc}" ;;
+        *) red "不支持的入站类型: ${inbound_type}"; return 1 ;;
+    esac
+    URL_DIR="${URL_DIR:-${work_dir}/url}"
+    url_file="$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    mkdir -p "$URL_DIR"
+    qt_strip_url "$url_file"
+    echo "$qt_url" >> "$url_file"
+    update_sub_file
+    declare -F refresh_user_subscriptions >/dev/null && refresh_user_subscriptions >/dev/null 2>&1
+    QT_LAST_URL="$qt_url"
+}
+# ── 守护程序：每 2 分钟检查一次，进程挂了 / 域名失效就自动重启隧道（重启后链接自动更新）──
+qt_install_watchdog() {
+    mkdir -p "$QT_DIR"
+    cat > "$QT_WATCHDOG" <<'WD'
+#!/bin/bash
+# CF 临时隧道守护：只检查"已启用"的隧道，手动停止的不会被拉起
+QT_DIR="/etc/sing-box/quick"
+for unit in /etc/systemd/system/cf-quick-*.service; do
+    [ -f "$unit" ] || continue
+    name=$(basename "$unit" .service)
+    [ "$name" = "cf-quick-watchdog" ] && continue
+    systemctl is-enabled --quiet "$name" 2>/dev/null || continue
+    fail_file="${QT_DIR}/${name}.fail"
+    if ! systemctl is-active --quiet "$name"; then
+        echo "$(date '+%F %T') ${name} 未运行，重启" >> "${QT_DIR}/watchdog.log"
+        systemctl restart --no-block "$name"; rm -f "$fail_file"; continue
+    fi
+    domain=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "${QT_DIR}/${name}.log" 2>/dev/null | tail -n1 | sed 's#https://##')
+    if [ -z "$domain" ]; then
+        since=$(systemctl show -p ActiveEnterTimestamp --value "$name")
+        start_ts=$(date -d "$since" +%s 2>/dev/null || echo 0)
+        if [ $(( $(date +%s) - start_ts )) -gt 90 ]; then
+            echo "$(date '+%F %T') ${name} 无域名，重启" >> "${QT_DIR}/watchdog.log"
+            systemctl restart --no-block "$name"; rm -f "$fail_file"
+        fi
+        continue
+    fi
+    code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "https://${domain}/" 2>/dev/null)
+    case "$code" in
+        000|502|530|1033)
+            n=$(( $(cat "$fail_file" 2>/dev/null || echo 0) + 1 ))
+            echo "$n" > "$fail_file"
+            if [ "$n" -ge 2 ]; then
+                echo "$(date '+%F %T') ${name} 域名 ${domain} 失效(${code})，重启" >> "${QT_DIR}/watchdog.log"
+                systemctl restart --no-block "$name"; rm -f "$fail_file"
+            fi ;;
+        *) rm -f "$fail_file" ;;
+    esac
+done
+# 日志只保留最后 200 行
+[ -f "${QT_DIR}/watchdog.log" ] && tail -n 200 "${QT_DIR}/watchdog.log" > "${QT_DIR}/watchdog.log.tmp" && mv -f "${QT_DIR}/watchdog.log.tmp" "${QT_DIR}/watchdog.log"
+WD
+    sed -i "s#^QT_DIR=.*#QT_DIR=\"${QT_DIR}\"#" "$QT_WATCHDOG"
+    chmod +x "$QT_WATCHDOG"
+    cat > /etc/systemd/system/cf-quick-watchdog.service <<UNIT
+[Unit]
+Description=Cloudflare Quick Tunnel Watchdog
+
+[Service]
+Type=oneshot
+ExecStart=${QT_WATCHDOG}
+UNIT
+    cat > /etc/systemd/system/cf-quick-watchdog.timer <<UNIT
+[Unit]
+Description=Cloudflare Quick Tunnel Watchdog Timer
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
+UNIT
+    systemctl daemon-reload
+}
+# 有启用中的隧道才开守护定时器，全部停止时自动关闭，不占资源
+qt_sync_watchdog() {
+    local unit any=0
+    for unit in /etc/systemd/system/cf-quick-*-[0-9]*.service; do
+        [ -f "$unit" ] || continue
+        systemctl is-enabled --quiet "$(basename "$unit" .service)" 2>/dev/null && { any=1; break; }
+    done
+    if [ "$any" = "1" ]; then
+        [ -f /etc/systemd/system/cf-quick-watchdog.timer ] || qt_install_watchdog
+        systemctl enable --now cf-quick-watchdog.timer >/dev/null 2>&1
+    else
+        systemctl disable --now cf-quick-watchdog.timer >/dev/null 2>&1
+    fi
+}
+qt_write_unit() {
+    local config_file="$1" inbound_type="$2" inbound_number="$3"
+    local name port scheme extra=""
+    port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
+    [ -z "$port" ] && { red "未获取到入站端口！"; return 1; }
+    if [ "$(jq -r '.inbounds[0].tls.enabled // false' "$config_file" 2>/dev/null)" = "true" ]; then
+        scheme="https"; extra="--no-tls-verify"
+    else
+        scheme="http"
+    fi
+    mkdir -p "$QT_DIR"
+    name=$(qt_name "$inbound_type" "$inbound_number")
+    cat > "/etc/systemd/system/${name}.service" <<UNIT
+[Unit]
+Description=Cloudflare Quick Tunnel for ${inbound_type}-${inbound_number}
+After=network-online.target sing-box.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=${QT_DIR}
+ExecStartPre=/bin/sh -c ': > ${QT_DIR}/${name}.log'
+ExecStart=${QT_BIN} tunnel --no-autoupdate --edge-ip-version auto --protocol http2 --logfile ${QT_DIR}/${name}.log --url ${scheme}://localhost:${port} ${extra}
+ExecStartPost=-/bin/bash -c 'SB_LOAD_ONLY=1 . ${work_dir}/sb.sh >/dev/null 2>&1; qt_refresh_url "${config_file}" "${inbound_type}" "${inbound_number}" >/dev/null 2>&1'
+TimeoutStartSec=90
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload
+}
+# 启动（或重启 = 重置隧道域名），并设为开机自启
+qt_start() {
+    local config_file="$1" inbound_type="$2" inbound_number="$3" name
+    command_exists systemctl || { red "临时隧道目前只支持 systemd 系统"; return 1; }
+    qt_install_cloudflared || return 1
+    qt_write_unit "$config_file" "$inbound_type" "$inbound_number" || return 1
+    name=$(qt_name "$inbound_type" "$inbound_number")
+    systemctl enable "$name" >/dev/null 2>&1
+    yellow "正在启动临时隧道，等待 Cloudflare 分配域名..."
+    systemctl restart "$name"
+    qt_sync_watchdog
+    generate_vars
+    if qt_refresh_url "$config_file" "$inbound_type" "$inbound_number"; then
+        green "============================================"
+        green "临时隧道运行中（守护已开启）"
+        green "域名：$(qt_get_domain "$inbound_type" "$inbound_number")"
+        green "优选地址：${CFIP}:443"
+        yellow "服务器或隧道重启后域名会变，节点链接和订阅会自动更新"
+        echo
+        green "临时隧道节点链接："
+        echo "$QT_LAST_URL"
+        green "============================================"
+    else
+        red "临时隧道启动失败，日志：${QT_DIR}/${name}.log"
+        tail -n 20 "${QT_DIR}/${name}.log" 2>/dev/null
+        return 1
+    fi
+}
+# 停止：进程退出、取消开机自启、守护不再拉起，节点链接从订阅移除
+qt_stop() {
+    local config_file="$1" inbound_type="$2" inbound_number="$3" name
+    name=$(qt_name "$inbound_type" "$inbound_number")
+    systemctl disable --now "$name" >/dev/null 2>&1
+    rm -f "${QT_DIR}/${name}.fail"
+    URL_DIR="${URL_DIR:-${work_dir}/url}"
+    qt_strip_url "$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    update_sub_file
+    qt_sync_watchdog
+    green "临时隧道已停止，cloudflared 进程已退出，不再占用内存"
+}
+# 彻底删除隧道服务（删除入站 / 卸载时调用）
+qt_remove() {
+    local config_file="$1" inbound_type="$2" inbound_number="$3" name
+    name=$(qt_name "$inbound_type" "$inbound_number")
+    qt_stop "$config_file" "$inbound_type" "$inbound_number" >/dev/null 2>&1
+    rm -f "/etc/systemd/system/${name}.service" "${QT_DIR}/${name}.log" "${QT_DIR}/${name}.fail"
+    systemctl daemon-reload
+}
+# 重置 UUID 和 WS 路径
+qt_reset_credentials() {
+    local config_file="$1" inbound_type="$2" inbound_number="$3" new_uuid new_path name
+    new_uuid=$(cat /proc/sys/kernel/random/uuid)
+    new_path="/$(openssl rand -hex 6)-ws"
+    jq --arg u "$new_uuid" --arg p "$new_path" \
+        '.inbounds[0].users[0].uuid = $u | .inbounds[0].transport.path = $p' \
+        "$config_file" > "${config_file}.tmp" && mv -f "${config_file}.tmp" "$config_file" || {
+        red "重置失败"; rm -f "${config_file}.tmp"; return 1; }
+    systemctl reload sing-box 2>/dev/null || systemctl restart sing-box
+    green "新 UUID：${new_uuid}"
+    green "新路径：${new_path}"
+    name=$(qt_name "$inbound_type" "$inbound_number")
+    if systemctl is-active --quiet "$name"; then
+        generate_vars
+        qt_refresh_url "$config_file" "$inbound_type" "$inbound_number" && {
+            green "节点链接已更新："; echo "$QT_LAST_URL"; }
+    else
+        yellow "隧道未运行，启动后自动生成新链接"
+    fi
+}
+qt_menu() {
+    local config_file="$1" engine="$2" inbound_type="$3" inbound_number="$4"
+    local name state domain c uuid path
+    name=$(qt_name "$inbound_type" "$inbound_number")
+    while true; do
+        clear
+        green "========== CF 官方临时隧道 =========="
+        echo
+        if systemctl is-active --quiet "$name" 2>/dev/null; then
+            state="🟢 运行中"; domain=$(qt_get_domain "$inbound_type" "$inbound_number")
+        else
+            state="⚪ 已停止"; domain="-"
+        fi
+        uuid=$(jq -r '.inbounds[0].users[0].uuid // .inbounds[0].users[0].password // "-"' "$config_file" 2>/dev/null)
+        path=$(jq -r '.inbounds[0].transport.path // "-"' "$config_file" 2>/dev/null)
+        green "入站：${inbound_type}-${inbound_number}"
+        green "端口：$(jq -r '.inbounds[0].listen_port' "$config_file" 2>/dev/null)"
+        green "状态：${state}"
+        green "隧道域名：${domain:--}"
+        green "优选地址：${CFIP}:443"
+        green "UUID：${uuid}"
+        green "路径：${path}"
+        if systemctl is-active --quiet cf-quick-watchdog.timer 2>/dev/null; then
+            green "守护：🟢 已开启（每 2 分钟检查）"
+        else
+            yellow "守护：⚪ 未开启"
+        fi
+        echo
+        green "1. 启动隧道"
+        green "2. 停止隧道（进程退出，不占内存）"
+        green "3. 重置隧道域名"
+        green "4. 重置 UUID 和路径"
+        green "5. 查看节点链接"
+        green "6. 查看隧道日志"
+        green "7. 查看守护日志"
+        green "0. 返回"
+        echo
+        read -rp "请选择: " c
+        case "$c" in
+            1|3) qt_start "$config_file" "$inbound_type" "$inbound_number" ;;
+            2) qt_stop "$config_file" "$inbound_type" "$inbound_number" ;;
+            4) qt_reset_credentials "$config_file" "$inbound_type" "$inbound_number" ;;
+            5) grep -h . "${URL_DIR:-${work_dir}/url}/${inbound_type}-${inbound_number}.txt" 2>/dev/null || yellow "暂无链接（隧道未运行）" ;;
+            6) tail -n 40 "${QT_DIR}/${name}.log" 2>/dev/null || yellow "暂无日志" ;;
+            7) tail -n 40 "${QT_DIR}/watchdog.log" 2>/dev/null || yellow "暂无守护日志" ;;
+            0) return ;;
+            *) red "无效选项"; sleep 1; continue ;;
+        esac
+        read -rp "按回车返回..." _
+    done
+}
+# ── 一键添加：VMess WS(127.0.0.1:8101) + CF 官方临时隧道 ──
+add_quick_tunnel_inbound() {
+    local qt_port=8101
+    local inbound_type="vmess-ws"
+    local inbound_number config_file qt_uuid qt_path
+    command_exists systemctl || { red "临时隧道目前只支持 systemd 系统"; return 1; }
+    if port_is_used "$qt_port" tcp; then
+        red "端口 ${qt_port} 已被占用，无法添加临时隧道"
+        return 1
+    fi
+    URL_DIR="${URL_DIR:-${work_dir}/url}"
+    CONF_DIR="${CONF_DIR:-${work_dir}/conf}"
+    mkdir -p "$URL_DIR" "$CONF_DIR"
+    qt_uuid=$(cat /proc/sys/kernel/random/uuid)
+    qt_path="/$(openssl rand -hex 6)-ws"
+    inbound_number=$(get_next_inbound_number "$inbound_type")
+    config_file=$(get_inbound_config_file "$inbound_type" "$inbound_number" "sing-box")
+    green "================ 添加临时隧道 ================"
+    green "入站：${inbound_type}-${inbound_number}"
+    green "端口：127.0.0.1:${qt_port}（仅隧道可访问）"
+    green "路径：${qt_path}"
+    echo
+    cat > "$config_file" << EOF2
+{
+  "inbounds": [
+    {
+      "type": "vmess",
+      "tag": "vmess-ws-${inbound_number}",
+      "listen": "127.0.0.1",
+      "listen_port": ${qt_port},
+      "users": [
+        {
+          "name": "vmess-ws-user${inbound_number}",
+          "uuid": "${qt_uuid}"
+        }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "${qt_path}",
+        "max_early_data": 2048,
+        "early_data_header_name": "Sec-WebSocket-Protocol"
+      }
+    }
+  ]
+}
+EOF2
+    if [ -x "${work_dir}/sing-box" ] && ! "${work_dir}/sing-box" check -C "$CONF_DIR" >/dev/null 2>&1; then
+        red "生成的入站配置校验失败，已撤销"
+        rm -f "$config_file"
+        return 1
+    fi
+    add_v2ray_api_user "vmess-ws-user${inbound_number}"
+    : > "$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    systemctl reload sing-box 2>/dev/null || systemctl restart sing-box
+    sleep 2
+    qt_start "$config_file" "$inbound_type" "$inbound_number"
+    green "之后可在 9.添加删除节点 → ${inbound_type}-${inbound_number} → 8.临时隧道 中启停/重置"
+}
 get_inbound_cdn_domain() {
     local inbound_type="$1"
     local inbound_number="$2"
@@ -6918,6 +7304,7 @@ add_inbound_menu() {
 		
         green "18. VMess WS"
         green "19. VLESS WS"
+        green "20. 添加临时隧道（CF官方 VMess 8101）"
         echo
         green "--------------------------------------------"
         green "0. 返回"
@@ -6941,6 +7328,7 @@ add_inbound_menu() {
 			
 			18) add_inbound "vmess-ws" ;;
             19) add_inbound "vless-ws" ;;
+            20) add_quick_tunnel_inbound; read -rp "按回车返回..." _ ;;
             0) return ;;
             *) red "无效选项"; sleep 1 ;;
         esac
@@ -8508,6 +8896,13 @@ manage_single_inbound() {
             vless-ws|vmess-ws|trojan-ws|vless-xhttp)
                 green "6. 开启CDN"
                 green "7. 开启隧道"
+                if systemctl is-active --quiet "$(qt_name "$inbound_type" "$inbound_number")" 2>/dev/null; then
+                    green "8. CF临时隧道（🟢 运行中）"
+                elif qt_exists "$inbound_type" "$inbound_number"; then
+                    yellow "8. CF临时隧道（⚪ 已停止）"
+                else
+                    green "8. CF临时隧道"
+                fi
                 ;;
         esac
         echo
@@ -8572,6 +8967,9 @@ manage_single_inbound() {
     case "$inbound_type" in
         hysteria2)
             manage_hy2_obfs_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
+            ;;
+        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
+            qt_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
             ;;
         *)
             red "当前入站没有此功能"
@@ -8938,6 +9336,9 @@ delete_inbound() {
     echo
     read -rp "输入 y 确认删除: " confirm
     [ "$confirm" = "y" ] || return 1
+    if qt_exists "$inbound_type" "$inbound_number"; then
+        qt_remove "$config_file" "$inbound_type" "$inbound_number"
+    fi
     if [ ! -f "$config_file" ]; then
         red "错误：配置文件不存在，删除取消。"
         sleep 1
