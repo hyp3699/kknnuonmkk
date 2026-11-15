@@ -5353,9 +5353,10 @@ def qt_key(parsed):
         return None
     if parsed[0] == "vmess":
         ps = str(parsed[1].get("ps", ""))
-        return ("vmess", ps) if ("临时隧道" in ps or "QuickTunnel-" in ps) else None
+        return ("qt", ps) if ("临时隧道" in ps or "QuickTunnel-" in ps) else None
     frag = urllib.parse.unquote(parsed[-1] or "")
-    return (parsed[0], frag) if ("临时隧道" in frag or "QuickTunnel-" in frag) else None
+    # 不含协议：临时隧道切换 VMess/VLESS 后，用户订阅仍能按备注对上
+    return ("qt", frag) if ("临时隧道" in frag or "QuickTunnel-" in frag) else None
 
 def with_user_cred(src_line, user_line, user_uuid):
     sp = split_url(src_line)
@@ -5399,7 +5400,7 @@ def load_sources():
                 if parsed is None:
                     continue
                 ex, lo = keys(parsed)
-                entries.append({"exact": ex, "loose": lo, "qt": qt_key(parsed), "line": line})
+                entries.append({"exact": ex, "loose": lo, "qt": qt_key(parsed), "scheme": parsed[0], "line": line})
     return entries
 
 def traffic_line_for(username):
@@ -5496,7 +5497,7 @@ for user_dir_name in sorted(os.listdir(url_dir)):
         if hit is None and oq is not None and "QuickTunnel-" in oq[1]:
             # 兼容旧版备注
             for i, e in enumerate(sources):
-                if i not in used_idx and e["qt"] is not None and e["qt"][0] == oq[0]:
+                if i not in used_idx and e["qt"] is not None and e["scheme"] == parsed[0]:
                     hit = i
                     break
         if hit is None:
@@ -5902,7 +5903,7 @@ qt_install_cloudflared() {
 }
 qt_name() { echo "cf-quick-${1}-${2}"; }   # $1 inbound_type  $2 inbound_number
 qt_exists() { [ -f "/etc/systemd/system/$(qt_name "$1" "$2").service" ]; }
-# 是否为"添加临时隧道"(入站20)创建的专用入站：有标记文件，或仅监听本机且带隧道服务
+# 是否为"添加临时隧道"(添加入站 15)创建的专用入站：有标记文件，或仅监听本机且带隧道服务
 qt_is_dedicated() {
     local inbound_type="$1" inbound_number="$2" cfg
     [ -f "${QT_DIR}/${inbound_type}-${inbound_number}.dedicated" ] && return 0
@@ -6225,6 +6226,64 @@ qt_menu() {
         read -rp "按回车返回..." _
     done
 }
+# 临时隧道专用入站：VMess WS <-> VLESS WS 互相切换
+# 保留端口、UUID、路径和入站里所有用户（名字不变，流量统计/限额/限速不受影响），
+# 已添加的用户订阅里的临时隧道节点按备注自动换成新协议。
+qt_switch_protocol() {
+    local config_file="$1" inbound_type="$2" inbound_number="$3"
+    local new_type new_proto new_number new_config was_active=0 old_name tmp
+    case "$inbound_type" in
+        vmess-ws) new_type="vless-ws"; new_proto="vless" ;;
+        vless-ws) new_type="vmess-ws"; new_proto="vmess" ;;
+        *) red "只有 VMess WS / VLESS WS 临时隧道可以切换"; return 1 ;;
+    esac
+    qt_is_dedicated "$inbound_type" "$inbound_number" || { red "不是临时隧道专用入站"; return 1; }
+    local _c
+    read -rp "确认把临时隧道从 ${inbound_type} 切换为 ${new_type}？(y/N): " _c
+    [[ "$_c" =~ ^[Yy]$ ]] || return 1
+    URL_DIR="${URL_DIR:-${work_dir}/url}"
+    CONF_DIR="${CONF_DIR:-${work_dir}/conf}"
+    new_number=$(get_next_inbound_number "$new_type")
+    new_config=$(get_inbound_config_file "$new_type" "$new_number" "sing-box")
+    tmp=$(mktemp /tmp/sb-qtswitch.XXXXXX) || return 1
+    if ! jq --arg t "$new_proto" --arg tag "${new_type}-${new_number}" \
+        '.inbounds[0].type = $t | .inbounds[0].tag = $tag
+         | .inbounds[0].users = [.inbounds[0].users[]? | {name, uuid}]' \
+        "$config_file" > "$tmp" 2>/dev/null; then
+        rm -f "$tmp"; red "生成新配置失败"; return 1
+    fi
+    old_name=$(qt_name "$inbound_type" "$inbound_number")
+    systemctl is-active --quiet "$old_name" 2>/dev/null && was_active=1
+    systemctl is-enabled --quiet "$old_name" 2>/dev/null && was_active=1
+    # 先停旧隧道：链接从订阅移除，用户的隧道节点暂存，新隧道起来后自动放回
+    qt_remove "$config_file" "$inbound_type" "$inbound_number"
+    mv -f "$config_file" "${config_file}.bak"
+    mv -f "$tmp" "$new_config"
+    chmod 600 "$new_config" 2>/dev/null
+    if [ -x "${work_dir}/sing-box" ] && ! "${work_dir}/sing-box" check -C "$CONF_DIR" >/dev/null 2>&1; then
+        red "新配置校验失败，已还原"
+        rm -f "$new_config"
+        mv -f "${config_file}.bak" "$config_file"
+        mkdir -p "$QT_DIR" && : > "${QT_DIR}/${inbound_type}-${inbound_number}.dedicated"
+        [ "$was_active" = "1" ] && qt_start "$config_file" "$inbound_type" "$inbound_number"
+        return 1
+    fi
+    rm -f "${config_file}.bak" "$URL_DIR/${inbound_type}-${inbound_number}.txt"
+    mkdir -p "$QT_DIR" && : > "${QT_DIR}/${new_type}-${new_number}.dedicated"
+    : > "$URL_DIR/${new_type}-${new_number}.txt"
+    update_sub_file
+    refresh_user_subscriptions >/dev/null 2>&1
+    systemctl reload sing-box 2>/dev/null || systemctl restart sing-box
+    sleep 1
+    green "已切换为 ${new_type}（端口、UUID、路径、用户不变）"
+    QT_SWITCH_CONFIG="$new_config"; QT_SWITCH_TYPE="$new_type"; QT_SWITCH_NUMBER="$new_number"
+    if [ "$was_active" = "1" ]; then
+        qt_start "$new_config" "$new_type" "$new_number"
+    else
+        yellow "隧道原本是停止状态，启动后自动生成新链接"
+    fi
+    return 0
+}
 # ── 一键添加：VMess WS(127.0.0.1:8101) + CF 官方临时隧道 ──
 add_quick_tunnel_inbound() {
     local qt_port=8101
@@ -6282,7 +6341,7 @@ EOF2
     systemctl reload sing-box 2>/dev/null || systemctl restart sing-box
     sleep 2
     qt_start "$config_file" "$inbound_type" "$inbound_number"
-    green "之后可在 9.添加删除节点 → 临时隧道 → 8.临时隧道管理 中启停/重置"
+    green "之后可在 9.添加删除节点 → 临时隧道 → 7.临时隧道管理 中启停/重置，6 可切换 VLESS/VMess"
 }
 get_inbound_cdn_domain() {
     local inbound_type="$1"
@@ -6499,7 +6558,8 @@ for file in "$CONF_DIR"/*.json; do
                 ;;
         esac
         if qt_is_dedicated "$inbound_type" "$inbound_number"; then
-            printf "%s. %-26s " "$index" "临时隧道"
+            # bash printf 按字节补齐，中文 4 字=12 字节但只占 8 列，这里手动补到 30 列和其他入站对齐
+            printf "%s. %s%22s " "$index" "临时隧道" ""
             if systemctl is-active --quiet "$(qt_name "$inbound_type" "$inbound_number")" 2>/dev/null; then
                 green "🟢 运行中"
             else
@@ -7379,17 +7439,15 @@ add_inbound_menu() {
         green "4. HTTP Reality"
         green "5. gRPC Reality"
         green "6. AnyTLS"
-        green "8. SOCKS5"
-        green "10. XHTTP Reality"
-        green "11. VLESS XHTTP"
-        green "12. XHTTP UDP TLS"
-		
-        green "15. VLESS TCP TLS"
-        green "16. Naiveproxy"
-		
-        green "18. VMess WS"
-        green "19. VLESS WS"
-        green "20. 添加临时隧道（CF官方 VMess 8101）"
+        green "7. SOCKS5"
+        green "8. XHTTP Reality"
+        green "9. VLESS XHTTP"
+        green "10. XHTTP UDP TLS"
+        green "11. VLESS TCP TLS"
+        green "12. Naiveproxy"
+        green "13. VMess WS"
+        green "14. VLESS WS"
+        green "15. 添加临时隧道（CF官方 VMess 8101）"
         echo
         green "--------------------------------------------"
         green "0. 返回"
@@ -7402,18 +7460,15 @@ add_inbound_menu() {
             4) add_inbound "http-reality" ;;
             5) add_inbound "grpc-reality" ;;
             6) add_inbound "anytls" ;;
-            8) add_inbound "socks5" ;;
-           
-            10) add_inbound "xhttp-reality" ;;
-            11) add_inbound "vless-xhttp" ;;
-            12) add_inbound "xhttp-udp-tls" ;;
-            
-            15) add_inbound "vless-tcp-tls" ;;
-            16) add_inbound "naiveproxy" ;;
-			
-			18) add_inbound "vmess-ws" ;;
-            19) add_inbound "vless-ws" ;;
-            20) add_quick_tunnel_inbound; read -rp "按回车返回..." _ ;;
+            7) add_inbound "socks5" ;;
+            8) add_inbound "xhttp-reality" ;;
+            9) add_inbound "vless-xhttp" ;;
+            10) add_inbound "xhttp-udp-tls" ;;
+            11) add_inbound "vless-tcp-tls" ;;
+            12) add_inbound "naiveproxy" ;;
+            13) add_inbound "vmess-ws" ;;
+            14) add_inbound "vless-ws" ;;
+            15) add_quick_tunnel_inbound; read -rp "按回车返回..." _ ;;
             0) return ;;
             *) red "无效选项"; sleep 1 ;;
         esac
@@ -8963,41 +9018,48 @@ manage_single_inbound() {
         show_speed_limit "$traffic_user"
         green "-------------------------------------------"
         red "s. 删除入站"
-        green "1. 修改UUID"
-        [ "$qt_dedicated" = "1" ] || green "2. 修改端口"
-        green "3. 流量限制"
-        green "4. 查看链接"
-        green "5. 查看配置"
-        green "9. 限速管理"
+        # 菜单编号按实际显示的项目顺序生成，保证连续不跳号
+        local _mi_acts=() _mi_n=0 _mi_act=""
+        _mi_add() { _mi_n=$((_mi_n + 1)); _mi_acts+=("$2"); "$1" "${_mi_n}. $3"; }
+        _mi_add green uuid "修改UUID"
+        [ "$qt_dedicated" = "1" ] || _mi_add green port "修改端口"
+        _mi_add green limit "流量限制"
+        _mi_add green url "查看链接"
+        _mi_add green config "查看配置"
+        _mi_add green speed "限速管理"
         case "$inbound_type" in
             vless-reality|grpc-reality|xhttp-reality)
-                green "6. 修改 Reality 域名"
+                _mi_add green reality "修改 Reality 域名"
                 ;;
             hysteria2)
                 if hy2_port_hopping_enabled "$inbound_number"; then
-                    green "7. 端口跳跃（已开启）"
+                    _mi_add green hop "端口跳跃（已开启）"
                 else
-                    yellow "7. 端口跳跃（未开启）"
+                    _mi_add yellow hop "端口跳跃（未开启）"
                 fi
                 if hy2_obfs_enabled "$config_file" "$inbound_type" "$inbound_number"; then
-                    green "8. 混淆（已开启）"
+                    _mi_add green obfs "混淆（已开启）"
                 else
-                    yellow "8. 混淆（未开启）"
+                    _mi_add yellow obfs "混淆（未开启）"
                 fi
                 ;;
             vless-ws|vmess-ws|trojan-ws|vless-xhttp)
                 if [ "$qt_dedicated" = "1" ]; then
-                    green "8. 临时隧道管理（$(qt_status_text "$inbound_type" "$inbound_number")）"
+                    case "$inbound_type" in
+                        vmess-ws) _mi_add green switch "切换 VLESS" ;;
+                        vless-ws) _mi_add green switch "切换 VMess" ;;
+                    esac
+                    _mi_add green qt "临时隧道管理（$(qt_status_text "$inbound_type" "$inbound_number")）"
                 else
-                green "6. 开启CDN"
-                green "7. 开启隧道"
-                if systemctl is-active --quiet "$(qt_name "$inbound_type" "$inbound_number")" 2>/dev/null; then
-                    green "8. CF临时隧道（🟢 运行中）"
-                elif qt_exists "$inbound_type" "$inbound_number"; then
-                    yellow "8. CF临时隧道（⚪ 已停止）"
-                else
-                    green "8. CF临时隧道"
-                fi
+                    _mi_add green cdn "开启CDN"
+                    _mi_add green argo "开启隧道"
+                    if systemctl is-active --quiet "$(qt_name "$inbound_type" "$inbound_number")" 2>/dev/null; then
+                        _mi_add green qt "CF临时隧道（🟢 运行中）"
+                    elif qt_exists "$inbound_type" "$inbound_number"; then
+                        _mi_add yellow qt "CF临时隧道（⚪ 已停止）"
+                    else
+                        _mi_add green qt "CF临时隧道"
+                    fi
                 fi
                 ;;
         esac
@@ -9006,88 +9068,49 @@ manage_single_inbound() {
         green "0. 返回"
         echo
         read -rp "请选择: " choice
+        _mi_act=""
         case "$choice" in
-            s|S)
+            s|S) _mi_act="delete" ;;
+            0) return ;;
+            *)
+                if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "$_mi_n" ]; then
+                    _mi_act="${_mi_acts[$((choice - 1))]}"
+                fi
+                ;;
+        esac
+        case "$_mi_act" in
+            delete)
                 if delete_inbound "$config_file" "$engine" "$inbound_type" "$inbound_number" "$traffic_user"; then
                     return
                 fi
                 ;;
-            1)
-                modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number" "$traffic_user"
-                ;;
-            2)
-                if [ "$qt_dedicated" = "1" ]; then
-                    red "无效选项"; sleep 1
-                else
-                modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
+            uuid) modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number" "$traffic_user" ;;
+            port) modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number" ;;
+            limit) bash /etc/sing-box/sing-box-name.sh "$traffic_user" ;;
+            url) show_inbound_url "$inbound_type" "$inbound_number" ;;
+            config) show_inbound_config "$config_file" ;;
+            speed) speed_limit_menu "$traffic_user" ;;
+            reality) modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number" ;;
+            hop) manage_hy2_port_hopping_menu "$config_file" "$engine" "$inbound_type" "$inbound_number" ;;
+            obfs) manage_hy2_obfs_menu "$config_file" "$engine" "$inbound_type" "$inbound_number" ;;
+            cdn) enable_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number" ;;
+            argo) enable_ws_argo "$config_file" "$engine" "$inbound_type" "$inbound_number" ;;
+            qt) qt_menu "$config_file" "$engine" "$inbound_type" "$inbound_number" ;;
+            switch)
+                if qt_switch_protocol "$config_file" "$inbound_type" "$inbound_number"; then
+                    # 切换后入站名称/配置文件都变了，切到新入站继续管理
+                    config_file="$QT_SWITCH_CONFIG"
+                    inbound_type="$QT_SWITCH_TYPE"
+                    inbound_number="$QT_SWITCH_NUMBER"
                 fi
+                read -rp "按回车返回..." _
                 ;;
-            3)
-                bash /etc/sing-box/sing-box-name.sh "$traffic_user"
+            *)
+                red "无效选项"
+                sleep 1
                 ;;
-            4)
-                show_inbound_url "$inbound_type" "$inbound_number"
-                ;;
-    5)
-        show_inbound_config "$config_file"
-        ;;
-    9)
-        speed_limit_menu "$traffic_user"
-        ;;
-    6)
-        if [ "$qt_dedicated" = "1" ]; then red "无效选项"; sleep 1; continue; fi
-        case "$inbound_type" in
-        vless-reality|grpc-reality|xhttp-reality)
-            modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number"
-            ;;
-        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
-            enable_ws_cdn "$config_file" "$engine" "$inbound_type" "$inbound_number"
-            ;;
-        *)
-            red "当前入站没有此功能"
-            sleep 1
-            ;;
-    esac
-    ;;
-       
-    7)
-    if [ "$qt_dedicated" = "1" ]; then red "无效选项"; sleep 1; continue; fi
-    case "$inbound_type" in
-        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
-            enable_ws_argo "$config_file" "$engine" "$inbound_type" "$inbound_number"
-            ;;
-        hysteria2)
-            manage_hy2_port_hopping_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
-            ;;
-        *)
-            red "当前入站没有此功能"
-            sleep 1
-            ;;
-    esac
-    ;;
-    8)
-    case "$inbound_type" in
-        hysteria2)
-            manage_hy2_obfs_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
-            ;;
-        vless-ws|vmess-ws|trojan-ws|vless-xhttp)
-            qt_menu "$config_file" "$engine" "$inbound_type" "$inbound_number"
-            ;;
-        *)
-            red "当前入站没有此功能"
-            sleep 1
-            ;;
-    esac
-    ;;
-0)
-    return
-    ;;
-*)
-    red "无效选项"
-    sleep 1
-    ;;
-esac
-done
+        esac
+    done
 }
 manage_single_user() {
     local username="$1"
