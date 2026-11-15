@@ -3360,8 +3360,8 @@ install_singbox() {
 
 TAR="sing-box-linux-${ARCH}.tar.gz"
 URL="https://github.com/hyp3699/sssssssssssiiii/releases/download/${latest_tag}/${TAR}"
-if ! { curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && chmod +x "${work_dir}/sing-box-linux-${ARCH}" && mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box"; }; then
-    rm -f "${work_dir}/${TAR}"
+if ! { curl -fSL -o "${work_dir}/${TAR}" "$URL" && tar -xzf "${work_dir}/${TAR}" -C "${work_dir}" && { [ ! -f "${work_dir}/sing-box-linux-${ARCH}" ] || mv -f "${work_dir}/sing-box-linux-${ARCH}" "${work_dir}/sing-box"; } && chmod +x "${work_dir}/sing-box"; }; then
+	rm -f "${work_dir}/${TAR}"
     red "sing-box 下载或解压失败"
     return 1
 fi
