@@ -5863,6 +5863,21 @@ qt_install_cloudflared() {
 }
 qt_name() { echo "cf-quick-${1}-${2}"; }   # $1 inbound_type  $2 inbound_number
 qt_exists() { [ -f "/etc/systemd/system/$(qt_name "$1" "$2").service" ]; }
+# 是否为"添加临时隧道"(入站20)创建的专用入站：有标记文件，或仅监听本机且带隧道服务
+qt_is_dedicated() {
+    local inbound_type="$1" inbound_number="$2" cfg
+    [ -f "${QT_DIR}/${inbound_type}-${inbound_number}.dedicated" ] && return 0
+    cfg="${CONF_DIR:-${work_dir}/conf}/${inbound_type}-${inbound_number}.json"
+    qt_exists "$inbound_type" "$inbound_number" &&
+        [ "$(jq -r '.inbounds[0].listen // empty' "$cfg" 2>/dev/null)" = "127.0.0.1" ]
+}
+qt_status_text() {
+    if systemctl is-active --quiet "$(qt_name "$1" "$2")" 2>/dev/null; then
+        echo "🟢 运行中"
+    else
+        echo "⚪ 已停止"
+    fi
+}
 qt_get_domain() {
     local log="${QT_DIR}/$(qt_name "$1" "$2").log"
     [ -f "$log" ] || return 1
@@ -6080,7 +6095,7 @@ qt_remove() {
     local config_file="$1" inbound_type="$2" inbound_number="$3" name
     name=$(qt_name "$inbound_type" "$inbound_number")
     qt_stop "$config_file" "$inbound_type" "$inbound_number" >/dev/null 2>&1
-    rm -f "/etc/systemd/system/${name}.service" "${QT_DIR}/${name}.log" "${QT_DIR}/${name}.fail"
+    rm -f "/etc/systemd/system/${name}.service" "${QT_DIR}/${name}.log" "${QT_DIR}/${name}.fail" "${QT_DIR}/${inbound_type}-${inbound_number}.dedicated"
     systemctl daemon-reload
 }
 # 重置 UUID 和 WS 路径
@@ -6207,11 +6222,12 @@ EOF2
         return 1
     fi
     add_v2ray_api_user "vmess-ws-user${inbound_number}"
+    mkdir -p "$QT_DIR" && : > "${QT_DIR}/${inbound_type}-${inbound_number}.dedicated"
     : > "$URL_DIR/${inbound_type}-${inbound_number}.txt"
     systemctl reload sing-box 2>/dev/null || systemctl restart sing-box
     sleep 2
     qt_start "$config_file" "$inbound_type" "$inbound_number"
-    green "之后可在 9.添加删除节点 → ${inbound_type}-${inbound_number} → 8.临时隧道 中启停/重置"
+    green "之后可在 9.添加删除节点 → 临时隧道 → 8.临时隧道管理 中启停/重置"
 }
 get_inbound_cdn_domain() {
     local inbound_type="$1"
@@ -6427,6 +6443,16 @@ for file in "$CONF_DIR"/*.json; do
                 fi
                 ;;
         esac
+        if qt_is_dedicated "$inbound_type" "$inbound_number"; then
+            printf "%s. %-26s " "$index" "临时隧道"
+            if systemctl is-active --quiet "$(qt_name "$inbound_type" "$inbound_number")" 2>/dev/null; then
+                green "🟢 运行中"
+            else
+                yellow "⚪ 已停止"
+            fi
+            index=$((index + 1))
+            continue
+        fi
 		printf "%s. %-30s " "$index" "${inbound_type}-${inbound_number}"
         if [ "$port_status" = "green" ]; then
             green "$port_text"
@@ -8843,8 +8869,15 @@ manage_single_inbound() {
         clear
         green "================= 入站管理 ================="
         echo
-        green "入站：${inbound_type}-${inbound_number}"
-        green "类型：${inbound_type}"
+        local qt_dedicated=0
+        qt_is_dedicated "$inbound_type" "$inbound_number" && qt_dedicated=1
+        if [ "$qt_dedicated" = "1" ]; then
+            green "入站：临时隧道（$(qt_status_text "$inbound_type" "$inbound_number")）"
+            green "类型：CF官方临时隧道 / ${inbound_type}"
+        else
+            green "入站：${inbound_type}-${inbound_number}"
+            green "类型：${inbound_type}"
+        fi
         green "路径：${config_file}"
         echo
         echo -e "${skyblue}流量统计${re}"
@@ -8872,7 +8905,7 @@ manage_single_inbound() {
         green "-------------------------------------------"
         red "s. 删除入站"
         green "1. 修改UUID"
-        green "2. 修改端口"
+        [ "$qt_dedicated" = "1" ] || green "2. 修改端口"
         green "3. 流量限制"
         green "4. 查看链接"
         green "5. 查看配置"
@@ -8894,6 +8927,9 @@ manage_single_inbound() {
                 fi
                 ;;
             vless-ws|vmess-ws|trojan-ws|vless-xhttp)
+                if [ "$qt_dedicated" = "1" ]; then
+                    green "8. 临时隧道管理（$(qt_status_text "$inbound_type" "$inbound_number")）"
+                else
                 green "6. 开启CDN"
                 green "7. 开启隧道"
                 if systemctl is-active --quiet "$(qt_name "$inbound_type" "$inbound_number")" 2>/dev/null; then
@@ -8902,6 +8938,7 @@ manage_single_inbound() {
                     yellow "8. CF临时隧道（⚪ 已停止）"
                 else
                     green "8. CF临时隧道"
+                fi
                 fi
                 ;;
         esac
@@ -8920,7 +8957,11 @@ manage_single_inbound() {
                 modify_inbound_uuid "$config_file" "$engine" "$inbound_type" "$inbound_number" "$traffic_user"
                 ;;
             2)
+                if [ "$qt_dedicated" = "1" ]; then
+                    red "无效选项"; sleep 1
+                else
                 modify_inbound_port "$config_file" "$engine" "$inbound_type" "$inbound_number"
+                fi
                 ;;
             3)
                 bash /etc/sing-box/sing-box-name.sh "$traffic_user"
@@ -8935,6 +8976,7 @@ manage_single_inbound() {
         speed_limit_menu "$traffic_user"
         ;;
     6)
+        if [ "$qt_dedicated" = "1" ]; then red "无效选项"; sleep 1; continue; fi
         case "$inbound_type" in
         vless-reality|grpc-reality|xhttp-reality)
             modify_reality_domain "$config_file" "$engine" "$inbound_type" "$inbound_number"
@@ -8950,6 +8992,7 @@ manage_single_inbound() {
     ;;
        
     7)
+    if [ "$qt_dedicated" = "1" ]; then red "无效选项"; sleep 1; continue; fi
     case "$inbound_type" in
         vless-ws|vmess-ws|trojan-ws|vless-xhttp)
             enable_ws_argo "$config_file" "$engine" "$inbound_type" "$inbound_number"
