@@ -5347,6 +5347,16 @@ def keys(parsed):
     loose = (scheme, host, path, loose_q, frag)
     return (exact, loose)
 
+def qt_key(parsed):
+    # 临时隧道链接：域名会变，按 协议+备注 匹配
+    if parsed is None:
+        return None
+    if parsed[0] == "vmess":
+        ps = str(parsed[1].get("ps", ""))
+        return ("vmess", ps) if ("临时隧道" in ps or "QuickTunnel-" in ps) else None
+    frag = urllib.parse.unquote(parsed[-1] or "")
+    return (parsed[0], frag) if ("临时隧道" in frag or "QuickTunnel-" in frag) else None
+
 def with_user_cred(src_line, user_line, user_uuid):
     sp = split_url(src_line)
     up = split_url(user_line)
@@ -5389,7 +5399,7 @@ def load_sources():
                 if parsed is None:
                     continue
                 ex, lo = keys(parsed)
-                entries.append({"exact": ex, "loose": lo, "line": line})
+                entries.append({"exact": ex, "loose": lo, "qt": qt_key(parsed), "line": line})
     return entries
 
 def traffic_line_for(username):
@@ -5447,6 +5457,12 @@ for user_dir_name in sorted(os.listdir(url_dir)):
         continue
     with open(links_file, "r", encoding="utf-8", errors="ignore") as f:
         old_lines = [ln.strip() for ln in f if ln.strip()]
+    # 隧道停止时暂存的临时隧道链接，隧道恢复后自动放回订阅
+    pending_file = os.path.join(user_dir, user_dir_name + "-qtpending")
+    if os.path.isfile(pending_file):
+        with open(pending_file, "r", encoding="utf-8", errors="ignore") as f:
+            old_lines += [ln.strip() for ln in f if ln.strip()]
+    pending = []
     used_idx = set()
     new_lines = []
     dropped = 0
@@ -5469,7 +5485,24 @@ for user_dir_name in sorted(os.listdir(url_dir)):
                 if e["loose"] == lo:
                     hit = i
                     break
+        oq = qt_key(parsed)
+        if hit is None and oq is not None:
+            for i, e in enumerate(sources):
+                if i in used_idx:
+                    continue
+                if e["qt"] == oq:
+                    hit = i
+                    break
+        if hit is None and oq is not None and "QuickTunnel-" in oq[1]:
+            # 兼容旧版备注
+            for i, e in enumerate(sources):
+                if i not in used_idx and e["qt"] is not None and e["qt"][0] == oq[0]:
+                    hit = i
+                    break
         if hit is None:
+            if oq is not None:
+                pending.append(old)
+                continue
             dropped += 1
             continue
         used_idx.add(hit)
@@ -5477,6 +5510,12 @@ for user_dir_name in sorted(os.listdir(url_dir)):
     with open(links_file, "w", encoding="utf-8") as f:
         for ln in new_lines:
             f.write(ln + "\n")
+    if pending:
+        with open(pending_file, "w", encoding="utf-8") as f:
+            for ln in pending:
+                f.write(ln + "\n")
+    elif os.path.isfile(pending_file):
+        os.remove(pending_file)
     if dropped:
         print(f"警告：用户 {user_dir_name} 的订阅移除了 {dropped} 条已不存在的节点链接")
     sub_file = os.path.join(user_dir, user_dir_name + "-sub")
@@ -5883,20 +5922,31 @@ qt_get_domain() {
     [ -f "$log" ] || return 1
     grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | tail -n1 | sed 's#https://##'
 }
-# 从链接文件中删除临时隧道链接（vmess 备注在 base64 里，需解码判断）
+# 从链接文件中删除临时隧道链接（按备注识别：含「临时隧道」或旧版 QuickTunnel-）
 qt_strip_url() {
-    local url_file="$1" tmp line dec
+    local url_file="$1"
     [ -f "$url_file" ] || return 0
-    tmp=$(mktemp)
-    while IFS= read -r line; do
-        [[ "$line" == *QuickTunnel-* ]] && continue
-        if [[ "$line" == vmess://* ]]; then
-            dec=$(printf '%s' "${line#vmess://}" | base64 -d 2>/dev/null)
-            [[ "$dec" == *QuickTunnel-* ]] && continue
-        fi
-        echo "$line" >> "$tmp"
-    done < "$url_file"
-    mv -f "$tmp" "$url_file"
+    python3 - "$url_file" <<'PY'
+import base64, json, sys, urllib.parse
+p = sys.argv[1]
+def is_qt(line):
+    line = line.strip()
+    if line.startswith("vmess://"):
+        b = line[8:].split("#", 1)[0]
+        try:
+            ps = json.loads(base64.b64decode(b + "=" * (-len(b) % 4)).decode("utf-8")).get("ps", "")
+        except Exception:
+            return False
+    else:
+        ps = urllib.parse.unquote(line.split("#", 1)[1]) if "#" in line else ""
+    return "临时隧道" in ps or "QuickTunnel-" in ps
+with open(p, encoding="utf-8", errors="ignore") as f:
+    lines = [l.rstrip("\n") for l in f]
+with open(p, "w", encoding="utf-8") as f:
+    for l in lines:
+        if l.strip() and not is_qt(l):
+            f.write(l + "\n")
+PY
 }
 # 按当前临时域名重写节点链接（隧道每次启动都会由 systemd ExecStartPost 自动调用）
 qt_refresh_url() {
@@ -5914,7 +5964,11 @@ qt_refresh_url() {
     ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
     { [ -z "$ws_path" ] || [ "$ws_path" = "null" ]; } && ws_path="/"
     [[ "$ws_path" != /* ]] && ws_path="/$ws_path"
-    node_remark="${isp}QuickTunnel-${inbound_type}"
+    if qt_is_dedicated "$inbound_type" "$inbound_number"; then
+        node_remark="${isp}临时隧道"
+    else
+        node_remark="${isp}临时隧道-${inbound_type}-${inbound_number}"
+    fi
     node_remark_enc=$(printf '%s' "$node_remark" | jq -sRr @uri)
     case "$inbound_type" in
         vless-ws)
@@ -6087,6 +6141,7 @@ qt_stop() {
     URL_DIR="${URL_DIR:-${work_dir}/url}"
     qt_strip_url "$URL_DIR/${inbound_type}-${inbound_number}.txt"
     update_sub_file
+    declare -F refresh_user_subscriptions >/dev/null && refresh_user_subscriptions >/dev/null 2>&1
     qt_sync_watchdog
     green "临时隧道已停止，cloudflared 进程已退出，不再占用内存"
 }
@@ -6792,7 +6847,11 @@ for file in "$CONF_DIR"/*.json; do
         [ -n "$inbound_type" ] || continue
         [ -n "$inbound_tag" ] || continue
         entries+=("$file|$inbound_type|$inbound_tag")
-        green "${index}. ${inbound_tag}"
+        if [[ "$(basename "$file" .json)" =~ ^(.+)-([0-9]+)$ ]] && qt_is_dedicated "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"; then
+            green "${index}. 临时隧道"
+        else
+            green "${index}. ${inbound_tag}"
+        fi
         index=$((index + 1))
     done < <(python3 - "$file" <<'PY'
 import json
