@@ -12663,12 +12663,20 @@ done
 check_nodes() {
     local sub_file="${work_dir}/sub.txt"
     if [ -f "$sub_file" ]; then
-        green "================ sub.txt ================"
+        green "================ 节点链接 ================"
         echo
-		echo
-		purple "$(cat "$sub_file")"
-        echo
-        echo
+        # sub.txt 是给客户端订阅用的 base64（保持不变）；这里解码后一行一个节点显示
+        local _links _ln _n=0
+        _links=$(base64 -d "$sub_file" 2>/dev/null | tr -d '\r')
+        [ -n "$_links" ] || _links=$(cat "$URL_DIR"/*.txt 2>/dev/null)
+        while IFS= read -r _ln; do
+            [ -n "$_ln" ] || continue
+            _n=$((_n + 1))
+            green "[${_n}]"
+            purple "$_ln"
+            echo
+        done <<< "$_links"
+        [ "$_n" -gt 0 ] || red "暂无节点"
         green "=========================================="
     else
         red "sub.txt 文件不存在：$sub_file"
