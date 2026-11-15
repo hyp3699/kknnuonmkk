@@ -1209,6 +1209,150 @@
       ]
     },
     {
+      "key": "live032",
+      "name": "💝分享迷你",
+      "type": 1,
+      "api": "https://qp.69mini.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "live035",
+      "name": "👭播剧影视👭",
+      "type": 1,
+      "api": "https://www.ysxq.cc/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "live055",
+      "name": "🌠全民┃影视",
+      "type": 1,
+      "api": "https://www.cmov.cn/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "live131",
+      "name": "西瓜🍉",
+      "type": 0,
+      "api": "https://caiji.xgzyapi.com/api.php/provide/vod/at/xml",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "cn_f8738703",
+      "name": "cj.lzcaiji.com┃采集",
+      "type": 1,
+      "api": "https://cj.lzcaiji.com/api.php/provide/vod/",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "source_2680151544",
+      "name": "📡 金鹰",
+      "type": 1,
+      "api": "https://ys.cxkjg.cn/api/provide/vod?source=2680151544",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "source_1840804598",
+      "name": "📡 非凡",
+      "type": 1,
+      "api": "https://ys.cxkjg.cn/api/provide/vod?source=1840804598",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "source_1470828922",
+      "name": "📡 量子",
+      "type": 1,
+      "api": "https://ys.cxkjg.cn/api/provide/vod?source=1470828922",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "source_1016684692",
+      "name": "📡 速博",
+      "type": 1,
+      "api": "https://ys.cxkjg.cn/api/provide/vod?source=1016684692",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "source_2761253814",
+      "name": "📡 红牛",
+      "type": 1,
+      "api": "https://ys.cxkjg.cn/api/provide/vod?source=2761253814",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "source_4194624554",
+      "name": "📡 U酷",
+      "type": 1,
+      "api": "https://ys.cxkjg.cn/api/provide/vod?source=4194624554",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "source_4247318859",
+      "name": "📡 光速",
+      "type": 1,
+      "api": "https://ys.cxkjg.cn/api/provide/vod?source=4247318859",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "pocket_c35a3bb2b3a307f3",
+      "name": "光速",
+      "type": 1,
+      "api": "https://api.guangsuapi.com/api.php/provide/vod?from=gsm3u8",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "pocket_1b08e6b49b6d2dc6",
+      "name": "火狐",
+      "type": 1,
+      "api": "https://hhzyapi.com/api.php/provide/vod?from=hhm3u8",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "pocket_d07fd45d8b04f9e2",
+      "name": "红牛",
+      "type": 1,
+      "api": "https://www.hongniuzy2.com/api.php/provide/vod?from=hnm3u8",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "pocket_ab24f4094db661d7",
+      "name": "金鹰",
+      "type": 1,
+      "api": "https://jyzyapi.com/provide/vod?from=jinyingm3u8",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
       "key": "fh资源",
       "name": "🔞FH采集",
       "type": 1,
@@ -1688,6 +1832,42 @@
       "name": "🔞天美资源",
       "type": 1,
       "api": "https://tmzyz.com/api.php/provide/vod/",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "senlin",
+      "name": "🔞森林资源",
+      "type": 1,
+      "api": "https://beiyong.slapibf.com/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "doudou",
+      "name": "🔞豆豆资源",
+      "type": 1,
+      "api": "https://api.douapi.cc/api.php/provide/vod",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "api_vnzyz_com",
+      "name": "🔞越南资源站",
+      "type": 1,
+      "api": "https://api.vnzyz.com/api.php/provide/vod/",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filterable": 0
+    },
+    {
+      "key": "api_souavzyw_net",
+      "name": "🔞搜av资源站",
+      "type": 1,
+      "api": "https://api.souavzyw.net/api.php/provide/vod",
       "searchable": 1,
       "quickSearch": 1,
       "filterable": 0
