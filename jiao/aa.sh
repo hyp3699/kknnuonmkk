@@ -968,6 +968,7 @@ while true; do
    green "11. 其他ipv6隧道"
    green "12. journald内存占用修改"
    green "13. 自动结束ssh孤儿进程"
+   green "14. 影视播放器（弹幕+网页版）"
    echo  "==============="
    red "0. 退出脚本"
    echo "==========="
@@ -1124,6 +1125,13 @@ EOF
     ;;
 	    13) 
 		    Configure_ssh_cleanup
+		    ;;
+		14)
+		    if [ -x /usr/local/bin/ys ]; then
+		        ys
+		    else
+		        bash <(curl -fsSL "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/ys.sh?t=$(date +%s)")
+		    fi
 		    ;;
         0)
             echo "退出脚本"

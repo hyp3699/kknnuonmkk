@@ -3,7 +3,7 @@
 bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/deploy.sh)
 ```
 
-弹幕 + 精简网页播放器（端口 3003，选采集站/分类/站内搜索/播放带弹幕，无需登录和 Docker）
+弹幕 + 精简网页播放器（端口 3003，选采集站/分类/站内搜索/播放带弹幕，无需登录和 Docker；装好后输入 ys 管理，sing-box 脚本 13 → 14 也能进）
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/deploy_web.sh)
 ```

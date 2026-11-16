@@ -165,6 +165,8 @@ YML
   cd - >/dev/null
 fi
 
+curl -fsSL "$RAW/danmu/ys.sh" -o /usr/local/bin/ys && chmod +x /usr/local/bin/ys || true
+
 sleep 2
 RUN_VER=$(curl -s "http://127.0.0.1:$PORT/version" 2>/dev/null)
 if curl -s "http://127.0.0.1:$PORT/" | grep -q ok; then
@@ -183,4 +185,4 @@ if [ "$MODE" = moontv ]; then
   echo "   首次进后台 → 配置文件 → 订阅地址填 http://host.docker.internal:$PORT/sub/moontv.txt 并打开「自动更新」，采集站更新后网页版每小时自动同步"
 fi
 [ "$MODE" = danmu ] && echo "提示：云厂商安全组要放行 $PORT 端口。" || echo "提示：云厂商安全组要放行 $PORT 和 $WEB_PORT 端口。"
-echo "更新：重新执行本命令即可。"
+echo "管理菜单：输入 ys（安装/更新/重启/日志/卸载）"
