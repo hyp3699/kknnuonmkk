@@ -7,8 +7,8 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.6.0"  # 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
-import os, re, time, json, zlib, html, threading, base64, hashlib, urllib.parse
+VERSION = "1.7.0"  # 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
 try:
@@ -486,7 +486,7 @@ def danmu():
     except Exception as e:
         print("[danmu] err", name, epid, repr(e), flush=True)
         items = []
-    base = request.host_url.rstrip("/")
+    base = public_base()
     proxy = [{"name": label + " [代理]", "url": f"{base}/xml?site={site}&u={quote(url, safe='')}"} for label, site, url in items]
     # FongMi 5.8.x 内置腾讯/爱奇艺/芒果/B站抓取器：直接给平台页面地址，手机直连分段加载，最稳
     native = [] if arg("native") == "0" else [{"name": label, "url": url.split("?")[0] if site == "qq" else (f"https://v.youku.com/v_show/id_{yk_vid(url)}.html" if site == "youku" else url)} for label, site, url in items if site != "baha"]
@@ -649,12 +649,25 @@ def dd_comment_url(tok=None):
     except Exception:
         return dd_out(EMPTY)
 
+def public_base():
+    proto = request.headers.get("X-Forwarded-Proto") or request.scheme
+    host = request.headers.get("X-Forwarded-Host") or request.host
+    return f"{proto}://{host}"
+
 # ---------------- 采集站配置文件（VPS 定时生成） ----------------
 WWW = os.environ.get("WWW_DIR", "/opt/danmu/www")
 
 @app.route("/sub/<path:fn>")
 def sub(fn):
     from flask import send_from_directory
+    if fn == "jjoo.json" and os.path.exists(os.path.join(WWW, fn)):
+        # 弹幕地址跟随访问的地址：用域名订阅就用域名弹幕，用 IP:端口 就用 IP:端口
+        try:
+            d = json.load(open(os.path.join(WWW, fn), encoding="utf-8"))
+            d["danmaku"] = public_base() + "/danmu?name={name}&episode={episode}"
+            return Response(json.dumps(d, ensure_ascii=False, indent=2), mimetype="application/json")
+        except Exception as e:
+            print("[sub] err", repr(e), flush=True)
     r = send_from_directory(WWW, fn, max_age=300)
     if fn.endswith(".json"):
         r.mimetype = "application/json"
@@ -679,6 +692,157 @@ import xml.etree.ElementTree as ET
 WEB_PORT = int(os.environ.get("WEB_PORT", "3003"))
 WEB_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web.html")
 SITES_CACHE = [0, 0, []]
+
+# ---------- 网页登录（账号密码存 AUTH_FILE，密码只存哈希；ys 菜单可重置） ----------
+DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+AUTH_FILE = os.environ.get("AUTH_FILE", os.path.join(DATA_DIR, "web_auth.json"))
+HIST_FILE = os.environ.get("HIST_FILE", os.path.join(DATA_DIR, "web_history.json"))
+AUTH_CACHE = [None, None]
+FAILS, HLOCK = {}, threading.Lock()
+
+def pw_hash(salt, pw):
+    return hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 100000).hex()
+
+def set_auth(user, pw):
+    salt = secrets.token_hex(8)
+    d = {"user": user, "salt": salt, "hash": pw_hash(salt, pw), "secret": secrets.token_hex(16)}
+    tmp = AUTH_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, AUTH_FILE)
+
+def auth_conf():
+    try:
+        mt = os.path.getmtime(AUTH_FILE)
+    except Exception:
+        return None
+    if AUTH_CACHE[0] != mt:
+        try:
+            AUTH_CACHE[1] = json.load(open(AUTH_FILE))
+            AUTH_CACHE[0] = mt
+        except Exception:
+            return None
+    return AUTH_CACHE[1]
+
+def auth_token(c):
+    return hmac.new(c["secret"].encode(), (c["user"] + c["hash"]).encode(), "sha256").hexdigest()
+
+def authed():
+    c = auth_conf()
+    if not c:
+        return True  # 没设账号就不拦（deploy/ys 会创建）
+    t = request.cookies.get("ys_auth", "")
+    return bool(t) and hmac.compare_digest(t, auth_token(c))
+
+def client_ip():
+    ra = request.remote_addr or ""
+    if ra.startswith("127.") or ra == "::1":
+        return request.headers.get("X-Real-IP") or (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()) or ra
+    return ra
+
+LOGIN_HTML = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登录 · 哈哈影视</title><style>body{margin:0;background:#111;color:#eee;font:15px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;display:flex;min-height:100vh;align-items:center;justify-content:center}
+form{width:min(320px,88vw);display:flex;flex-direction:column;gap:12px}h1{font-size:22px;text-align:center;margin:0 0 8px}
+input,button{font:inherit;color:#eee;background:#222;border:1px solid #333;border-radius:10px;padding:12px}button{background:#e50914;border-color:#e50914;cursor:pointer}
+#e{color:#f66;text-align:center;min-height:1.2em;font-size:13px}</style></head><body>
+<form id="f"><h1>哈哈影视</h1><input id="u" placeholder="账号" autocomplete="username" required><input id="p" type="password" placeholder="密码" autocomplete="current-password" required>
+<button>登录</button><div id="e"></div></form><script>
+f.onsubmit=async e=>{e.preventDefault();document.getElementById('e').textContent='';
+const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({u:u.value,p:p.value})});
+const d=await r.json().catch(()=>({}));if(r.ok&&d.ok)location.replace('/');else document.getElementById('e').textContent=d.msg||'登录失败'}
+</script></body></html>"""
+
+def is_web_path(p):
+    return p in ("/web", "/px", "/hls.js", "/login", "/logout") or (p.startswith("/api/") and not p.startswith("/api/v2/"))
+
+@app.before_request
+def web_guard():
+    on_web = request.environ.get("SERVER_PORT") == str(WEB_PORT)
+    p = request.path
+    if not on_web:
+        if is_web_path(p):  # 网页接口只在网页端口开放，弹幕端口 2525 不能绕过登录
+            return "not found", 404
+        return None
+    if p in ("/login", "/hls.js", "/favicon.ico"):
+        return None
+    if authed():
+        return None
+    if p.startswith("/api/") or p == "/px":
+        return jsonify({"error": "login"}), 401
+    return Response(LOGIN_HTML, mimetype="text/html")
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return Response(LOGIN_HTML, mimetype="text/html")
+    ip, now = client_ip(), time.time()
+    with HLOCK:
+        n, t = FAILS.get(ip, (0, 0))
+        if now - t > 600:
+            n = 0
+        if n >= 5:
+            return jsonify({"ok": False, "msg": "错误次数太多，10 分钟后再试"}), 429
+    j = request.get_json(silent=True) or request.form
+    u, pw = str(j.get("u", "")), str(j.get("p", ""))
+    c = auth_conf()
+    if c and hmac.compare_digest(u, c["user"]) and hmac.compare_digest(pw_hash(c["salt"], pw), c["hash"]):
+        with HLOCK:
+            FAILS.pop(ip, None)
+        r = jsonify({"ok": True})
+        https = (request.headers.get("X-Forwarded-Proto") or request.scheme) == "https"
+        r.set_cookie("ys_auth", auth_token(c), max_age=30 * 86400, httponly=True, samesite="Lax", secure=https)
+        return r
+    with HLOCK:
+        FAILS[ip] = (n + 1, now)
+    time.sleep(1)
+    print("[web] login fail", ip, flush=True)
+    return jsonify({"ok": False, "msg": "账号或密码错误"}), 403
+
+@app.route("/logout")
+def logout():
+    from flask import redirect
+    r = redirect("/")
+    r.delete_cookie("ys_auth")
+    return r
+
+# ---------- 播放记录（服务器保存，手机/电脑同步） ----------
+def hist_load():
+    try:
+        return json.load(open(HIST_FILE, encoding="utf-8"))
+    except Exception:
+        return []
+
+def hist_save(h):
+    tmp = HIST_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(h, f, ensure_ascii=False)
+    os.replace(tmp, HIST_FILE)
+
+@app.route("/api/history", methods=["GET", "POST", "DELETE"])
+def api_history():
+    with HLOCK:
+        h = hist_load()
+        if request.method == "GET":
+            key, vid = arg("key"), arg("id")
+            if key:
+                return jsonify(next((x for x in h if x.get("key") == key and str(x.get("id")) == vid), None))
+            return jsonify(h)
+        if request.method == "DELETE":
+            key, vid = arg("key"), arg("id")
+            h = [x for x in h if key and not (x.get("key") == key and str(x.get("id")) == vid)]
+            hist_save(h)
+            return jsonify({"ok": True})
+        j = request.get_json(silent=True) or {}
+        if not j.get("key") or not j.get("id"):
+            return jsonify({"ok": False}), 400
+        keep = ("key", "id", "site", "name", "pic", "f", "e", "en", "t", "dur")
+        rec = {k: j.get(k) for k in keep if j.get(k) is not None}
+        rec["id"] = str(rec["id"])
+        rec["ts"] = int(time.time())
+        h = [rec] + [x for x in h if not (x.get("key") == rec["key"] and str(x.get("id")) == rec["id"])]
+        hist_save(h[:300])
+        return jsonify({"ok": True})
 
 def web_sites():
     p = os.path.join(WWW, "jjoo.json")
@@ -853,14 +1017,22 @@ def version():
     return VERSION
 
 if __name__ == "__main__":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--set-auth":
+        set_auth(sys.argv[2], sys.argv[3])
+        print("ok")
+        sys.exit(0)
+    if len(sys.argv) >= 2 and sys.argv[1] == "--auth-user":
+        c = auth_conf()
+        print(c["user"] if c else "")
+        sys.exit(0)
     import urllib3
     urllib3.disable_warnings()
     if WEB_PORT and os.environ.get("WEB", "1") != "0":
         from werkzeug.serving import make_server
         try:
-            ws = make_server("0.0.0.0", WEB_PORT, app, threaded=True)
+            ws = make_server(os.environ.get("WEB_BIND", "0.0.0.0"), WEB_PORT, app, threaded=True)
             threading.Thread(target=ws.serve_forever, daemon=True).start()
             print("web player on", WEB_PORT, flush=True)
         except OSError as e:
             print("web port busy", WEB_PORT, repr(e), flush=True)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "2525")), threaded=True)
+    app.run(host=os.environ.get("DANMU_BIND", "0.0.0.0"), port=int(os.environ.get("PORT", "2525")), threaded=True)

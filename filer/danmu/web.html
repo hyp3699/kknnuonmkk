@@ -22,6 +22,10 @@ button.on{background:#e50914;border-color:#e50914}
 .card .pic{width:100%;aspect-ratio:3/4;background:#222 center/cover no-repeat;border-radius:8px}
 .card .rm{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.7);font-size:11px;padding:1px 5px;border-radius:4px;max-width:90%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .card .nm{margin-top:4px;font-size:13px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#hgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;padding:10px}
+.card .x{position:absolute;top:2px;left:2px;width:24px;height:24px;line-height:22px;text-align:center;border-radius:12px;background:rgba(0,0,0,.65);font-size:16px}
+.card .pg{height:3px;background:#333;border-radius:2px;margin-top:3px;overflow:hidden}.card .pg i{display:block;height:100%;background:#e50914}
+.card .sub{font-size:11px;color:#999;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 #more,.msg{text-align:center;padding:14px;color:#888}
 #detail{display:none;padding-bottom:30px}
 #box{position:relative;background:#000;width:100%;aspect-ratio:16/9;overflow:hidden}
@@ -50,10 +54,15 @@ button.on{background:#e50914;border-color:#e50914}
     <select id="site"></select>
     <input id="kw" placeholder="站内搜索" enterkeyhint="search">
     <button id="go">搜</button>
+    <button id="bh">记录</button>
   </header>
   <div id="cats"></div>
   <div id="grid"></div>
   <div id="more"></div>
+</div>
+<div id="hist" style="display:none">
+  <header><button class="back">‹ 返回</button><span style="flex:1">播放记录</span><button id="hclr">清空</button><a href="/logout"><button>退出登录</button></a></header>
+  <div id="hgrid"></div>
 </div>
 <div id="detail">
   <header><button id="back">‹ 返回</button><span id="dtitle" style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis"></span></header>
@@ -73,7 +82,8 @@ button.on{background:#e50914;border-color:#e50914}
 <script>
 const $=s=>document.querySelector(s), LS=localStorage;
 const st={site:LS.site||'',cat:'',kw:'',pg:1,pc:1,loading:false,vod:null,from:0,ep:0,px:LS.px==='1',dmOn:LS.dm!=='0'};
-const api=(p)=>fetch(p).then(r=>r.json());
+const api=(p,o)=>fetch(p,o).then(r=>{if(r.status===401){location.reload();throw new Error('login')}return r.json()});
+const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 // ---------- 列表 ----------
@@ -118,11 +128,44 @@ addEventListener('scroll',()=>{if($('#list').style.display!=='none'&&innerHeight
 let listScroll=0;
 function route(){
   const m=location.hash.match(/^#\/v\/([^/]+)\/(.+)$/);
-  if(m){listScroll=scrollY;$('#list').style.display='none';$('#detail').style.display='block';scrollTo(0,0);openVod(decodeURIComponent(m[1]),decodeURIComponent(m[2]))}
-  else{stopPlay();$('#detail').style.display='none';$('#list').style.display='block';scrollTo(0,listScroll)}
+  if($('#list').style.display!=='none')listScroll=scrollY;
+  ['#list','#hist','#detail'].forEach(x=>$(x).style.display='none');
+  if(m){saveHist();stopPlay();$('#detail').style.display='block';scrollTo(0,0);openVod(decodeURIComponent(m[1]),decodeURIComponent(m[2]))}
+  else if(location.hash==='#/h'){saveHist();stopPlay();$('#hist').style.display='block';scrollTo(0,0);loadHist()}
+  else{saveHist();stopPlay();$('#list').style.display='block';scrollTo(0,listScroll)}
 }
 addEventListener('hashchange',route);
-$('#back').onclick=()=>history.length>1?history.back():(location.hash='');
+const goBack=()=>history.length>1?history.back():(location.hash='');
+$('#back').onclick=goBack;$('#hist .back').onclick=goBack;
+$('#bh').onclick=()=>location.hash='#/h';
+
+// ---------- 播放记录 ----------
+const fmt=t=>{t=Math.floor(t||0);const h=t/3600|0,m=(t%3600)/60|0,s=t%60;return (h?h+':':'')+String(m).padStart(h?2:1,'0')+':'+String(s).padStart(2,'0')};
+async function loadHist(){
+  $('#hgrid').innerHTML='<div class="msg">加载中…</div>';
+  let h=[];try{h=await api('/api/history')}catch(e){}
+  if(!h.length){$('#hgrid').innerHTML='<div class="msg">还没有播放记录</div>';return}
+  $('#hgrid').innerHTML=h.map(x=>`<div class="card" data-k="${esc(x.key)}" data-id="${esc(String(x.id))}"><div class="pic" style="background-image:url('${esc(x.pic||'')}')"></div><span class="x" title="删除">×</span><div class="nm">${esc(x.name)}</div><div class="sub">${esc([x.en,fmt(x.t)+(x.dur?' / '+fmt(x.dur):''),x.site].filter(Boolean).join(' · '))}</div><div class="pg"><i style="width:${x.dur?Math.min(100,x.t/x.dur*100):0}%"></i></div></div>`).join('');
+}
+$('#hgrid').onclick=async e=>{const c=e.target.closest('.card');if(!c)return;
+  if(e.target.classList.contains('x')){await api(`/api/history?key=${encodeURIComponent(c.dataset.k)}&id=${encodeURIComponent(c.dataset.id)}`,{method:'DELETE'});c.remove();if(!$('#hgrid').children.length)loadHist();return}
+  location.hash=`#/v/${encodeURIComponent(c.dataset.k)}/${encodeURIComponent(c.dataset.id)}`};
+$('#hclr').onclick=async()=>{if(!confirm('清空全部播放记录？'))return;await api('/api/history',{method:'DELETE'});loadHist()};
+let lastSaved='';
+function histRec(){
+  const v=st.vod;if(!v||!v.groups||!v.groups[st.from]||V.currentTime<3)return null;
+  const ep=v.groups[st.from].eps[st.ep];
+  return {key:v.key,id:String(v.vod_id),site:($('#site').querySelector(`option[value="${CSS.escape(v.key)}"]`)||{}).textContent||'',name:v.vod_name,pic:v.vod_pic||'',f:st.from,e:st.ep,en:v.groups[st.from].eps.length>1?ep.n:'',t:Math.floor(V.currentTime),dur:Math.floor(V.duration||0)||0};
+}
+function saveHist(beacon){
+  const r=histRec();if(!r)return;
+  const s=JSON.stringify(r);if(s===lastSaved)return;lastSaved=s;
+  LS['h_'+r.key+'_'+r.id]=JSON.stringify({f:r.f,e:r.e,t:r.t});
+  if(beacon&&navigator.sendBeacon)navigator.sendBeacon('/api/history',new Blob([s],{type:'application/json'}));
+  else post('/api/history',r).catch(()=>{});
+}
+addEventListener('pagehide',()=>saveHist(true));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)saveHist(true)});
 
 // ---------- 详情 / 播放 ----------
 async function openVod(key,id){
@@ -137,7 +180,8 @@ async function openVod(key,id){
   $('#info').innerHTML=`<h2>${esc(v.vod_name)}</h2><div class="meta">${esc([v.vod_year,v.vod_area,v.type_name,v.vod_remarks].filter(Boolean).join(' · '))}</div>${v.vod_actor?`<div class="meta">${esc(v.vod_actor)}</div>`:''}<div class="desc">${esc((v.vod_content||'').replace(/<[^>]+>/g,''))}</div>`;
   if(!v.groups.length){$('#eps').innerHTML='<div class="msg">没有可播放的地址</div>';return}
   // 优先 m3u8 线路；恢复上次进度
-  const saved=JSON.parse(LS['h_'+key+'_'+id]||'null');
+  let saved=null;try{const r=await api(`/api/history?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}`);if(r)saved={f:r.f,e:r.e,t:r.t}}catch(e){}
+  if(!saved)saved=JSON.parse(LS['h_'+key+'_'+id]||'null');
   let fi=v.groups.findIndex(g=>/m3u8/i.test(g.f)||/\.m3u8/i.test(g.eps[0].u)); if(fi<0) fi=0;
   if(saved&&v.groups[saved.f]) fi=saved.f;
   renderFroms(fi); play(fi,saved&&saved.f===fi?Math.min(saved.e,v.groups[fi].eps.length-1):0,saved?saved.t:0);
@@ -154,6 +198,7 @@ const V=$('#v');
 function stopPlay(){if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([])}
 function setSt(t){$('#st').textContent=t}
 function play(fi,ei,t0){
+  saveHist();
   st.from=fi;st.ep=ei;triedPx=false;
   $('#eps').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('on',i===ei));
   const ep=st.vod.groups[fi].eps[ei]; if(!ep) return;
@@ -183,7 +228,8 @@ function load(u,t0,px){
 V.addEventListener('ended',()=>next());
 function next(){const g=st.vod&&st.vod.groups[st.from];if(g&&st.ep+1<g.eps.length)play(st.from,st.ep+1,0)}
 $('#bnext').onclick=next;
-setInterval(()=>{if(st.vod&&!V.paused&&V.currentTime>3)LS['h_'+st.vod.key+'_'+st.vod.vod_id]=JSON.stringify({f:st.from,e:st.ep,t:Math.floor(V.currentTime)})},5000);
+setInterval(()=>{if(st.vod&&!V.paused)saveHist()},10000);
+V.addEventListener('pause',()=>saveHist());
 $('#bpx').classList.toggle('on',st.px);
 $('#bpx').onclick=()=>{st.px=!st.px;LS.px=st.px?'1':'0';$('#bpx').classList.toggle('on',st.px);if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];load(ep.u,V.currentTime,st.px)}};
 $('#bfs').onclick=async()=>{const b=$('#box');

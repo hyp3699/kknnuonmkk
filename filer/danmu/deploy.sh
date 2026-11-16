@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 免 key 弹幕服务一键部署（三种模式，见仓库 README）
 #   MODE=danmu  （默认）只装弹幕：端口 2525 + 采集站每 2 天自动维护（http://IP:2525/sub/jjoo.json 给 OK影视）
-#   MODE=web    弹幕 + 精简网页播放器：端口 3003（选采集站/分类/站内搜索/播放+弹幕，无需登录、无需 Docker）
+#   MODE=web    弹幕 + 精简网页播放器：端口 3003（选采集站/分类/站内搜索/播放+弹幕+播放记录，账号密码登录，无需 Docker）
 #   MODE=moontv 弹幕 + MoonTVPlus 网页播放器：端口 3003（Docker）
 #   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/deploy.sh)
 #   或 deploy_web.sh / deploy_moontv.sh
@@ -55,6 +55,7 @@ Environment=WEB=$SVC_WEB
 Environment=WEB_PORT=$WEB_PORT
 Environment=WWW_DIR=$APP_DIR/www
 Environment=IDS_FILE=$APP_DIR/anime_ids.json
+EnvironmentFile=-/etc/danmu.env
 ExecStart=$APP_DIR/venv/bin/python $APP_DIR/danmu_server.py
 Restart=always
 RestartSec=3
@@ -66,6 +67,13 @@ systemctl enable danmu >/dev/null 2>&1
 # 3003 只能给一个网页版用：装精简版时停掉 MoonTVPlus（数据保留）
 if [ "$MODE" = web ] && [ -f /opt/moontv/docker-compose.yml ] && command -v docker >/dev/null; then
   (cd /opt/moontv && docker compose stop >/dev/null 2>&1) || true
+fi
+# 网页登录账号：第一次装时随机生成，之后保持不变（ys 菜单可重置）
+NEW_AUTH=""
+if [ "$MODE" = web ] && [ ! -s "$APP_DIR/web_auth.json" ]; then
+  WEB_USER=${WEB_USER:-admin}
+  WEB_PASS=${WEB_PASS:-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 10)}
+  AUTH_FILE="$APP_DIR/web_auth.json" "$APP_DIR/venv/bin/python" "$APP_DIR/danmu_server.py" --set-auth "$WEB_USER" "$WEB_PASS" >/dev/null && NEW_AUTH=1
 fi
 systemctl restart danmu
 
@@ -175,10 +183,17 @@ else
   echo "❌ 启动失败，查看日志：journalctl -u danmu -n 50"
 fi
 IP=$(curl -s4 ifconfig.me 2>/dev/null || echo 你的IP)
-echo "📺 OK影视 配置地址：http://$IP:$PORT/sub/jjoo.json"
+DD=$(grep -oP '^DANMU_DOMAIN=\K.*' /etc/danmu.env 2>/dev/null)
+echo "📺 OK影视 配置地址：${DD:-http://$IP:$PORT}/sub/jjoo.json"
 echo "🔄 采集站下次更新：$(systemctl list-timers danmu-sites.timer --no-pager 2>/dev/null | awk 'NR==2{print $1,$2,$3}')  手动更新：systemctl start danmu-sites  日志：journalctl -u danmu-sites -n 50"
 if [ "$MODE" = web ]; then
-  echo "🌐 网页播放器：http://$IP:$WEB_PORT   （无需登录，弹幕/采集站自动同步）"
+  WD=$(grep -oP '^WEB_DOMAIN=\K.*' /etc/danmu.env 2>/dev/null)
+  echo "🌐 网页播放器：${WD:-http://$IP:$WEB_PORT}"
+  if [ -n "$NEW_AUTH" ]; then
+    echo "   账号 $WEB_USER   密码 $WEB_PASS   （请记下来；忘了可输入 ys 重置）"
+  else
+    echo "   账号 $(AUTH_FILE="$APP_DIR/web_auth.json" "$APP_DIR/venv/bin/python" "$APP_DIR/danmu_server.py" --auth-user 2>/dev/null)（密码不变，忘了输入 ys 重置）"
+  fi
 fi
 if [ "$MODE" = moontv ]; then
   echo "🌐 网页播放器：http://$IP:$WEB_PORT   账号 $MT_USER  密码 $MT_PASS （存在 /opt/moontv/.env）"
