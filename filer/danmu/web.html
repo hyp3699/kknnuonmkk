@@ -234,19 +234,23 @@ $('#grid').onclick=e=>{const c=e.target.closest('.card');if(c)location.hash=`#/v
 addEventListener('scroll',()=>{if($('#list').style.display!=='none'&&innerHeight+scrollY>document.body.scrollHeight-400)more()});
 
 // ---------- 路由 ----------
-let listScroll=0;
+let listScroll=0,NAV=0;
+const onVod=()=>/^#\/v\//.test(location.hash);
 function route(){
+  NAV++;
   const m=location.hash.match(/^#\/v\/([^/]+)\/(.+)$/);
   if($('#list').style.display!=='none')listScroll=scrollY;
   ['#list','#hist','#detail','#set','#srch'].forEach(x=>$(x).style.display='none');
   if(m){saveHist();stopPlay();$('#detail').style.display='block';scrollTo(0,0);openVod(decodeURIComponent(m[1]),decodeURIComponent(m[2]))}
-  else if(location.hash==='#/q'){saveHist();stopPlay();$('#srch').style.display='block';if(!$('#qres').children.length)setTimeout(()=>$('#kw').focus(),50)}
-  else if(location.hash==='#/s'){saveHist();stopPlay();$('#set').style.display='block';scrollTo(0,0);loadSet()}
-  else if(location.hash==='#/h'){saveHist();stopPlay();$('#hist').style.display='block';scrollTo(0,0);loadHist()}
-  else{saveHist();stopPlay();$('#list').style.display='block';scrollTo(0,listScroll)}
+  else if(location.hash==='#/q'){saveHist();stopPlay();st.vod=null;ALT=null;$('#srch').style.display='block';if(!$('#qres').children.length)setTimeout(()=>$('#kw').focus(),50)}
+  else if(location.hash==='#/s'){saveHist();stopPlay();st.vod=null;ALT=null;$('#set').style.display='block';scrollTo(0,0);loadSet()}
+  else if(location.hash==='#/h'){saveHist();stopPlay();st.vod=null;ALT=null;$('#hist').style.display='block';scrollTo(0,0);loadHist()}
+  else{saveHist();stopPlay();st.vod=null;ALT=null;$('#list').style.display='block';scrollTo(0,listScroll)}
 }
 addEventListener('hashchange',route);
-const goBack=()=>history.length>1?history.back():(location.hash='');
+// 打开网页时的那一条记录标成 root：在它上面点返回直接回首页，不会退出网页或没反应
+if(!history.state)history.replaceState({root:1},'');
+const goBack=()=>{if(history.state&&history.state.root){if(location.hash&&location.hash!=='#')location.hash=''}else history.back()};
 $('#back').onclick=()=>goBack();$('#hist .back').onclick=()=>goBack();
 $('#bh').onclick=()=>location.hash='#/h';
 $('#bset').onclick=()=>location.hash='#/s';$('#set .back').onclick=()=>goBack();
@@ -371,8 +375,10 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)saveHist(tr
 
 // ---------- 详情 / 播放 ----------
 async function openVod(key,id){
+  const nav=NAV;
   $('#info').innerHTML='<div class="msg">加载中…</div>';$('#froms').innerHTML='';$('#eps').innerHTML='';$('#dtitle').textContent='';
   let d; try{d=await api(`/api/vod?key=${encodeURIComponent(key)}&ids=${encodeURIComponent(id)}`)}catch(e){}
+  if(nav!==NAV)return;  // 加载时已经返回/换了页面
   const v=d&&d.list&&d.list[0];
   if(!v){$('#info').innerHTML='<div class="msg">详情加载失败</div>';return}
   const froms=(v.vod_play_from||'播放').split('$$$'), urls=(v.vod_play_url||'').split('$$$');
@@ -386,6 +392,7 @@ async function openVod(key,id){
   // 优先 m3u8 线路；恢复上次进度
   // 播放记录按片名合并：别的配置/采集站看过的，换到这里按集名接着播
   let saved=null,same=true;try{const r=await api(`/api/history?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}&name=${encodeURIComponent(v.vod_name)}`);if(r){same=r.key===key&&String(r.id)===String(id);saved={f:r.f,e:r.e,t:r.t,en:r.en}}}catch(e){}
+  if(nav!==NAV)return;
   if(!saved)saved=JSON.parse(LS['h_'+key+'_'+id]||'null');
   let fi=v.groups.findIndex(g=>/m3u8/i.test(g.f)||/\.m3u8/i.test(g.eps[0].u)); if(fi<0) fi=0;
   if(saved&&same&&v.groups[saved.f]) fi=saved.f;
@@ -419,7 +426,7 @@ function altFind(name){  // 结果缓存，边搜边出
   Promise.all(Array.from({length:8},worker)).then(()=>{a.done=true;tell()});
   return a;
 }
-function goSrc(k,id){location.replace(`#/v/${encodeURIComponent(k)}/${encodeURIComponent(id)}`)}
+function goSrc(k,id){if(!onVod())return;location.replace(`#/v/${encodeURIComponent(k)}/${encodeURIComponent(id)}`)}
 function renderAlt(){const a=ALT,b=$('#alt');if(!a||b.style.display==='none')return;
   b.innerHTML=`<div class="st" style="padding:4px 0">${a.done?`${a.n} 个站里 ${a.list.length} 个有这部`:`查找中 ${a.cnt}/${a.n}，找到 ${a.list.length} 个`}</div>`+
     a.list.map(x=>`<div class="si${x.key===st.vod.key?' cur':''}" data-k="${esc(x.key)}" data-id="${esc(x.id)}"><div class="n"><b>${esc(siteName(x.key))}</b><small>${esc(x.rm)}</small></div><div class="r">${x.key===st.vod.key?'当前':(AUTO.keys.has(x.key)?'<span class="bad">已试过</span>':'')}</div></div>`).join('')}
@@ -427,14 +434,14 @@ $('#balt').onclick=()=>{const b=$('#alt');if(b.style.display!=='none'){b.style.d
   if(!st.vod)return;b.style.display='block';const a=altFind(st.vod.vod_name);if(!a.subs.includes(renderAlt))a.subs.push(renderAlt);renderAlt()};
 $('#alt').onclick=e=>{const r=e.target.closest('.si');if(!r||r.dataset.k===st.vod.key)return;saveHist();goSrc(r.dataset.k,r.dataset.id)};
 function fail(msg){
-  const vod=st.vod;if(!vod)return;
+  const vod=st.vod;if(!vod||!onVod())return;
   if(LS.auto==='0'){setSt(msg+'，换个线路或点「换源」试试');return}
   st.triedF.add(st.from);
   const g=vod.groups.findIndex((x,i)=>!st.triedF.has(i));
   if(g>=0){setSt(msg+'，自动换线路…');renderFroms(g);play(g,Math.min(st.ep,vod.groups[g].eps.length-1),lastT);return}
   setSt(msg+'，自动换采集站…');saveHist();
   const a=altFind(vod.vod_name);
-  const pick=()=>{if(st.vod!==vod)return true;const x=a.list.find(x=>!AUTO.keys.has(x.key));
+  const pick=()=>{if(st.vod!==vod||!onVod())return true;const x=a.list.find(x=>!AUTO.keys.has(x.key));
     if(x){goSrc(x.key,x.id);return true}
     if(a.done){setSt('所有站都播放失败了，换个关键词搜搜');return true}
     setSt(`${msg}，正在找其它站 ${a.cnt}/${a.n}…`);return false};
