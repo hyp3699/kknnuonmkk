@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.9.8"  # 1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.9.9"  # 1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -1133,6 +1133,21 @@ def config_sites(d, base):
     out = []
     for s in d.get("sites") or []:
         api = str(s.get("api") or "").strip()
+        if s.get("type") == 3 and XP_OK and re.match(r"csp_XPath(Mac)?(Filter)?$", api):  # 通用 XPath 规则爬虫：网页用 Python 引擎跑
+            ext = s.get("ext")
+            if isinstance(ext, dict):
+                src = json.dumps(ext, ensure_ascii=False)
+            elif isinstance(ext, str) and ext.strip():
+                src = ext.strip()
+                if not src.startswith("{"):
+                    src = urllib.parse.urljoin(base, src)
+                    if not src.startswith("http"):
+                        continue
+            else:
+                continue
+            out.append({"key": str(s.get("key") or s.get("name")), "name": str(s.get("name") or s.get("key")), "type": 3, "xp": api,
+                        "api": src if src.startswith("http") else "xpath:inline", "ext": src})
+            continue
         if s.get("type") in (0, 1, 4) and api:
             if not api.startswith("http"):
                 api = urllib.parse.urljoin(base, api)
@@ -1284,9 +1299,279 @@ def t4_call(site, ac=None, t=None, pg=None, wd=None, ids=None, **_):
     return {"class": j.get("class") or [], "list": j.get("list") or [], "page": int(j.get("page") or pg or 1) if str(j.get("page") or pg or 1).isdigit() else 1,
             "pagecount": pc}
 
+# ---------- XPath 规则爬虫（TVBox csp_XPath / XPathMac / XPathFilter / XPathMacFilter 的 Python 版） ----------
+try:
+    import lxml.html as LH
+    XP_OK = True
+except Exception:
+    XP_OK = False
+XP_RULES = {}  # src -> (ts, rule)
+
+def xp_rule(site):
+    src = site.get("ext") or ""
+    c = XP_RULES.get(src)
+    if c and time.time() - c[0] < 3600:
+        return c[1]
+    if src.startswith("{"):
+        rule = loose_json(src)
+    else:
+        r = get(src, timeout=12, verify=False, headers={"User-Agent": UA})
+        if r.status_code >= 400:
+            raise ValueError(f"规则文件打不开 HTTP{r.status_code}")
+        rule = decode_config(r.content)
+    if not isinstance(rule, dict) or not rule.get("homeUrl"):
+        raise ValueError("规则文件格式不对")
+    for k in ("homeUrl", "cateUrl", "dtUrl", "playUrl", "searchUrl"):  # 很多规则把 https:// 省掉了（dm84.tv/show-...）
+        v = str(rule.get(k) or "").strip()
+        if v.startswith("//"):
+            v = "https:" + v
+        elif v and not re.match(r"[a-z]+://", v, re.I) and re.match(r"[\w-]+(\.[\w-]+)+(:\d+)?(/|$|\?)", v):
+            v = "https://" + v
+        rule[k] = v
+    XP_RULES[src] = (time.time(), rule)
+    return rule
+
+def xp_fetch(rule, url, ua_key="ua"):
+    ua = rule.get(ua_key) or rule.get("ua") or UA
+    r = safe_get(url, {"User-Agent": ua, "Referer": rule.get("homeUrl", "")}, 12)
+    try:
+        raw = r.content
+    finally:
+        r.close()
+    if r.status_code >= 400:
+        raise ValueError(f"网站返回 HTTP{r.status_code}")
+    enc = r.encoding if r.encoding and r.encoding.lower() != "iso-8859-1" else None
+    m = re.search(rb'<meta[^>]+charset=["\']?([\w-]+)', raw[:3000], re.I)
+    enc = (m.group(1).decode() if m else None) or enc or "utf-8"
+    try:
+        txt = raw.decode(enc, "ignore")
+    except LookupError:
+        txt = raw.decode("utf-8", "ignore")
+    return txt, r.url
+
+def xp_doc(txt):
+    return LH.fromstring(txt or "<html></html>")
+
+def _xp_eval(node, rule, doc=None):
+    """规则里的 /a/@href 是相对当前节点；// 开头先在节点内找，找不到再全页找（与 JsoupXpath 习惯一致）"""
+    r = rule.strip()
+    while r.startswith("///"):
+        r = r[1:]
+    if r.startswith("/"):
+        rel = "." + r
+    else:
+        rel = "./" + r
+    try:
+        res = node.xpath(rel)
+    except Exception:
+        res = []
+    if not res and doc is not None and r.startswith("//"):
+        try:
+            res = doc.xpath(r)
+        except Exception:
+            res = []
+    return res
+
+def xp_val(node, rule, rx="", doc=None):
+    if not rule:
+        return ""
+    res = _xp_eval(node, rule, doc)
+    v = ""
+    for x in res:
+        x = x.text_content() if hasattr(x, "text_content") else str(x)
+        x = re.sub(r"\s+", " ", x).strip()
+        if x:
+            v = x
+            break
+    if v and rx:
+        try:
+            m = re.search(rx, v)
+            if m:
+                v = m.group(1) if m.groups() else m.group(0)
+        except re.error:
+            pass
+    return v.strip()
+
+def xp_nodes(node, rule, doc=None):
+    if not rule:
+        return []
+    return [x for x in _xp_eval(node, rule, doc) if hasattr(x, "xpath")]
+
+def xp_list(rule, doc, base, pre):
+    out = []
+    for n in xp_nodes(doc, rule.get(pre + "Node")):
+        vid = xp_val(n, rule.get(pre + "Id"), rule.get(pre + "IdR"))
+        name = xp_val(n, rule.get(pre + "Name"), rule.get(pre + "NameR"))
+        if not vid or not name:
+            continue
+        pic = xp_val(n, rule.get(pre + "Img"), rule.get(pre + "ImgR"))
+        out.append({"vod_id": vid, "vod_name": name, "vod_pic": urllib.parse.urljoin(base, pic) if pic else "",
+                    "vod_remarks": xp_val(n, rule.get(pre + "Mark"), rule.get(pre + "MarkR"))})
+    return out
+
+def xp_classes(rule):
+    cm = rule.get("cateManual")
+    if isinstance(cm, dict) and cm:
+        return [{"type_id": str(v), "type_name": str(k)} for k, v in cm.items()]
+    out = []
+    if rule.get("cateNode"):
+        txt, base = xp_fetch(rule, rule["homeUrl"])
+        doc = xp_doc(txt)
+        for n in xp_nodes(doc, rule["cateNode"]):
+            i = xp_val(n, rule.get("cateId"), rule.get("cateIdR"))
+            nm = xp_val(n, rule.get("cateName"), rule.get("cateNameR"))
+            if i and nm and all(c["type_id"] != i for c in out):
+                out.append({"type_id": i, "type_name": nm})
+    return out
+
+def xp_fill(tpl, **kv):
+    first = re.search(r"\[firstPage=(.*?)\]", tpl)
+    tpl = re.sub(r"\[firstPage=.*?\]", "", tpl)
+    if first and str(kv.get("catePg")) == "1":
+        tpl = first.group(1)
+    for k, v in kv.items():
+        tpl = tpl.replace("{" + k + "}", str(v))
+    return re.sub(r"\{\w+\}", "", tpl)  # 筛选占位符（{year}{area}…）没选就留空
+
+def xp_json_path(j, path):
+    for k in [x for x in path.split(".") if x]:
+        if isinstance(j, dict):
+            j = j.get(k)
+        elif isinstance(j, list) and k.isdigit() and int(k) < len(j):
+            j = j[int(k)]
+        else:
+            return None
+    return j
+
+def xp_rx(v, rx):
+    v = str(v or "").strip()
+    if v and rx:
+        try:
+            m = re.search(rx, v)
+            if m:
+                v = m.group(1) if m.groups() else m.group(0)
+        except re.error:
+            pass
+    return v
+
+def xp_search(rule, wd, pg):
+    url = xp_fill(rule.get("searchUrl") or "", wd=quote(wd), pg=pg, catePg=pg)
+    if not url:
+        return []
+    txt, base = xp_fetch(rule, url)
+    node = rule.get("scVodNode") or ""
+    if node.startswith("json:"):
+        try:
+            j = json.loads(txt.lstrip("\ufeff"))
+        except Exception:
+            return []
+        out = []
+        for it in xp_json_path(j, node[5:]) or []:
+            if not isinstance(it, dict):
+                continue
+            vid = xp_rx(it.get(rule.get("scVodId") or "id"), rule.get("scVodIdR"))
+            nm = xp_rx(it.get(rule.get("scVodName") or "name"), rule.get("scVodNameR"))
+            if vid and nm:
+                pic = xp_rx(it.get(rule.get("scVodImg") or "pic"), rule.get("scVodImgR"))
+                out.append({"vod_id": vid, "vod_name": nm, "vod_pic": urllib.parse.urljoin(base, pic) if pic else "",
+                            "vod_remarks": xp_rx(it.get(rule.get("scVodMark") or ""), rule.get("scVodMarkR"))})
+        return out
+    return xp_list(rule, xp_doc(txt), base, "scVod")
+
+def xp_detail(rule, vid):
+    url = xp_fill(rule.get("dtUrl") or "{vid}", vid=vid)
+    url = urllib.parse.urljoin(rule["homeUrl"], url)
+    txt, base = xp_fetch(rule, url)
+    doc = xp_doc(txt)
+    nd = (xp_nodes(doc, rule.get("dtNode")) or [doc])[0]
+    g = lambda k: xp_val(nd, rule.get(k), rule.get(k + "R"), doc)
+    froms = [xp_val(n, rule.get("dtFromName"), rule.get("dtFromNameR")) for n in xp_nodes(doc, rule.get("dtFromNode"))]
+    groups = []
+    for un in xp_nodes(doc, rule.get("dtUrlNode")):
+        eps = []
+        for a in xp_nodes(un, rule.get("dtUrlSubNode")):
+            pid = xp_val(a, rule.get("dtUrlId"), rule.get("dtUrlIdR"))
+            nm = xp_val(a, rule.get("dtUrlName"), rule.get("dtUrlNameR")) or str(len(eps) + 1)
+            if pid:
+                eps.append(nm.replace("$", " ").replace("#", " ") + "$" + pid)
+        if eps:
+            groups.append("#".join(eps))
+    fr = [(froms[i] if i < len(froms) and froms[i] else f"线路{i + 1}").replace("$", " ") for i in range(len(groups))]
+    pic = g("dtImg")
+    return {"vod_id": vid, "vod_name": g("dtName"), "vod_pic": urllib.parse.urljoin(base, pic) if pic else "",
+            "type_name": g("dtCate"), "vod_year": g("dtYear"), "vod_area": g("dtArea"), "vod_remarks": g("dtMark"),
+            "vod_actor": g("dtActor"), "vod_director": g("dtDirector"), "vod_content": g("dtDesc"),
+            "vod_play_from": "$$$".join(fr), "vod_play_url": "$$$".join(groups)}
+
+def xp_call(site, ac=None, t=None, pg=None, wd=None, ids=None, **_):
+    rule = xp_rule(site)
+    pg = str(pg or "1")
+    if ids:
+        return {"class": [], "list": [xp_detail(rule, i) for i in str(ids).split(",")[:3] if i], "page": 1, "pagecount": 1}
+    if wd:
+        lst = xp_search(rule, wd, pg)
+        return {"class": [], "list": lst, "page": int(pg), "pagecount": 1}
+    if t:
+        url = xp_fill(rule.get("cateUrl") or "", cateId=t, catePg=pg)
+        txt, base = xp_fetch(rule, url)
+        lst = xp_list(rule, xp_doc(txt), base, "cateVod")
+        return {"class": [], "list": lst, "page": int(pg), "pagecount": (int(pg) + 1 if lst else int(pg))}
+    cls = xp_classes(rule)
+    lst = []
+    if ac == "detail":
+        try:
+            if rule.get("homeVodNode"):
+                txt, base = xp_fetch(rule, rule["homeUrl"])
+                lst = xp_list(rule, xp_doc(txt), base, "homeVod")
+            if not lst and cls:
+                return dict(xp_call(site, t=cls[0]["type_id"], pg=pg), **{"class": cls})
+        except ValueError:
+            if not cls:
+                raise
+    return {"class": cls, "list": lst, "page": 1, "pagecount": 1}
+
+def mac_player_url(txt, base):
+    """从苹果CMS播放页里取真实地址：player_xxx={...url,encrypt}；再不行找页面里的 m3u8/mp4"""
+    m = re.search(r"player_\w+\s*=\s*(\{.*?\})\s*(?:;|</script>)", txt, re.S)
+    if m:
+        try:
+            j = json.loads(m.group(1))
+            u = str(j.get("url") or "")
+            enc = str(j.get("encrypt") or "0")
+            if enc == "1":
+                u = urllib.parse.unquote(u)
+            elif enc == "2":
+                u = urllib.parse.unquote(base64.b64decode(u + "=" * (-len(u) % 4)).decode("latin1"))
+            u = u.replace("\\/", "/")
+            if re.match(r"https?://", u) or u.startswith("//"):
+                return urllib.parse.urljoin(base, u)
+        except Exception:
+            pass
+    m = re.search(r"""(https?:)?(\\?/\\?/[^"'\s<>]+?\.(?:m3u8|mp4)(?:\?[^"'\s<>]*)?)""", txt)
+    if m:
+        return urllib.parse.urljoin(base, (m.group(1) or "https:") + m.group(2).replace("\\/", "/"))
+    return ""
+
+def xp_play(site, pid):
+    rule = xp_rule(site)
+    tpl = rule.get("playUrl") or ""
+    url = xp_fill(tpl, playUrl=pid) if "{playUrl}" in tpl else (tpl + pid if tpl else pid)
+    url = urllib.parse.urljoin(rule["homeUrl"], url)
+    if re.search(r"\.(m3u8|mp4|flv)(\?|$)", url):
+        return url, {}
+    txt, base = xp_fetch(rule, url, "playUa")
+    u = mac_player_url(txt, base)
+    if u and re.search(r"\.(m3u8|mp4|flv)", u):
+        return u, ({"User-Agent": rule["playUa"]} if rule.get("playUa") else {})
+    if u:
+        raise ValueError("这一集是解析接口地址，需要网页嗅探，网页播放器不支持，换一条线路试试")
+    raise ValueError("播放页里没找到视频地址（需要嗅探），换一条线路试试")
+
 def vod_call(site, **params):
     if site.get("type") == 4:
         return t4_call(site, **params)
+    if site.get("type") == 3:
+        return xp_call(site, **params)
     sp = urllib.parse.urlsplit(site["api"])
     q = dict(urllib.parse.parse_qsl(sp.query))
     q.update({k: v for k, v in params.items() if v not in (None, "")})
@@ -1460,14 +1745,14 @@ def api_test():
             d = vod_call(site, ac="detail", ids=ids)
     except Exception as e:
         return jsonify({"ok": False, "ms": int((time.time() - t0) * 1000), "msg": ("接口打不开：" + (str(e) or type(e).__name__))[:80]})
-    if site.get("type") == 4 and not any(v.get("vod_play_url") for v in d["list"]):
+    if site.get("type") in (3, 4) and not any(v.get("vod_play_url") for v in d["list"]):
         try:
             d = vod_call(site, ids=str(d["list"][0].get("vod_id")))
         except Exception as e:
             return jsonify({"ok": False, "ms": int((time.time() - t0) * 1000), "msg": "详情打不开：" + str(e)[:60]})
     ms = int((time.time() - t0) * 1000)
     url, th = "", {}
-    for v in (d["list"] if site.get("type") != 4 else []):
+    for v in (d["list"] if site.get("type") not in (3, 4) else []):
         for part in str(v.get("vod_play_url") or "").split("$$$"):
             for ep in part.split("#"):
                 u = ep.split("$")[-1].strip()
@@ -1475,6 +1760,15 @@ def api_test():
                     url = u; break
             if url: break
         if url: break
+    if not url and site.get("type") == 3:
+        for v in d["list"]:
+            ep = str(v.get("vod_play_url") or "").split("$$$")[0].split("#")[0]
+            if ep:
+                try:
+                    url, th = xp_play(site, ep.split("$")[-1])
+                except Exception as e:
+                    return jsonify({"ok": False, "ms": ms, "msg": "列表和详情能打开，但" + str(e)[:50]})
+            break
     if not url and site.get("type") == 4:
         for v in d["list"]:
             fr = str(v.get("vod_play_from") or "").split("$$$")
@@ -1530,8 +1824,8 @@ def api_vod():
         if not ids:
             for v in d["list"]:
                 v.pop("vod_play_url", None); v.pop("vod_content", None)
-        if site.get("type") == 4:
-            d["t4"] = 1
+        if site.get("type") in (3, 4):
+            d["t4"] = 1  # 播放时先走 /api/play 解析
         return jsonify(d)
     except Exception as e:
         print("[web] vod err", key, ac, repr(e), flush=True)
@@ -1569,6 +1863,14 @@ def api_play():
     if not site:
         return jsonify({"error": "no site"}), 404
     pid, flag = arg("id"), arg("flag")
+    if site.get("type") == 3:
+        try:
+            u, hd = xp_play(site, pid)
+            return jsonify({"url": u, "header": hd})
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 502
+        except Exception as e:
+            return jsonify({"error": "解析失败：" + str(e)[:80]}), 502
     if site.get("type") != 4:
         return jsonify({"url": pid})
     try:

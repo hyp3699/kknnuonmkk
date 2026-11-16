@@ -56,6 +56,7 @@ NEW_VER=$(grep -oP '^VERSION = "\K[^"]+' "$NEW/danmu_server.py" || echo "未知"
 echo "    版本：$OLD_VER -> $NEW_VER"
 python3 -m venv "$APP_DIR/venv"
 "$APP_DIR/venv/bin/pip" install -q --upgrade pip flask requests zhconv || { echo "❌ 安装依赖失败（pip），已保留旧版"; exit 1; }
+"$APP_DIR/venv/bin/pip" install -q lxml || echo "    ⚠ lxml 没装上，网页里的 XPath 规则站会不可用（其它功能不受影响）"
 # 备份旧版再替换
 rm -rf "$BAK"; mkdir -p "$BAK"
 for f in danmu_server.py web.html hls.min.js; do [ -f "$APP_DIR/$f" ] && cp -p "$APP_DIR/$f" "$BAK/"; done
