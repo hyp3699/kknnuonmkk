@@ -338,6 +338,11 @@ def main():
     keys = {json.loads(raw[a:b]).get("key") for a, b in spans}
     files = list(dict.fromkeys(gh_search() + SEEDS))[:MAX_FILES]
     print("配置文件数", len(files))
+    bp = os.path.join(os.path.dirname(os.path.abspath(STATE)), "blocked.json")  # 网页设置里手动删除的站，不再自动加回
+    try:
+        blocked = set(json.load(open(bp)))
+    except Exception:
+        blocked = set()
     cand = {}
     with cf.ThreadPoolExecutor(16) as ex:
         for sites in ex.map(load_cfg, files):
@@ -348,7 +353,7 @@ def main():
                 if not api.startswith("http") or "provide" not in api and "apijson" not in api and "xml.php" not in api:
                     continue
                 k = norm(api)
-                if k in seen or k in cand:
+                if k in seen or k in cand or k in blocked:
                     continue
                 cand[k] = s
     print("候选新站", len(cand))

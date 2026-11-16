@@ -58,6 +58,79 @@ show_urls() {
   yellow "云厂商安全组要放行用到的端口"
 }
 
+show_auth() {
+  installed && [ -x "$PY" ] || { red "未安装"; return; }
+  local a; a=$(AUTH_FILE=$APP_DIR/web_auth.json $PY $APP_DIR/danmu_server.py --auth-show 2>/dev/null)
+  [ -n "$a" ] || { yellow "还没有设置账号，选 4 设置"; return; }
+  green "网页账号：${a%% *}"
+  green "网页密码：${a#* }"
+}
+
+# ---------------- IP 访问限制 ----------------
+ACL=$APP_DIR/acl.json
+acl_py() { python3 - "$ACL" "$@" <<'PYEOF'
+import json, sys, ipaddress
+f, act = sys.argv[1], sys.argv[2]
+try: d = json.load(open(f))
+except Exception: d = {}
+if act == "show":
+    for sc, nm in (("web", "网页播放器"), ("danmu", "弹幕/OK影视订阅")):
+        c = d.get(sc) or {}
+        m = {"allow": "只允许名单内 IP", "deny": "禁止名单内 IP"}.get(c.get("mode"), "不限制")
+        print(f"{nm}：{m}" + (("  名单：" + ", ".join(c.get("ips") or [])) if c.get("ips") else ""))
+    sys.exit()
+sc = sys.argv[3]; c = d.setdefault(sc, {"mode": "off", "ips": []}); c.setdefault("ips", [])
+if act == "mode": c["mode"] = sys.argv[4]
+elif act == "add":
+    for x in sys.argv[4].replace("，", ",").replace(" ", ",").split(","):
+        x = x.strip()
+        if not x: continue
+        try: ipaddress.ip_network(x, strict=False)
+        except Exception: print("跳过无效：" + x); continue
+        if x not in c["ips"]: c["ips"].append(x)
+elif act == "del":
+    for x in sys.argv[4].replace("，", ",").replace(" ", ",").split(","):
+        if x.strip() in c["ips"]: c["ips"].remove(x.strip())
+elif act == "clear": c["ips"] = []
+json.dump(d, open(f, "w"), ensure_ascii=False, indent=1)
+PYEOF
+}
+
+acl_menu() {
+  installed || { red "未安装"; return; }
+  local sc c x me
+  me=$(echo "$SSH_CLIENT" | awk '{print $1}')
+  while true; do
+    clear; purple "=== IP 访问限制 ==="; acl_py show
+    [ -n "$me" ] && skyblue "你当前 SSH 的 IP：$me"
+    yellow "名单支持单个 IP 或网段（如 1.2.3.4、1.2.3.0/24），本机访问始终放行，立即生效"
+    echo "-----------------------------"
+    green "1. 设置网页播放器"
+    green "2. 设置弹幕/OK影视订阅"
+    purple "0. 返回"
+    reading "请选择: " c
+    case "$c" in 1) sc=web;; 2) sc=danmu;; *) return;; esac
+    echo "-----------------------------"
+    green "1. 只允许名单内 IP 访问（白名单）"
+    green "2. 禁止名单内 IP 访问（黑名单）"
+    green "3. 不限制"
+    green "4. 添加 IP 到名单"
+    green "5. 从名单删除 IP"
+    green "6. 清空名单"
+    reading "请选择: " c
+    case "$c" in
+      1) acl_py mode $sc allow; green "已设为白名单"
+         if [ -n "$me" ] && ! grep -q "\"$me\"" "$ACL"; then acl_py add $sc "$me"; yellow "已自动把你当前 IP $me 加入名单，防止把自己关在外面"; fi; [ "$sc" = danmu ] && yellow "注意：手机流量 IP 经常变，白名单可能导致 OK影视 用不了";;
+      2) acl_py mode $sc deny; green "已设为黑名单";;
+      3) acl_py mode $sc off; green "已取消限制";;
+      4) reading "输入 IP（多个用逗号或空格分开）: " x; [ -n "$x" ] && acl_py add $sc "$x" && green "已添加";;
+      5) reading "输入要删除的 IP: " x; [ -n "$x" ] && acl_py del $sc "$x" && green "已删除";;
+      6) acl_py clear $sc; green "已清空";;
+    esac
+    sleep 1
+  done
+}
+
 reset_auth() {
   installed || { red "未安装"; return; }
   [ -x "$PY" ] || { red "缺少 $PY，请先选 1 安装"; return; }
@@ -172,13 +245,19 @@ setup_domain() {  # $1=web|danmu
   fi
   nginx -t >/dev/null 2>&1 || { red "当前 nginx 配置本身有错误，先修好："; nginx -t; return; }
 
-  # HTTPS 端口：443 被 sing-box 等占用时换一个
+  # HTTPS 端口：nginx 按域名(SNI)区分，和 sing-box 脚本的 nginx 共用 443
   hp=443; occ=$(listener 443)
-  if { [ -n "$occ" ] && [ "$occ" != nginx ]; } || nginx_stream_on 443; then
-    yellow "443 端口已被 ${occ:-nginx stream 分流} 占用"
-    hp=8443
+  if [ -n "$occ" ] && [ "$occ" != nginx ]; then
+    yellow "443 端口被 $occ 直接占用（不是 nginx），nginx 无法共用，请换一个端口"
+    hp=""
+  elif nginx_stream_on 443; then
+    yellow "443 被 nginx stream 分流占用，http 不能直接共用，请换一个端口"
+    hp=""
+  else
+    green "443 由 nginx 管理${occ:+（与已有站点按域名共用）}"
   fi
-  reading "HTTPS 端口（回车用 $hp）: " x; hp=${x:-$hp}
+  reading "HTTPS 端口（回车用 ${hp:-？}）: " x; hp=${x:-$hp}
+  [ -n "$hp" ] || { red "没有可用端口"; return; }
   echo "$hp" | grep -qE '^[0-9]+$' || { red "端口不对"; return; }
   occ=$(listener "$hp")
   if [ -n "$occ" ] && [ "$occ" != nginx ]; then red "端口 $hp 被 $occ 占用，换一个"; return; fi
@@ -273,10 +352,12 @@ while true; do
   green "4. 立即更新采集站（后台约 2-5 分钟）"
   green "5. 查看弹幕/网页日志"
   green "6. 查看采集站更新日志"
-  green "7. 重置网页账号密码"
-  green "8. 设置网页播放器域名（HTTPS）"
-  green "9. 设置弹幕域名（HTTPS）"
-  red   "10. 卸载"
+  green "7. 查看网页账号密码"
+  green "8. 重置网页账号密码"
+  green "9. IP 访问限制（白名单/黑名单）"
+  green "10. 设置网页播放器域名（HTTPS）"
+  green "11. 设置弹幕域名（HTTPS）"
+  red   "12. 卸载"
   echo "-----------------------------"
   purple "0. 退出"
   reading "请输入选择: " c
@@ -288,10 +369,12 @@ while true; do
     4) systemctl start --no-block danmu-sites && green "已开始，选 6 看进度"; pause ;;
     5) journalctl -u danmu -n 40 --no-pager; pause ;;
     6) journalctl -u danmu-sites -n 40 --no-pager; pause ;;
-    7) reset_auth; pause ;;
-    8) setup_domain web; pause ;;
-    9) setup_domain danmu; pause ;;
-    10) uninstall_all; pause ;;
+    7) show_auth; pause ;;
+    8) reset_auth; pause ;;
+    9) acl_menu ;;
+    10) setup_domain web; pause ;;
+    11) setup_domain danmu; pause ;;
+    12) uninstall_all; pause ;;
     0) exit 0 ;;
     *) red "无效选项"; sleep 1 ;;
   esac

@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.7.0"  # 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.8.0"  # 1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -705,7 +705,7 @@ def pw_hash(salt, pw):
 
 def set_auth(user, pw):
     salt = secrets.token_hex(8)
-    d = {"user": user, "salt": salt, "hash": pw_hash(salt, pw), "secret": secrets.token_hex(16)}
+    d = {"user": user, "pass": pw, "salt": salt, "hash": pw_hash(salt, pw), "secret": secrets.token_hex(16)}
     tmp = AUTH_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(d, f)
@@ -753,6 +753,51 @@ const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application
 const d=await r.json().catch(()=>({}));if(r.ok&&d.ok)location.replace('/');else document.getElementById('e').textContent=d.msg||'登录失败'}
 </script></body></html>"""
 
+# ---------- IP 访问限制（ACL_FILE：{"web":{"mode":"off|allow|deny","ips":[...]},"danmu":{...}}，ys 菜单设置） ----------
+import ipaddress
+ACL_FILE = os.environ.get("ACL_FILE", os.path.join(DATA_DIR, "acl.json"))
+ACL_CACHE = [None, {}]
+
+def acl_conf():
+    try:
+        mt = os.path.getmtime(ACL_FILE)
+    except Exception:
+        return {}
+    if ACL_CACHE[0] != mt:
+        try:
+            ACL_CACHE[1] = json.load(open(ACL_FILE)); ACL_CACHE[0] = mt
+        except Exception:
+            ACL_CACHE[1] = {}
+    return ACL_CACHE[1]
+
+def ip_in(ip, nets):
+    try:
+        a = ipaddress.ip_address(ip.split("%")[0])
+    except Exception:
+        return False
+    if getattr(a, "ipv4_mapped", None):
+        a = a.ipv4_mapped
+    for n in nets:
+        try:
+            if a in ipaddress.ip_network(str(n).strip(), strict=False):
+                return True
+        except Exception:
+            pass
+    return False
+
+def acl_ok(scope):
+    c = (acl_conf() or {}).get(scope) or {}
+    mode = c.get("mode", "off")
+    if mode not in ("allow", "deny"):
+        return True
+    ip = client_ip()
+    ra = request.remote_addr or ""
+    # 本机直连（ys 状态检查、MoonTV 容器）始终放行
+    if ip == ra and ip_in(ra, ["127.0.0.0/8", "::1/128", "172.16.0.0/12"]):
+        return True
+    hit = ip_in(ip, c.get("ips") or [])
+    return hit if mode == "allow" else not hit
+
 def is_web_path(p):
     return p in ("/web", "/px", "/hls.js", "/login", "/logout") or (p.startswith("/api/") and not p.startswith("/api/v2/"))
 
@@ -760,6 +805,9 @@ def is_web_path(p):
 def web_guard():
     on_web = request.environ.get("SERVER_PORT") == str(WEB_PORT)
     p = request.path
+    if not acl_ok("web" if on_web else "danmu"):
+        print("[acl] deny", "web" if on_web else "danmu", client_ip(), p, flush=True)
+        return "403 forbidden: your IP is not allowed", 403
     if not on_web:
         if is_web_path(p):  # 网页接口只在网页端口开放，弹幕端口 2525 不能绕过登录
             return "not found", 404
@@ -897,7 +945,185 @@ def vod_call(site, **params):
 
 @app.route("/api/sites")
 def api_sites():
+    if arg("full"):
+        return jsonify([{"key": s["key"], "name": s["name"], "api": s["api"], "type": s["type"]} for s in web_sites()])
     return jsonify([{"key": s["key"], "name": s["name"]} for s in web_sites()])
+
+# ---------- 网页设置：采集站增删、测试、编辑 jjoo.json ----------
+CONF_LOCK = threading.Lock()
+TOOLS_DIR = os.path.join(DATA_DIR, "tools")
+BLOCK_FILE = os.path.join(TOOLS_DIR, "blocked.json")
+_US = [None]
+
+def us():
+    """复用采集站脚本里的文本级增删（保留 jjoo.json 原格式）和链接规范化"""
+    if _US[0] is None:
+        import importlib.util
+        for p in (os.path.join(TOOLS_DIR, "update_sites.py"), os.path.join(DATA_DIR, "..", "tools", "update_sites.py")):
+            if os.path.exists(p):
+                spec = importlib.util.spec_from_file_location("update_sites", p)
+                m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+                _US[0] = m
+                break
+    if _US[0] is None:
+        raise RuntimeError("缺少 tools/update_sites.py，请重新安装")
+    return _US[0]
+
+def jj_path():
+    return os.path.join(WWW, "jjoo.json")
+
+def jj_write(raw):
+    json.loads(raw)
+    p = jj_path()
+    if os.path.exists(p):
+        try:
+            import shutil; shutil.copy(p, p + ".bak")
+        except Exception:
+            pass
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(raw)
+    os.replace(tmp, p)
+
+def block_update(add=(), remove=()):
+    try:
+        b = set(json.load(open(BLOCK_FILE)))
+    except Exception:
+        b = set()
+    b |= set(add); b -= set(remove)
+    os.makedirs(TOOLS_DIR, exist_ok=True)
+    json.dump(sorted(b), open(BLOCK_FILE, "w"), ensure_ascii=False, indent=1)
+
+def site_apis(raw):
+    try:
+        return {str(x.get("api")) for x in json.loads(raw).get("sites", []) if str(x.get("api", "")).startswith("http")}
+    except Exception:
+        return set()
+
+@app.route("/api/conf", methods=["GET", "POST"])
+def api_conf():
+    if request.method == "GET":
+        try:
+            return Response(open(jj_path(), encoding="utf-8").read(), mimetype="text/plain")
+        except Exception:
+            return Response("", mimetype="text/plain")
+    text = (request.get_json(silent=True) or {}).get("text", "")
+    try:
+        d = json.loads(text)
+        assert isinstance(d.get("sites"), list)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": "JSON 格式错误或缺少 sites：" + str(e)[:120]}), 400
+    with CONF_LOCK:
+        try:
+            old = open(jj_path(), encoding="utf-8").read()
+        except Exception:
+            old = ""
+        jj_write(text)
+        try:
+            m = us(); gone = site_apis(old) - site_apis(text)
+            block_update(add=[m.norm(a) for a in gone], remove=[m.norm(a) for a in site_apis(text)])
+        except Exception as e:
+            print("[conf] block err", repr(e), flush=True)
+    return jsonify({"ok": True})
+
+def detect_type(api):
+    r = get(api.split("?")[0] + ("?" + api.split("?", 1)[1] + "&" if "?" in api else "?") + "ac=list", timeout=10, verify=False)
+    t = r.text.lstrip("\ufeff").lstrip()
+    if t.startswith("<"):
+        xml_vod(t); return 0
+    json.loads(t); return 1
+
+@app.route("/api/site", methods=["POST"])
+def api_site_add():
+    j = request.get_json(silent=True) or {}
+    name, api = str(j.get("name", "")).strip(), str(j.get("api", "")).strip()
+    if not re.match(r"https?://", api):
+        return jsonify({"ok": False, "msg": "接口地址要以 http:// 或 https:// 开头"}), 400
+    try:
+        typ = int(j["type"]) if str(j.get("type", "")) in ("0", "1") else detect_type(api)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": "接口打不开或不是苹果CMS接口：" + str(e)[:80]}), 400
+    with CONF_LOCK:
+        m = us(); raw = open(jj_path(), encoding="utf-8").read()
+        d = json.loads(raw); k = m.norm(api)
+        for x in d.get("sites", []):
+            if str(x.get("api", "")).startswith("http") and m.norm(x["api"]) == k:
+                return jsonify({"ok": False, "msg": "已存在：" + str(x.get("name"))}), 400
+        name = name or (urllib.parse.urlsplit(api).hostname or "新接口")
+        keys = {x.get("key") for x in d.get("sites", [])}
+        key = name
+        while key in keys:
+            key += "_"
+        o = {"key": key, "name": name, "type": typ, "api": api, "searchable": 1, "quickSearch": 1, "filterable": 0}
+        adult = "🔞" in name
+        raw = m.insert_sites(raw, [o], before_adult=not adult)
+        jj_write(raw)
+        block_update(remove=[k])
+    return jsonify({"ok": True, "key": key, "type": typ})
+
+@app.route("/api/site/del", methods=["POST"])
+def api_site_del():
+    keys = set((request.get_json(silent=True) or {}).get("keys") or [])
+    if not keys:
+        return jsonify({"ok": False}), 400
+    with CONF_LOCK:
+        m = us(); raw = open(jj_path(), encoding="utf-8").read()
+        spans, _ = m.site_spans(raw)
+        rm, blk = [], []
+        for a, b in spans:
+            o = json.loads(raw[a:b])
+            if o.get("key") in keys:
+                rm.append((a, b))
+                if str(o.get("api", "")).startswith("http"):
+                    blk.append(m.norm(o["api"]))
+        if rm:
+            jj_write(m.remove_spans(raw, rm))
+            block_update(add=blk)
+    return jsonify({"ok": True, "n": len(rm)})
+
+@app.route("/api/test")
+def api_test():
+    """测试一个采集站：列表 + 第一个视频的播放地址能否打开"""
+    site = next((s for s in web_sites() if s["key"] == arg("key")), None)
+    if not site:
+        return jsonify({"ok": False, "msg": "没有这个站"})
+    t0 = time.time()
+    try:
+        d = vod_call(site, ac="detail", pg=1)
+        if not d["list"]:
+            d2 = vod_call(site, ac="list", pg=1)
+            if not d2["list"]:
+                return jsonify({"ok": False, "ms": int((time.time() - t0) * 1000), "msg": "列表为空"})
+            ids = ",".join(str(v.get("vod_id")) for v in d2["list"][:3])
+            d = vod_call(site, ac="detail", ids=ids)
+    except Exception as e:
+        return jsonify({"ok": False, "ms": int((time.time() - t0) * 1000), "msg": ("接口打不开：" + (str(e) or type(e).__name__))[:80]})
+    ms = int((time.time() - t0) * 1000)
+    url = ""
+    for v in d["list"]:
+        for part in str(v.get("vod_play_url") or "").split("$$$"):
+            for ep in part.split("#"):
+                u = ep.split("$")[-1].strip()
+                if re.match(r"https?://", u):
+                    url = u; break
+            if url: break
+        if url: break
+    if not url:
+        return jsonify({"ok": False, "ms": ms, "msg": "没有播放地址"})
+    try:
+        r = S.get(url, headers={"User-Agent": UA}, timeout=8, verify=False, stream=True)
+        head = next(r.iter_content(2048), b"")
+        r.close()
+        if r.status_code >= 400:  # 很多 CDN 拒绝机房 IP，手机上通常能播，不算失效
+            return jsonify({"ok": True, "warn": 1, "ms": ms, "msg": f"接口可用，播放地址对服务器返回 HTTP{r.status_code}（手机上可能能播）"})
+        ct = r.headers.get("Content-Type", "").lower()
+        if b"#EXTM3U" in head[:20] or "video" in ct or "mpegurl" in ct or "octet" in ct:
+            return jsonify({"ok": True, "ms": ms, "msg": "可用"})
+        if not re.search(r"\.(m3u8|mp4|flv)", url):
+            return jsonify({"ok": True, "ms": ms, "msg": "可用（网页解析地址，可能需代理）", "warn": 1})
+        return jsonify({"ok": True, "warn": 1, "ms": ms, "msg": "接口可用，播放地址不像视频"})
+    except Exception as e:
+        return jsonify({"ok": True, "warn": 1, "ms": ms, "msg": "接口可用，播放地址服务器连不上（" + type(e).__name__ + "）"})
 
 @app.route("/api/vod")
 def api_vod():
@@ -1020,6 +1246,10 @@ if __name__ == "__main__":
     if len(sys.argv) >= 4 and sys.argv[1] == "--set-auth":
         set_auth(sys.argv[2], sys.argv[3])
         print("ok")
+        sys.exit(0)
+    if len(sys.argv) >= 2 and sys.argv[1] == "--auth-show":
+        c = auth_conf()
+        print((c or {}).get("user", ""), (c or {}).get("pass", "（旧版未保存，请重置）") if c else "")
         sys.exit(0)
     if len(sys.argv) >= 2 and sys.argv[1] == "--auth-user":
         c = auth_conf()
