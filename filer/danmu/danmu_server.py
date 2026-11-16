@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.4.0"  # 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.4.1"  # 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, time, json, zlib, html, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -490,7 +490,8 @@ def danmu():
     proxy = [{"name": label + " [代理]", "url": f"{base}/xml?site={site}&u={quote(url, safe='')}"} for label, site, url in items]
     # FongMi 5.8.x 内置腾讯/爱奇艺/芒果/B站抓取器：直接给平台页面地址，手机直连分段加载，最稳
     native = [] if arg("native") == "0" else [{"name": label, "url": url.split("?")[0] if site == "qq" else (f"https://v.youku.com/v_show/id_{yk_vid(url)}.html" if site == "youku" else url)} for label, site, url in items if site != "baha"]
-    res = native + proxy
+    # 1.4.1: 内置抓取器常只加载开头一段，自动载入会选第一条 → 整集代理放最前
+    res = proxy + native
     print("[danmu]", name, epid, "->", [x["name"] for x in res], flush=True)
     return jsonify(res)
 
