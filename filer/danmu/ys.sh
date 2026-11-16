@@ -43,7 +43,7 @@ show_status() {
     echo "网页播放器：未开启（选 1 安装精简网页版）"
   fi
   echo "采集站数量：$(python3 -c "import json;print(len(json.load(open('$APP_DIR/www/jjoo.json'))['sites']))" 2>/dev/null || echo ?)"
-  echo "采集站下次更新：$(systemctl list-timers danmu-sites.timer --no-pager 2>/dev/null | awk 'NR==2{print $1,$2,$3}')"
+  echo "采集站自动更新：$(every_text)  下次：$(next_run)"
 }
 
 show_urls() {
@@ -64,6 +64,83 @@ show_auth() {
   [ -n "$a" ] || { yellow "还没有设置账号，选 4 设置"; return; }
   green "网页账号：${a%% *}"
   green "网页密码：${a#* }"
+}
+
+# ---------------- 采集站 ----------------
+every_text() { local e; e=$(getenv SITES_EVERY); e=${e:-2}
+  case "$e" in off) echo 已关闭;; *h) echo "每 ${e%h} 小时";; 1) echo 每天;; 7) echo 每周;; *) echo "每 $e 天";; esac; }
+next_run() { systemctl is-active -q danmu-sites.timer 2>/dev/null || { echo -; return; }
+  systemctl list-timers danmu-sites.timer --no-pager 2>/dev/null | awk 'NR==2{print $1,$2,$3}'; }
+write_timer() {  # $1 = 天数 / Nh / off（与 deploy.sh 相同规则，更新不会被覆盖）
+  local e=$1 tl
+  setenv SITES_EVERY "$e"
+  case "$e" in
+    off) systemctl disable --now danmu-sites.timer >/dev/null 2>&1; return ;;
+    *h) tl="OnBootSec=10min
+OnUnitActiveSec=${e%h}h" ;;
+    1) tl="OnCalendar=*-*-* 20:00:00 UTC" ;;
+    7) tl="OnCalendar=Sun *-*-* 20:00:00 UTC" ;;
+    *) tl="OnCalendar=*-*-1/$e 20:00:00 UTC" ;;
+  esac
+  cat > /etc/systemd/system/danmu-sites.timer <<UNIT
+[Unit]
+Description=Update video sites (SITES_EVERY=$e)
+[Timer]
+$tl
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload; systemctl enable danmu-sites.timer >/dev/null 2>&1; systemctl restart danmu-sites.timer
+}
+sites_menu() {
+  installed || { red "未安装"; return; }
+  local c x
+  while true; do
+    clear; purple "=== 采集站 ==="
+    echo "采集站数量：$(python3 -c "import json;print(len(json.load(open('$APP_DIR/www/jjoo.json'))['sites']))" 2>/dev/null || echo ?)"
+    echo "自动更新：$(every_text)  下次：$(next_run)"
+    systemctl is-active -q danmu-sites && yellow "正在更新中…"
+    echo "-----------------------------"
+    green "1. 立即更新（后台约 2-5 分钟）"
+    green "2. 设置自动更新间隔"
+    green "3. 查看更新日志"
+    purple "0. 返回"
+    reading "请选择: " c
+    case "$c" in
+      1) systemctl start --no-block danmu-sites && green "已开始，选 3 看进度"; sleep 1 ;;
+      2) echo "-----------------------------"
+         green "1. 每 6 小时    2. 每 12 小时"
+         green "3. 每天         4. 每 2 天（默认）"
+         green "5. 每 3 天      6. 每周"
+         green "7. 自定义       8. 关闭自动更新"
+         reading "请选择: " x
+         case "$x" in
+           1) write_timer 6h;; 2) write_timer 12h;; 3) write_timer 1;; 4) write_timer 2;;
+           5) write_timer 3;; 6) write_timer 7;; 8) write_timer off;;
+           7) reading "输入天数（1-30），或小时数加 h（如 8h）: " x
+              if echo "$x" | grep -qE '^([1-9]|[12][0-9]|30)$|^([1-9]|1[0-9]|2[0-3])h$'; then write_timer "$x"; else red "格式不对"; sleep 1; continue; fi ;;
+           *) continue ;;
+         esac
+         green "已设为：$(every_text)  下次：$(next_run)"; pause ;;
+      3) journalctl -u danmu-sites -n 40 --no-pager; pause ;;
+      *) return ;;
+    esac
+  done
+}
+
+toggle_run() {
+  installed || { red "未安装"; return; }
+  if systemctl is-active -q danmu; then
+    reading "停止弹幕和网页播放器（开机也不再自动启动）？(y/N): " yn
+    [ "$yn" = y ] || [ "$yn" = Y ] || return
+    systemctl disable --now danmu danmu-sites.timer danmu-sites >/dev/null 2>&1
+    green "已停止弹幕和网页播放器（采集站自动更新也暂停）。再选这一项可重新启动"
+  else
+    systemctl enable --now danmu >/dev/null 2>&1
+    [ "$(getenv SITES_EVERY)" = off ] || systemctl enable --now danmu-sites.timer >/dev/null 2>&1
+    sleep 1; systemctl is-active -q danmu && green "已启动" || { red "启动失败，看日志："; journalctl -u danmu -n 20 --no-pager; }
+  fi
 }
 
 # ---------------- IP 访问限制 ----------------
@@ -220,8 +297,38 @@ setup_domain() {  # $1=web|danmu
   fi
   cur=$(getenv $envk)
   [ -n "$cur" ] && yellow "当前$label域名：$cur"
-  reading "输入$label域名（如 tv.example.com；输入 del 删除已设置的；回车取消）: " d
-  [ -z "$d" ] && return
+  # 像 sing-box 脚本一样列出本机已有证书（/root/cert、/etc/nginx/cert）直接选
+  local names=() n i=2 sel dir
+  shopt -s nullglob
+  for dir in /root/cert/* /etc/nginx/cert/*; do
+    [ -d "$dir" ] && [ -s "$dir/fullchain.pem" ] && [ -s "$dir/privkey.pem" ] || continue
+    n=$(basename "$dir"); [[ " ${names[*]} " == *" $n "* ]] || names+=("$n")
+  done
+  shopt -u nullglob
+  skyblue "============== 本机已有证书 =============="
+  [ ${#names[@]} -eq 0 ] && echo "  （没有找到证书）"
+  for n in "${names[@]}"; do
+    local mk=""
+    [[ "$n" == \** ]] && mk=" \e[1;33m【泛域名，选后输入前缀】\033[0m"
+    echo "$cur" | grep -q "//$n\b" && mk="$mk \e[1;32m【当前使用】\033[0m"
+    echo -e " $i) $n$mk"; i=$((i+1))
+  done
+  skyblue "=========================================="
+  echo " 1) 输入新域名（自动申请证书）"
+  [ -n "$cur" ] && echo " d) 删除已设置的$label域名"
+  echo " 0) 取消"
+  reading "请选择: " sel
+  case "$sel" in
+    ""|0) return ;;
+    d|D|del) d=del ;;
+    1) reading "输入$label域名（如 tv.example.com）: " d; [ -z "$d" ] && return ;;
+    *) if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 2 ] && [ "$sel" -lt "$i" ]; then
+         d=${names[$((sel-2))]}
+         if [[ "$d" == \** ]]; then
+           reading "输入前缀（如 tv → tv${d#\*}）: " x; [ -z "$x" ] && return; d="$x${d#\*}"
+         fi
+       else red "无效选项"; return; fi ;;
+  esac
   if [ "$d" = del ]; then
     rm -f "/etc/nginx/conf.d/$name.conf"; setenv $envk ""
     [ "$kind" = web ] && setenv WEB_BIND ""
@@ -230,9 +337,13 @@ setup_domain() {  # $1=web|danmu
     green "已删除$label域名"; return
   fi
   d=$(echo "$d" | sed -E 's#^https?://##; s#/.*$##; s#:.*$##' | tr 'A-Z' 'a-z')
-  echo "$d" | grep -qE '^[a-z0-9.-]+\.[a-z]{2,}$' || { red "域名格式不对"; return; }
-  myip=$(ip); rip=$(getent ahostsv4 "$d" 2>/dev/null | awk 'NR==1{print $1}')
-  if [ "$rip" != "$myip" ]; then
+  local isip=0
+  echo "$d" | grep -qE '^[0-9]+(\.[0-9]+){3}$' && isip=1
+  [ $isip = 1 ] || echo "$d" | grep -qE '^[a-z0-9.-]+\.[a-z]{2,}$' || { red "域名格式不对"; return; }
+  myip=$(ip); rip=$d; [ $isip = 1 ] || rip=$(getent ahostsv4 "$d" 2>/dev/null | awk 'NR==1{print $1}')
+  if [ $isip = 1 ] && [ "$d" != "$myip" ]; then
+    yellow "这个 IP 证书是 $d，本机 IP 是 $myip"; reading "仍然继续？(y/N): " yn; [ "$yn" = y ] || [ "$yn" = Y ] || return
+  elif [ $isip = 0 ] && [ "$rip" != "$myip" ]; then
     yellow "域名解析到 ${rip:-（无解析）}，本机 IP 是 $myip"
     yellow "请把 $d 的 A 记录指向 $myip（Cloudflare 申请证书时先关小黄云）"
     reading "仍然继续？(y/N): " yn; [ "$yn" = y ] || [ "$yn" = Y ] || return
@@ -274,6 +385,8 @@ setup_domain() {  # $1=web|danmu
   CERT=""; KEY=""
   if find_cert "$d"; then
     green "使用已有证书：$CERT"
+  elif [ $isip = 1 ]; then
+    red "没有 $d 的证书，IP 证书请先用 sing-box 脚本申请"; return
   else
     skyblue "申请证书（需要安全组放行 80 端口）..."
     issue_cert "$d" || { red "证书申请失败"; [ $http80 = 1 ] && yellow "已保留 http://$d 访问（无 HTTPS）"; return; }
@@ -349,7 +462,7 @@ while true; do
   green "1. 安装 / 更新"
   green "2. 查看地址"
   green "3. 重启服务"
-  green "4. 立即更新采集站（后台约 2-5 分钟）"
+  green "4. 采集站（立即更新 / 更新间隔）"
   green "5. 查看弹幕/网页日志"
   green "6. 查看采集站更新日志"
   green "7. 查看网页账号密码"
@@ -357,7 +470,8 @@ while true; do
   green "9. IP 访问限制（白名单/黑名单）"
   green "10. 设置网页播放器域名（HTTPS）"
   green "11. 设置弹幕域名（HTTPS）"
-  red   "12. 卸载"
+  if installed && ! systemctl is-active -q danmu; then green "12. 启动程序"; else yellow "12. 停止程序（弹幕 + 网页播放器）"; fi
+  red   "13. 卸载"
   echo "-----------------------------"
   purple "0. 退出"
   reading "请输入选择: " c
@@ -366,7 +480,7 @@ while true; do
     1) install_web; pause ;;
     2) show_urls; pause ;;
     3) systemctl restart danmu && green "已重启"; pause ;;
-    4) systemctl start --no-block danmu-sites && green "已开始，选 6 看进度"; pause ;;
+    4) sites_menu ;;
     5) journalctl -u danmu -n 40 --no-pager; pause ;;
     6) journalctl -u danmu-sites -n 40 --no-pager; pause ;;
     7) show_auth; pause ;;
@@ -374,7 +488,8 @@ while true; do
     9) acl_menu ;;
     10) setup_domain web; pause ;;
     11) setup_domain danmu; pause ;;
-    12) uninstall_all; pause ;;
+    12) toggle_run; pause ;;
+    13) uninstall_all; pause ;;
     0) exit 0 ;;
     *) red "无效选项"; sleep 1 ;;
   esac

@@ -96,17 +96,26 @@ Environment=$SITES_ENV
 ExecStart=$APP_DIR/venv/bin/python $APP_DIR/tools/update_sites.py
 TimeoutStartSec=3600
 UNIT
+# 更新间隔：/etc/danmu.env 的 SITES_EVERY（天数 1-30，或 6h 这样的小时，off=关闭），ys 菜单可改，默认 2 天
+SE=$(grep -oP '^SITES_EVERY=\K.*' /etc/danmu.env 2>/dev/null | tail -1); SE=${SE:-2}
+case "$SE" in
+  *h) TL="OnBootSec=10min
+OnUnitActiveSec=${SE%h}h" ;;
+  1) TL="OnCalendar=*-*-* 20:00:00 UTC" ;;
+  7) TL="OnCalendar=Sun *-*-* 20:00:00 UTC" ;;
+  *) TL="OnCalendar=*-*-1/$SE 20:00:00 UTC" ;;
+esac
 cat > /etc/systemd/system/danmu-sites.timer <<UNIT
 [Unit]
-Description=Update video sites every 2 days
+Description=Update video sites (SITES_EVERY=$SE)
 [Timer]
-OnCalendar=*-*-1/2 20:00:00 UTC
+$TL
 Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now danmu-sites.timer >/dev/null 2>&1
+if [ "$SE" = off ]; then systemctl disable --now danmu-sites.timer >/dev/null 2>&1; else systemctl enable --now danmu-sites.timer >/dev/null 2>&1; fi
 systemctl start --no-block danmu-sites.service   # 立即后台跑一次（约 2-5 分钟）
 
 echo "[5/6] 放行端口 $PORT"
