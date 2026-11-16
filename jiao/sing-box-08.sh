@@ -13993,6 +13993,215 @@ c|C)
     done
 }
 # 主菜单
+# ── Forgejo 管理（官方二进制 + systemd，https://forgejo.org/download/）──
+FJ_BIN="/usr/local/bin/forgejo"
+FJ_CONF="/etc/forgejo/app.ini"
+FJ_DATA="/var/lib/forgejo"
+FJ_UNIT="/etc/systemd/system/forgejo.service"
+
+fj_port() {
+    local p
+    p=$(grep -E '^[[:space:]]*HTTP_PORT[[:space:]]*=' "$FJ_CONF" 2>/dev/null | head -n1 | sed 's/.*=[[:space:]]*//; s/[[:space:]]*$//')
+    echo "${p:-3000}"
+}
+
+fj_status_text() {
+    if [ ! -x "$FJ_BIN" ]; then echo "未安装"; return; fi
+    if systemctl is-active --quiet forgejo 2>/dev/null; then echo "🟢运行中"; else echo "⚪已停止"; fi
+}
+
+fj_install() {
+    if ! command -v systemctl >/dev/null 2>&1; then
+        red "Forgejo 安装仅支持 systemd 系统"; return 1
+    fi
+    local arch ver url tmp port
+    case "$(uname -m)" in
+        x86_64|amd64) arch="amd64" ;;
+        aarch64|arm64) arch="arm64" ;;
+        *) red "不支持的架构: $(uname -m)"; return 1 ;;
+    esac
+    yellow "正在获取 Forgejo 最新版本..."
+    ver=$(curl -fsSL --connect-timeout 10 --max-time 30 \
+        "https://codeberg.org/api/v1/repos/forgejo/forgejo/releases/latest" 2>/dev/null | jq -r '.tag_name // empty' | sed 's/^v//')
+    if [ -z "$ver" ]; then red "获取版本失败，请检查网络"; return 1; fi
+
+    if [ -x "$FJ_BIN" ]; then
+        local cur
+        cur=$("$FJ_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+        if [ "$cur" = "$ver" ]; then green "已是最新版本 v${ver}"; return 0; fi
+        yellow "当前 v${cur:-未知}，将更新到 v${ver}（数据保留）"
+    else
+        port=""
+        reading "请输入 Forgejo 访问端口（回车默认 3000）: " port
+        port=${port:-3000}
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            red "端口无效"; return 1
+        fi
+        if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"; then
+            red "端口 ${port} 已被占用"; return 1
+        fi
+    fi
+
+    command -v git >/dev/null 2>&1 || manage_packages install git
+    command -v git >/dev/null 2>&1 || { red "git 安装失败"; return 1; }
+
+    url="https://codeberg.org/forgejo/forgejo/releases/download/v${ver}/forgejo-${ver}-linux-${arch}"
+    tmp=$(mktemp /tmp/forgejo.XXXXXX) || return 1
+    yellow "正在下载 Forgejo v${ver} (${arch})..."
+    if ! curl -fL --connect-timeout 10 --max-time 600 "$url" -o "$tmp" || \
+       ! curl -fsSL --connect-timeout 10 --max-time 30 "${url}.sha256" -o "${tmp}.sha256"; then
+        rm -f "$tmp" "${tmp}.sha256"; red "下载失败"; return 1
+    fi
+    if [ "$(awk '{print $1}' "${tmp}.sha256")" != "$(sha256sum "$tmp" | awk '{print $1}')" ]; then
+        rm -f "$tmp" "${tmp}.sha256"; red "SHA256 校验失败，已取消"; return 1
+    fi
+    rm -f "${tmp}.sha256"
+
+    systemctl stop forgejo 2>/dev/null
+    install -m 755 "$tmp" "$FJ_BIN" && rm -f "$tmp"
+
+    if ! id git >/dev/null 2>&1; then
+        useradd --system --shell /bin/bash --comment 'Git Version Control' \
+            --create-home --home-dir /home/git git || { red "创建 git 用户失败"; return 1; }
+    fi
+    mkdir -p "$FJ_DATA" /etc/forgejo
+    chown git:git "$FJ_DATA" && chmod 750 "$FJ_DATA"
+    if [ ! -f "$FJ_CONF" ]; then
+        cat > "$FJ_CONF" <<FJEOF
+[server]
+HTTP_PORT = ${port}
+
+[database]
+DB_TYPE = sqlite3
+FJEOF
+        chown root:git /etc/forgejo "$FJ_CONF"
+        chmod 770 /etc/forgejo; chmod 660 "$FJ_CONF"
+    fi
+
+    cat > "$FJ_UNIT" <<'FJEOF'
+[Unit]
+Description=Forgejo (Beyond coding. We forge.)
+After=syslog.target network.target
+
+[Service]
+RestartSec=2s
+Type=simple
+User=git
+Group=git
+WorkingDirectory=/var/lib/forgejo/
+ExecStart=/usr/local/bin/forgejo web --config /etc/forgejo/app.ini
+Restart=always
+Environment=USER=git HOME=/home/git FORGEJO_WORK_DIR=/var/lib/forgejo
+
+[Install]
+WantedBy=multi-user.target
+FJEOF
+    systemctl daemon-reload
+    systemctl enable --now forgejo >/dev/null 2>&1
+    sleep 2
+    if systemctl is-active --quiet forgejo; then
+        green "Forgejo v${ver} 已启动"
+        fj_show_addr
+    else
+        red "Forgejo 启动失败，查看日志: journalctl -u forgejo -n 50"
+    fi
+}
+
+fj_show_addr() {
+    local ip port
+    port=$(fj_port)
+    ip=$(curl -4 -s --max-time 5 https://api.ipify.org 2>/dev/null)
+    [ -z "$ip" ] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    green "访问地址: ${purple}http://${ip}:${port}${re}"
+    if ! grep -q 'INSTALL_LOCK *= *true' "$FJ_CONF" 2>/dev/null; then
+        yellow "首次访问会进入安装向导：数据库保持 SQLite3，填写站点地址后在底部创建管理员账号"
+    fi
+    yellow "如开了防火墙，请放行 TCP ${port}（主菜单 12 nftables防火墙）"
+}
+
+fj_change_port() {
+    [ -f "$FJ_CONF" ] || { red "未安装 Forgejo"; return 1; }
+    local port old
+    old=$(fj_port)
+    reading "当前端口 ${old}，请输入新端口: " port
+    if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        red "端口无效"; return 1
+    fi
+    [ "$port" = "$old" ] && { yellow "端口未变"; return 0; }
+    if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"; then
+        red "端口 ${port} 已被占用"; return 1
+    fi
+    if grep -qE '^[[:space:]]*HTTP_PORT[[:space:]]*=' "$FJ_CONF"; then
+        sed -i -E "s/^[[:space:]]*HTTP_PORT[[:space:]]*=.*/HTTP_PORT = ${port}/" "$FJ_CONF"
+    elif grep -q '^\[server\]' "$FJ_CONF"; then
+        sed -i "/^\[server\]/a HTTP_PORT = ${port}" "$FJ_CONF"
+    else
+        printf '\n[server]\nHTTP_PORT = %s\n' "$port" >> "$FJ_CONF"
+    fi
+    # 安装向导写入的 ROOT_URL 带旧端口时一并更新
+    sed -i -E "s#^([[:space:]]*ROOT_URL[[:space:]]*=[[:space:]]*https?://[^/:]+):${old}/#\1:${port}/#" "$FJ_CONF"
+    systemctl restart forgejo
+    green "端口已改为 ${port}"
+    fj_show_addr
+}
+
+fj_uninstall() {
+    [ -x "$FJ_BIN" ] || [ -f "$FJ_UNIT" ] || { yellow "未安装 Forgejo"; return 0; }
+    local yn keep
+    reading "确定卸载 Forgejo？(y/n): " yn
+    [[ "$yn" =~ ^[Yy]$ ]] || { yellow "已取消"; return 0; }
+    reading "是否同时删除仓库数据和配置？(y/n，默认 n 保留): " keep
+    systemctl disable --now forgejo >/dev/null 2>&1
+    rm -f "$FJ_UNIT" "$FJ_BIN"
+    systemctl daemon-reload
+    if [[ "$keep" =~ ^[Yy]$ ]]; then
+        rm -rf "$FJ_DATA" /etc/forgejo
+        userdel -r git >/dev/null 2>&1
+        green "Forgejo 及数据已全部删除"
+    else
+        green "Forgejo 已卸载，数据保留在 ${FJ_DATA} 和 /etc/forgejo"
+    fi
+}
+
+forgejo_manage() {
+    while true; do
+        clear
+        echo ""
+        purple "=== Forgejo 管理 ==="
+        local st ver=""
+        st=$(fj_status_text)
+        [ -x "$FJ_BIN" ] && ver=" v$("$FJ_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
+        echo -e "${purple}状态: ${st}${ver}${re}"
+        [ -x "$FJ_BIN" ] && echo -e "${purple}端口: $(fj_port)${re}"
+        echo ""
+        green "1. 安装 / 更新 Forgejo"
+        green "2. 启动"
+        green "3. 停止"
+        green "4. 重启"
+        green "5. 查看访问地址"
+        green "6. 修改端口"
+        green "7. 查看日志"
+        green "8. 卸载 Forgejo"
+        purple "0. 返回主菜单"
+        local c
+        reading "请输入选择: " c || return 0
+        case "$c" in
+            1) fj_install ;;
+            2) [ -x "$FJ_BIN" ] && { systemctl enable --now forgejo && green "已启动"; } || red "未安装 Forgejo" ;;
+            3) [ -x "$FJ_BIN" ] && { systemctl disable --now forgejo >/dev/null 2>&1; green "已停止"; } || red "未安装 Forgejo" ;;
+            4) [ -x "$FJ_BIN" ] && { systemctl restart forgejo && green "已重启"; } || red "未安装 Forgejo" ;;
+            5) [ -x "$FJ_BIN" ] && fj_show_addr || red "未安装 Forgejo" ;;
+            6) fj_change_port ;;
+            7) journalctl -u forgejo -n 50 --no-pager 2>/dev/null ;;
+            8) fj_uninstall ;;
+            0) return 0 ;;
+            *) red "无效的选项" ;;
+        esac
+        echo ""
+        read -r -p "按回车继续..." _ || return 0
+    done
+}
+
 menu() {
    singbox_status=$(check_singbox 2>/dev/null)
    nginx_status=$(check_nginx 2>/dev/null)
@@ -14024,8 +14233,8 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "6. 配置文件查看" "$red" "15. WARP分流管理" "$re"
-   printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. token"    "$re"
-   printf "%b%s%b\n" "$green" "8. 更新sing-box" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. Forgejo" "$re"
+   printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
    printf "%b%s%b\n" "$green" "9. 添加删除节点" "$re"
    echo
    printf "%b%-32s%b%s%b\n" "$green" "99. 查看错误信息" "$red" "0. 退出脚本" "$re"
@@ -14104,7 +14313,8 @@ fi
 		14) vps_s ;;
 		15)  warp_manage ;;
 		
-		16)  token_manage ;;
+		16) forgejo_manage ;;
+		17) token_manage ;;
 	    
 		99) 
            clear
