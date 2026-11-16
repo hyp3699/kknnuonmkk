@@ -145,7 +145,7 @@ services:
 volumes:
   kvrocks-data:
 YML
-  cd /opt/moontv && docker compose pull -q && docker compose down 2>/dev/null; docker volume rm moontv_kvrocks-data >/dev/null 2>&1; docker compose up -d
+  cd /opt/moontv && docker compose pull -q && docker compose up -d --remove-orphans
   cd - >/dev/null
 fi
 
