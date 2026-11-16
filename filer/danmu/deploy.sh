@@ -57,6 +57,17 @@ echo "    版本：$OLD_VER -> $NEW_VER"
 python3 -m venv "$APP_DIR/venv"
 "$APP_DIR/venv/bin/pip" install -q --upgrade pip flask requests zhconv || { echo "❌ 安装依赖失败（pip），已保留旧版"; exit 1; }
 "$APP_DIR/venv/bin/pip" install -q lxml || echo "    ⚠ lxml 没装上，网页里的 XPath 规则站会不可用（其它功能不受影响）"
+# 网页"出口节点"要用 sing-box：优先用本机已有的（sing-box 脚本装在 /etc/sing-box/sing-box），没有才下载官方版到 /opt/danmu/sing-box
+if [ "$MODE" = web ] && [ ! -x /etc/sing-box/sing-box ] && ! command -v sing-box >/dev/null 2>&1 && [ ! -x "$APP_DIR/sing-box" ]; then
+  case "$(uname -m)" in x86_64|amd64) SBA=amd64 ;; aarch64|arm64) SBA=arm64 ;; armv7l) SBA=armv7 ;; *) SBA="" ;; esac
+  SBV=$(curl -fsSL --connect-timeout 10 --max-time 20 https://api.github.com/repos/SagerNet/sing-box/releases/latest 2>/dev/null | grep -oP '"tag_name":\s*"v\K[^"]+' | head -1)
+  if [ -n "$SBA" ] && [ -n "$SBV" ] && curl -fsSL --connect-timeout 10 --max-time 120 "https://github.com/SagerNet/sing-box/releases/download/v$SBV/sing-box-$SBV-linux-$SBA.tar.gz" -o "$NEW/sb.tgz" \
+     && tar -xzf "$NEW/sb.tgz" -C "$NEW" && install -m 755 "$NEW/sing-box-$SBV-linux-$SBA/sing-box" "$APP_DIR/sing-box"; then
+    echo "    已下载 sing-box $SBV（网页出口节点用）"
+  else
+    echo "    ⚠ sing-box 下载失败，网页里的出口节点功能暂时用不了（其它功能不受影响）"
+  fi
+fi
 # 备份旧版再替换
 rm -rf "$BAK"; mkdir -p "$BAK"
 for f in danmu_server.py web.html hls.min.js; do [ -f "$APP_DIR/$f" ] && cp -p "$APP_DIR/$f" "$BAK/"; done

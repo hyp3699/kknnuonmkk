@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.9.9"  # 1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "2.0.0"  # 2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -854,19 +854,381 @@ def host_public(host):
             return False
     return bool(infos)
 
-def safe_get(u, headers, timeout, stream=True, hops=5):
+def safe_get(u, headers, timeout, stream=True, hops=5, proxies=None):
     """跟随跳转，但每一跳都必须是公网 http(s) 地址；内网/回环/云元数据一律拒绝"""
     for _ in range(hops + 1):
         pu = urllib.parse.urlsplit(u)
         if pu.scheme not in ("http", "https") or not pu.hostname or not host_public(pu.hostname):
             raise ValueError("目标地址不允许（只能访问公网）")
-        r = S.get(u, headers=headers, stream=stream, timeout=timeout, verify=False, allow_redirects=False)
+        r = S.get(u, headers=headers, stream=stream, timeout=timeout, verify=False, allow_redirects=False, proxies=proxies)
         if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("Location"):
             u = urllib.parse.urljoin(u, r.headers["Location"])
             r.close()
             continue
         return r
     raise ValueError("跳转次数太多")
+
+# ---------- 出口节点：网页设置里添加 sing-box 节点，采集站/视频请求可以走它（单独起一个 sing-box 进程，不碰系统里的 sing-box） ----------
+import subprocess, shutil
+NODES_FILE = os.environ.get("NODES_FILE", os.path.join(DATA_DIR, "web_nodes.json"))
+SB_DIR = os.path.join(DATA_DIR, "sb")
+NODE_BASE = int(os.environ.get("NODE_PORT", "20810") or 20810)
+NODE = {"proc": None, "sig": None, "err": "", "lock": threading.Lock(), "last": 0}
+NODE_HOSTS = {}  # host -> 到期时间：自动模式下直连失败、走节点成功的站，记 6 小时
+NODE_MODES = ("off", "auto", "all")
+
+def nodes_load():
+    try:
+        d = json.load(open(NODES_FILE, encoding="utf-8"))
+        if isinstance(d, dict) and isinstance(d.get("nodes"), list):
+            d.setdefault("mode", "auto"); d.setdefault("video", 0); d.setdefault("active", "")
+            return d
+    except Exception:
+        pass
+    return {"mode": "auto", "video": 0, "active": "", "nodes": []}
+
+def nodes_save(d):
+    tmp = NODES_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, NODES_FILE)
+
+def sb_bin():
+    for b in (os.environ.get("SINGBOX_BIN"), os.path.join(DATA_DIR, "sing-box"), "/etc/sing-box/sing-box", shutil.which("sing-box"),
+              "/usr/local/bin/sing-box", "/etc/s-box/sing-box", "/root/sing-box/sing-box"):
+        if b and os.path.isfile(b) and os.access(b, os.X_OK):
+            return b
+    return ""
+
+def _b64d(t):
+    t = re.sub(r"\s+", "", t).replace("-", "+").replace("_", "/")
+    return base64.b64decode(t + "=" * (-len(t) % 4)).decode("utf-8", "ignore")
+
+def _tls(q, host, default_on=False, insecure_keys=("allowInsecure", "insecure", "allow_insecure")):
+    sec = (q.get("security") or ("tls" if default_on else "")).lower()
+    if sec not in ("tls", "reality", "xtls"):
+        return None
+    t = {"enabled": True}
+    sni = q.get("sni") or q.get("peer") or q.get("host") or ""
+    if not sni and not re.match(r"^[\d.:\[\]]+$", host):
+        sni = host
+    if sni:
+        t["server_name"] = sni
+    if any(str(q.get(k, "")).lower() in ("1", "true") for k in insecure_keys):
+        t["insecure"] = True
+    if q.get("alpn"):
+        t["alpn"] = [x for x in urllib.parse.unquote(q["alpn"]).split(",") if x]
+    fp = q.get("fp") or ""
+    if sec == "reality":
+        t["reality"] = {"enabled": True, "public_key": q.get("pbk", ""), "short_id": q.get("sid", "")}
+        fp = fp or "chrome"
+    if fp:
+        t["utls"] = {"enabled": True, "fingerprint": fp}
+    return t
+
+def _transport(q):
+    net = (q.get("type") or q.get("net") or "tcp").lower()
+    path = urllib.parse.unquote(q.get("path") or "/")
+    host = q.get("host") or ""
+    if net == "ws":
+        tr = {"type": "ws", "path": path}
+        m = re.search(r"[?&]ed=(\d+)", path)
+        if m:
+            tr["path"] = re.sub(r"[?&]ed=\d+", "", path) or "/"
+            tr["max_early_data"] = int(m.group(1)); tr["early_data_header_name"] = "Sec-WebSocket-Protocol"
+        if host:
+            tr["headers"] = {"Host": host}
+        return tr
+    if net == "grpc":
+        return {"type": "grpc", "service_name": urllib.parse.unquote(q.get("serviceName") or q.get("path") or "")}
+    if net == "httpupgrade":
+        tr = {"type": "httpupgrade", "path": path}
+        if host:
+            tr["host"] = host
+        return tr
+    if net in ("h2", "http"):
+        tr = {"type": "http", "path": path}
+        if host:
+            tr["host"] = [host]
+        return tr
+    if net in ("tcp", "raw", ""):
+        return None
+    raise ValueError(f"不支持的传输方式 {net}（sing-box 没有 {net}，换个节点）")
+
+def parse_node(link):
+    """分享链接 / sing-box 出站 JSON → (名称, sing-box outbound)"""
+    link = link.strip()
+    if link.startswith("{"):
+        ob = json.loads(link)
+        if not isinstance(ob, dict) or not ob.get("type") or not ob.get("server"):
+            raise ValueError("JSON 不是 sing-box 出站（要有 type 和 server）")
+        ob = {k: v for k, v in ob.items() if k not in ("tag", "detour")}
+        return str(ob.get("tag") or ob["server"]), ob
+    m = re.match(r"([a-z0-9]+)://", link, re.I)
+    if not m:
+        raise ValueError("看不懂这个链接，支持 vless/vmess/trojan/ss/hy2/tuic 或 sing-box 出站 JSON")
+    sch = m.group(1).lower()
+    if sch == "vmess":
+        j = json.loads(_b64d(link[8:].split("#")[0]))
+        q = {k: str(v) for k, v in j.items()}
+        host, port = q.get("add", ""), int(q.get("port") or 443)
+        ob = {"type": "vmess", "server": host, "server_port": port, "uuid": q.get("id", ""), "alter_id": int(q.get("aid") or 0),
+              "security": q.get("scy") or "auto"}
+        q["security"] = "tls" if q.get("tls") in ("tls", "reality") else ""
+        q["type"] = q.get("net") or "tcp"
+        t = _tls(q, host)
+        if t:
+            ob["tls"] = t
+        tr = _transport(q)
+        if tr:
+            ob["transport"] = tr
+        return q.get("ps") or host, ob
+    if sch == "ss" and "@" not in link.split("#")[0]:  # ss://base64(method:pass@host:port)
+        name = urllib.parse.unquote(link.split("#", 1)[1]) if "#" in link else ""
+        link = "ss://" + _b64d(link[5:].split("#")[0]) + ("#" + name if name else "")
+    sp = urllib.parse.urlsplit(link)
+    q = {k: v for k, v in urllib.parse.parse_qsl(sp.query)}
+    name = urllib.parse.unquote(sp.fragment) or sp.hostname or "节点"
+    host, port = sp.hostname or "", sp.port or 443
+    if not host:
+        raise ValueError("链接里没有服务器地址")
+    user = urllib.parse.unquote(sp.username or "")
+    pw = urllib.parse.unquote(sp.password or "") if sp.password is not None else None
+    if sch == "vless":
+        ob = {"type": "vless", "server": host, "server_port": port, "uuid": user}
+        if q.get("flow"):
+            ob["flow"] = q["flow"]
+        ob["packet_encoding"] = "xudp"
+        t = _tls(q, host)
+    elif sch == "trojan":
+        ob = {"type": "trojan", "server": host, "server_port": port, "password": user}
+        t = _tls(q, host, default_on=True)
+    elif sch == "ss":
+        if pw is None:
+            try:
+                user = _b64d(sp.username or "")
+            except Exception:
+                pass
+            method, _, pw = user.partition(":")
+        else:
+            method = user
+        if q.get("plugin"):
+            raise ValueError("带插件的 ss 节点不支持")
+        return name, {"type": "shadowsocks", "server": host, "server_port": port, "method": method, "password": pw}
+    elif sch in ("hysteria2", "hy2"):
+        ob = {"type": "hysteria2", "server": host, "server_port": port, "password": user + (":" + pw if pw else "")}
+        if q.get("obfs"):
+            ob["obfs"] = {"type": q["obfs"], "password": q.get("obfs-password", "")}
+        if q.get("mport"):
+            pass
+        ob["tls"] = _tls(dict(q, security="tls"), host, True) or {"enabled": True}
+        return name, ob
+    elif sch == "tuic":
+        ob = {"type": "tuic", "server": host, "server_port": port, "uuid": user, "password": pw or "",
+              "congestion_control": q.get("congestion_control") or "bbr"}
+        if q.get("udp_relay_mode"):
+            ob["udp_relay_mode"] = q["udp_relay_mode"]
+        ob["tls"] = _tls(dict(q, security="tls"), host, True) or {"enabled": True}
+        ob["tls"].setdefault("alpn", ["h3"])
+        return name, ob
+    else:
+        raise ValueError(f"不支持 {sch}:// 链接")
+    if t:
+        ob["tls"] = t
+    tr = _transport(q)
+    if tr:
+        ob["transport"] = tr
+    return name, ob
+
+def parse_nodes_text(txt):
+    """一次粘贴多行；也认 base64 订阅内容"""
+    txt = txt.strip()
+    if txt.startswith("{"):
+        return [parse_node(txt)]
+    if not re.search(r"^[a-z0-9]+://", txt, re.I | re.M):
+        try:
+            dec = _b64d(txt)
+            if re.search(r"^[a-z0-9]+://", dec, re.I | re.M):
+                txt = dec
+        except Exception:
+            pass
+    out, errs = [], []
+    for ln in txt.splitlines():
+        ln = ln.strip()
+        if not ln or ln.startswith("#"):
+            continue
+        try:
+            out.append(parse_node(ln))
+        except Exception as e:
+            errs.append(str(e)[:60])
+    if not out:
+        raise ValueError(errs[0] if errs else "没有找到节点链接")
+    return out
+
+def sb_config(d):
+    ins, obs, rules = [], [], []
+    for i, n in enumerate(d["nodes"]):
+        tag = "n" + str(i)
+        ins.append({"type": "mixed", "tag": "in-" + tag, "listen": "127.0.0.1", "listen_port": NODE_BASE + i})
+        obs.append(dict(n["ob"], tag=tag))
+        rules.append({"inbound": ["in-" + tag], "outbound": tag})
+    obs.append({"type": "direct", "tag": "direct"})
+    return {"log": {"level": "warn", "timestamp": True}, "inbounds": ins, "outbounds": obs, "route": {"rules": rules, "final": "direct"}}
+
+def sb_stop():
+    p = NODE["proc"]
+    NODE["proc"] = None
+    if p and p.poll() is None:
+        p.terminate()
+        try:
+            p.wait(5)
+        except Exception:
+            p.kill()
+
+def sb_apply(d=None, force=False):
+    """按节点列表（重新）启动内置 sing-box；返回错误说明（空=正常）"""
+    with NODE["lock"]:
+        d = d or nodes_load()
+        if not d["nodes"]:
+            sb_stop(); NODE["sig"] = None; NODE["err"] = ""
+            return ""
+        b = sb_bin()
+        if not b:
+            NODE["err"] = "服务器上没找到 sing-box 程序（运行 ys 选 1 更新会自动下载）"
+            return NODE["err"]
+        cfg = json.dumps(sb_config(d), ensure_ascii=False, indent=1)
+        sig = hashlib.md5((b + cfg).encode()).hexdigest()
+        p = NODE["proc"]
+        if not force and sig == NODE["sig"] and p and p.poll() is None:
+            return ""
+        os.makedirs(SB_DIR, exist_ok=True)
+        cf = os.path.join(SB_DIR, "config.json")
+        with open(cf + ".new", "w", encoding="utf-8") as f:
+            f.write(cfg)
+        os.chmod(cf + ".new", 0o600)
+        try:
+            ck = subprocess.run([b, "check", "-c", cf + ".new"], capture_output=True, text=True, timeout=20)
+        except Exception as e:
+            NODE["err"] = "sing-box 运行不了：" + repr(e)[:80]
+            return NODE["err"]
+        if ck.returncode != 0:
+            msg = re.sub(r"\x1b\[[0-9;]*m", "", (ck.stderr or ck.stdout or "").strip()).splitlines()
+            NODE["err"] = "节点配置有错：" + (msg[-1] if msg else "未知")[:160]
+            return NODE["err"]
+        os.replace(cf + ".new", cf)
+        sb_stop()
+        logf = open(os.path.join(SB_DIR, "sing-box.log"), "ab")
+        NODE["proc"] = subprocess.Popen([b, "run", "-c", cf], stdout=logf, stderr=logf, stdin=subprocess.DEVNULL)
+        NODE["sig"], NODE["err"], NODE["last"] = sig, "", time.time()
+        time.sleep(0.8)
+        if NODE["proc"].poll() is not None:
+            NODE["err"] = "sing-box 启动后退出了，看 " + os.path.join(SB_DIR, "sing-box.log")
+            return NODE["err"]
+        print("[node] sing-box started", len(d["nodes"]), "nodes", flush=True)
+        return ""
+
+def node_px(d=None, idx=None):
+    """当前（或第 idx 个）节点的本地代理；没开就返回 None"""
+    d = d or nodes_load()
+    if idx is None:
+        if d["mode"] == "off":
+            return None
+        idx = next((i for i, n in enumerate(d["nodes"]) if n.get("id") == d.get("active")), None)
+        if idx is None:
+            return None
+    if idx >= len(d["nodes"]):
+        return None
+    p = NODE["proc"]
+    if not p or p.poll() is not None:
+        if time.time() - NODE["last"] < 20:
+            return None
+        NODE["last"] = time.time()
+        if sb_apply(d, force=True):
+            return None
+    u = f"http://127.0.0.1:{NODE_BASE + idx}"
+    return {"http": u, "https": u}
+
+def _bad_status(r):
+    return r.status_code in (401, 403, 407, 429, 451) or r.status_code >= 500
+
+def site_get(url, safe=False, **kw):
+    """采集站请求：自动模式先直连，连不上/被拒（403 等）再走节点并记住这个站；全部模式直接走节点"""
+    d = nodes_load()
+    px = node_px(d)
+    timeout = kw.pop("timeout", 12)
+    def do(p, to):
+        if safe:
+            return safe_get(url, kw.get("headers") or {}, to, proxies=p)
+        return S.get(url, proxies=p, timeout=to, **kw)
+    if not px:
+        return do(None, timeout)
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    if d["mode"] == "all" or NODE_HOSTS.get(host, 0) > time.time():
+        try:
+            r = do(px, timeout)
+            if d["mode"] == "all" or not _bad_status(r):
+                return r
+        except ValueError:
+            raise
+        except Exception:
+            if d["mode"] == "all":
+                raise
+        NODE_HOSTS.pop(host, None)
+    r, err = None, None
+    try:
+        r = do(None, (5, timeout) if isinstance(timeout, (int, float)) else timeout)
+        if not _bad_status(r):
+            return r
+    except ValueError:
+        raise
+    except Exception as e:
+        err = e
+    try:
+        r2 = do(px, timeout)
+        if not _bad_status(r2):
+            NODE_HOSTS[host] = time.time() + 6 * 3600
+            print("[node] via node:", host, flush=True)
+            return r2
+        if r is None:
+            return r2
+    except Exception:
+        pass
+    if r is not None:
+        return r
+    raise err
+
+def node_test(idx):
+    """经第 idx 个节点访问，返回出口 IP/地区和耗时"""
+    if sb_apply():
+        return {"ok": False, "msg": NODE["err"]}
+    px = node_px(idx=idx)
+    if not px:
+        return {"ok": False, "msg": NODE["err"] or "sing-box 没在运行"}
+    t0 = time.time()
+    for u in ("http://ip-api.com/json/?lang=zh-CN&fields=status,country,regionName,city,isp,query", "https://api.ip.sb/geoip"):
+        try:
+            j = S.get(u, proxies=px, timeout=10, headers={"User-Agent": UA}).json()
+            ms = int((time.time() - t0) * 1000)
+            ip = j.get("query") or j.get("ip") or ""
+            loc = " ".join(x for x in (j.get("country"), j.get("regionName") or j.get("region"), j.get("city")) if x)
+            return {"ok": True, "ms": ms, "msg": f"{ip} {loc} {j.get('isp') or j.get('organization') or ''}".strip()}
+        except Exception as e:
+            last = e
+    return {"ok": False, "msg": "节点连不上：" + type(last).__name__}
+
+def node_watch():
+    while True:
+        time.sleep(30)
+        try:
+            d = nodes_load()
+            if d["nodes"] and d["mode"] != "off":
+                p = NODE["proc"]
+                if not p or p.poll() is not None:
+                    print("[node] sing-box not running, restart", flush=True)
+                    sb_apply(d, force=True)
+        except Exception as e:
+            print("[node] watch err", repr(e), flush=True)
 
 def px_acquire(ip):
     with PXLOCK:
@@ -1119,7 +1481,7 @@ def fetch_config(url):
             u = urllib.parse.urlunsplit(sp._replace(netloc=sp.netloc.replace(sp.hostname, sp.hostname.encode("idna").decode())))
     except Exception:
         pass
-    r = S.get(u, headers={"User-Agent": "okhttp/3.12.13"}, timeout=15, verify=False, allow_redirects=True)
+    r = site_get(u, headers={"User-Agent": "okhttp/3.12.13"}, timeout=15, verify=False, allow_redirects=True)
     r.raise_for_status()
     try:
         d = decode_config(r.content, key)
@@ -1268,7 +1630,7 @@ def t4_get(site, params, timeout=12):
     if site.get("ext"):
         q["extend"] = site["ext"]
     q.update({k: v for k, v in params.items() if v not in (None, "")})
-    r = get(urllib.parse.urlunsplit(sp._replace(query="")), params=q, timeout=timeout, verify=False)
+    r = site_get(urllib.parse.urlunsplit(sp._replace(query="")), params=q, timeout=timeout, verify=False)
     r.encoding = "utf-8"
     try:
         return json.loads(r.text.lstrip("\ufeff"))
@@ -1315,7 +1677,7 @@ def xp_rule(site):
     if src.startswith("{"):
         rule = loose_json(src)
     else:
-        r = get(src, timeout=12, verify=False, headers={"User-Agent": UA})
+        r = site_get(src, timeout=12, verify=False, headers={"User-Agent": UA})
         if r.status_code >= 400:
             raise ValueError(f"规则文件打不开 HTTP{r.status_code}")
         rule = decode_config(r.content)
@@ -1333,7 +1695,7 @@ def xp_rule(site):
 
 def xp_fetch(rule, url, ua_key="ua"):
     ua = rule.get(ua_key) or rule.get("ua") or UA
-    r = safe_get(url, {"User-Agent": ua, "Referer": rule.get("homeUrl", "")}, 12)
+    r = site_get(url, safe=True, headers={"User-Agent": ua, "Referer": rule.get("homeUrl", "")}, timeout=12)
     try:
         raw = r.content
     finally:
@@ -1575,7 +1937,7 @@ def vod_call(site, **params):
     sp = urllib.parse.urlsplit(site["api"])
     q = dict(urllib.parse.parse_qsl(sp.query))
     q.update({k: v for k, v in params.items() if v not in (None, "")})
-    r = get(urllib.parse.urlunsplit(sp._replace(query="")), params=q, timeout=10, verify=False)
+    r = site_get(urllib.parse.urlunsplit(sp._replace(query="")), params=q, timeout=10, verify=False)
     r.encoding = r.encoding if r.encoding and r.encoding.lower() != "iso-8859-1" else "utf-8"
     t = r.text
     if site["type"] == 0 or t.lstrip().startswith("<"):
@@ -1800,6 +2162,66 @@ def api_test():
     except Exception as e:
         return jsonify({"ok": True, "warn": 1, "ms": ms, "msg": "接口可用，播放地址服务器连不上（" + type(e).__name__ + "）"})
 
+@app.route("/api/nodes", methods=["GET", "POST"])
+def api_nodes():
+    """出口节点：GET 列表；POST {act: add|del|use|mode|video|test, ...}"""
+    d = nodes_load()
+    if request.method == "GET":
+        p = NODE["proc"]
+        return jsonify({"mode": d["mode"], "video": d["video"], "active": d["active"], "bin": bool(sb_bin()),
+                        "running": bool(p and p.poll() is None), "err": NODE["err"], "hosts": sorted(h for h, t in NODE_HOSTS.items() if t > time.time()),
+                        "nodes": [{"id": n["id"], "name": n["name"], "type": n["ob"].get("type"), "server": f'{n["ob"].get("server")}:{n["ob"].get("server_port")}'} for n in d["nodes"]]})
+    j = request.get_json(silent=True) or {}
+    act = j.get("act")
+    if act == "add":
+        try:
+            got = parse_nodes_text(str(j.get("link") or ""))
+        except Exception as e:
+            return jsonify({"ok": False, "msg": str(e)[:120]})
+        if len(d["nodes"]) + len(got) > 50:
+            return jsonify({"ok": False, "msg": "节点最多 50 个"})
+        n0 = len(d["nodes"])
+        for nm, ob in got:
+            i = 1
+            while any(x["id"] == f"n{i}" for x in d["nodes"]):
+                i += 1
+            d["nodes"].append({"id": f"n{i}", "name": (str(j.get("name") or "").strip() if len(got) == 1 else "") or nm[:40], "ob": ob})
+        if not d["active"]:
+            d["active"] = d["nodes"][0]["id"]
+        err = ""
+        if sb_bin():
+            old = nodes_load()
+            nodes_save(d)
+            err = sb_apply(d)
+            if err:
+                nodes_save(old); sb_apply(old)
+                return jsonify({"ok": False, "msg": err})
+        else:
+            nodes_save(d)
+            err = "已保存，但服务器上没找到 sing-box 程序（ys 选 1 更新会自动下载）"
+        return jsonify({"ok": True, "n": len(d["nodes"]) - n0, "msg": err})
+    if act == "del":
+        d["nodes"] = [n for n in d["nodes"] if n["id"] != j.get("id")]
+        if d["active"] == j.get("id"):
+            d["active"] = d["nodes"][0]["id"] if d["nodes"] else ""
+        nodes_save(d); NODE_HOSTS.clear(); sb_apply(d)
+        return jsonify({"ok": True})
+    if act == "use" and any(n["id"] == j.get("id") for n in d["nodes"]):
+        d["active"] = j["id"]; nodes_save(d); NODE_HOSTS.clear()
+        return jsonify({"ok": True})
+    if act == "mode" and j.get("mode") in NODE_MODES:
+        d["mode"] = j["mode"]; nodes_save(d); NODE_HOSTS.clear()
+        return jsonify({"ok": True})
+    if act == "video":
+        d["video"] = 1 if j.get("on") else 0; nodes_save(d)
+        return jsonify({"ok": True})
+    if act == "test":
+        idx = next((i for i, n in enumerate(d["nodes"]) if n["id"] == j.get("id")), None)
+        if idx is None:
+            return jsonify({"ok": False, "msg": "没有这个节点"})
+        return jsonify(node_test(idx))
+    return jsonify({"ok": False, "msg": "参数不对"})
+
 @app.route("/api/vod")
 def api_vod():
     key = arg("key")
@@ -1949,7 +2371,8 @@ def px():
 
 def px_inner(u, h, hx, rel):
     try:
-        r = safe_get(u, h, 15)
+        d = nodes_load()
+        r = safe_get(u, h, 15, proxies=node_px(d) if d.get("video") else None)
     except ValueError as e:
         rel()
         return str(e), 403
@@ -2050,6 +2473,9 @@ if __name__ == "__main__":
         sys.exit(0)
     import urllib3
     urllib3.disable_warnings()
+    if nodes_load()["nodes"]:
+        threading.Thread(target=sb_apply, daemon=True).start()
+    threading.Thread(target=node_watch, daemon=True).start()
     if WEB_PORT and os.environ.get("WEB", "1") != "0":
         from werkzeug.serving import make_server
         try:
