@@ -145,7 +145,7 @@ services:
 volumes:
   kvrocks-data:
 YML
-  cd /opt/moontv && docker compose pull -q && docker compose up -d --remove-orphans
+  cd /opt/moontv && docker compose pull -q; docker compose up -d --remove-orphans || { echo "    Docker 防火墙链丢失，重启 docker 后重试"; systemctl restart docker; sleep 5; docker compose up -d --remove-orphans; }
   cd - >/dev/null
 fi
 
