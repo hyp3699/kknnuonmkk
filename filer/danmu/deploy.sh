@@ -141,11 +141,11 @@ services:
     container_name: moontv-kvrocks
     restart: unless-stopped
     volumes:
-      - kvrocks-data:/var/lib/kvrocks/db
+      - kvrocks-data:/var/lib/kvrocks
 volumes:
   kvrocks-data:
 YML
-  cd /opt/moontv && docker compose pull -q && docker compose up -d
+  cd /opt/moontv && docker compose pull -q && docker compose down 2>/dev/null; docker volume rm moontv_kvrocks-data >/dev/null 2>&1; docker compose up -d
   cd - >/dev/null
 fi
 
