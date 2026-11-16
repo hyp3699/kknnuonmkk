@@ -272,7 +272,7 @@ if [ "$MODE" = web ]; then
   if [ -n "$NEW_AUTH" ]; then
     echo "   账号 $WEB_USER   密码 $WEB_PASS   （请记下来；忘了可输入 ys 重置）"
   else
-    echo "   账号 $(AUTHC --auth-user 2>/dev/null || true)（密码不变，ys 选 7 查看）"
+    echo "   账号 $(AUTHC --auth-user 2>/dev/null || true)（密码不变，忘了 ys 选 8 重置）"
   fi
 fi
 if [ "$MODE" = moontv ]; then
@@ -280,5 +280,5 @@ if [ "$MODE" = moontv ]; then
   echo "   首次进后台 → 配置文件 → 订阅地址填 http://host.docker.internal:$PORT/sub/moontv.txt 并打开「自动更新」，采集站更新后网页版每小时自动同步"
 fi
 [ "$MODE" = danmu ] && echo "提示：云厂商安全组要放行 $PORT 端口。" || echo "提示：云厂商安全组要放行 $PORT 和 $WEB_PORT 端口。"
-echo "管理菜单：输入 ys（安装/更新/重启/日志/卸载）"
+echo "管理菜单：输入 ys（安装/更新/重启/日志/卸载）；只给自己用的话，ys 选 9 给 2525 设 IP 白名单"
 [ "$OKALL" = 1 ] || exit 1

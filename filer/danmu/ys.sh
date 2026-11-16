@@ -61,9 +61,9 @@ show_urls() {
 show_auth() {
   installed && [ -x "$PY" ] || { red "未安装"; return; }
   local a; a=$(AUTH_FILE=$APP_DIR/web_auth.json $PY $APP_DIR/danmu_server.py --auth-show 2>/dev/null)
-  [ -n "$a" ] || { yellow "还没有设置账号，选 4 设置"; return; }
-  green "网页账号：${a%% *}"
-  green "网页密码：${a#* }"
+  [ -n "$a" ] || { yellow "还没有有效账号，选 8 设置"; return; }
+  green "网页账号：$a"
+  yellow "密码只保存哈希，不能查看；忘了选 8 重置"
 }
 
 # ---------------- 采集站 ----------------
@@ -467,7 +467,7 @@ while true; do
   green "4. 采集站（立即更新 / 更新间隔）"
   green "5. 查看弹幕/网页日志"
   green "6. 查看采集站更新日志"
-  green "7. 查看网页账号密码"
+  green "7. 查看网页账号"
   green "8. 重置网页账号密码"
   green "9. IP 访问限制（白名单/黑名单）"
   green "10. 设置网页播放器域名（HTTPS）"

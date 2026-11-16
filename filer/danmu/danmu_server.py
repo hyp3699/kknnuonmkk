@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.9.6"  # 1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.9.7"  # 1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -705,7 +705,7 @@ def pw_hash(salt, pw):
 
 def set_auth(user, pw):
     salt = secrets.token_hex(8)
-    d = {"user": user, "pass": pw, "salt": salt, "hash": pw_hash(salt, pw), "secret": secrets.token_hex(16)}
+    d = {"user": user, "salt": salt, "hash": pw_hash(salt, pw), "secret": secrets.token_hex(16)}
     tmp = AUTH_FILE + ".tmp"
     with open(tmp, "w") as f:
         json.dump(d, f)
@@ -723,6 +723,17 @@ def auth_conf():
             c = json.load(open(AUTH_FILE))
             if not all(isinstance(c.get(k), str) and c.get(k) for k in ("user", "hash", "salt", "secret")):
                 raise ValueError("bad auth")
+            if "pass" in c:  # 旧版存过明文密码：删掉，只留盐和哈希
+                c.pop("pass", None)
+                try:
+                    tmp = AUTH_FILE + ".tmp"
+                    with open(tmp, "w") as f:
+                        json.dump(c, f)
+                    os.chmod(tmp, 0o600)
+                    os.replace(tmp, AUTH_FILE)
+                    mt = os.path.getmtime(AUTH_FILE)
+                except Exception:
+                    pass
             AUTH_CACHE[1] = c
         except Exception:
             AUTH_CACHE[1] = None
@@ -805,6 +816,74 @@ def acl_ok(scope):
 def is_web_path(p):
     return p in ("/web", "/px", "/hls.js", "/login", "/logout") or (p.startswith("/api/") and not p.startswith("/api/v2/"))
 
+# 2525 每个 IP 每分钟最多 DANMU_RPM 次（默认 240，0=不限），防止被人拿去刷
+DANMU_RPM = int(os.environ.get("DANMU_RPM", "240") or 0)
+RATE, RLOCK = {}, threading.Lock()
+def rate_ok(ip):
+    if DANMU_RPM <= 0:
+        return True
+    now = int(time.time() // 60)
+    with RLOCK:
+        m, n = RATE.get(ip, (now, 0))
+        if m != now:
+            m, n = now, 0
+        RATE[ip] = (m, n + 1)
+        if len(RATE) > 5000:
+            for k in [k for k, v in RATE.items() if v[0] != now]:
+                RATE.pop(k, None)
+        return n < DANMU_RPM
+
+# ---------- 代理安全：只允许访问公网地址（每次跳转都检查），限制并发 ----------
+import socket
+PX_MAX, PX_PER_IP = int(os.environ.get("PX_MAX", "32")), int(os.environ.get("PX_PER_IP", "12"))
+PX_ACT, PXLOCK = {}, threading.Lock()
+
+def host_public(host):
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    for i in infos:
+        try:
+            a = ipaddress.ip_address(i[4][0].split("%")[0])
+        except ValueError:
+            return False
+        if getattr(a, "ipv4_mapped", None):
+            a = a.ipv4_mapped
+        if not a.is_global or a.is_multicast:
+            return False
+    return bool(infos)
+
+def safe_get(u, headers, timeout, stream=True, hops=5):
+    """跟随跳转，但每一跳都必须是公网 http(s) 地址；内网/回环/云元数据一律拒绝"""
+    for _ in range(hops + 1):
+        pu = urllib.parse.urlsplit(u)
+        if pu.scheme not in ("http", "https") or not pu.hostname or not host_public(pu.hostname):
+            raise ValueError("目标地址不允许（只能访问公网）")
+        r = S.get(u, headers=headers, stream=stream, timeout=timeout, verify=False, allow_redirects=False)
+        if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("Location"):
+            u = urllib.parse.urljoin(u, r.headers["Location"])
+            r.close()
+            continue
+        return r
+    raise ValueError("跳转次数太多")
+
+def px_acquire(ip):
+    with PXLOCK:
+        tot = sum(PX_ACT.values())
+        if tot >= PX_MAX or PX_ACT.get(ip, 0) >= PX_PER_IP:
+            return False
+        PX_ACT[ip] = PX_ACT.get(ip, 0) + 1
+        return True
+
+def px_release(ip):
+    with PXLOCK:
+        n = PX_ACT.get(ip, 0) - 1
+        if n > 0:
+            PX_ACT[ip] = n
+        else:
+            PX_ACT.pop(ip, None)
+
 @app.before_request
 def web_guard():
     on_web = request.environ.get("SERVER_PORT") == str(WEB_PORT)
@@ -815,6 +894,8 @@ def web_guard():
     if not on_web:
         if is_web_path(p):  # 网页接口只在网页端口开放，弹幕端口 2525 不能绕过登录
             return "not found", 404
+        if not rate_ok(client_ip()):
+            return "429 too many requests", 429
         return None
     if p in ("/login", "/hls.js", "/favicon.ico"):
         return None
@@ -1465,7 +1546,7 @@ def api_probe():
     except Exception:
         pass
     try:
-        r = S.get(u, headers=h, stream=True, timeout=6, verify=False, allow_redirects=True)
+        r = safe_get(u, h, 6)
         ct = r.headers.get("Content-Type", "").lower()
         b = next(r.iter_content(2048), b"")
         r.close()
@@ -1547,12 +1628,32 @@ def px():
             pass
     if request.headers.get("Range"):
         h["Range"] = request.headers["Range"]
+    ip = client_ip()
+    if not px_acquire(ip):
+        return "代理并发太多，稍后再试", 429
+    done = [False]
+    def rel():
+        if not done[0]:
+            done[0] = True
+            px_release(ip)
     try:
-        r = S.get(u, headers=h, stream=True, timeout=15, verify=False, allow_redirects=True)
+        return px_inner(u, h, hx, rel)
+    except Exception:
+        rel()
+        raise
+
+def px_inner(u, h, hx, rel):
+    try:
+        r = safe_get(u, h, 15)
+    except ValueError as e:
+        rel()
+        return str(e), 403
     except Exception as e:
+        rel()
         return f"proxy err {e}", 502
     ct = r.headers.get("Content-Type", "")
     if r.status_code >= 400:
+        r.close(); rel()
         return Response(f"upstream {r.status_code}", status=r.status_code, headers={"Access-Control-Allow-Origin": "*"})
     is_m3u = ".m3u8" in u.split("?")[0] or "mpegurl" in ct.lower()
     first = b""
@@ -1564,7 +1665,15 @@ def px():
             first = b""
         is_m3u = first.lstrip(b"\xef\xbb\xbf \r\n\t").startswith(b"#EXTM3U")
     if is_m3u:
-        body = (first + b"".join(it)).decode("utf-8", "ignore")
+        buf = bytearray(first)
+        try:
+            for ch in it:
+                buf += ch
+                if len(buf) > 5 * 1024 * 1024:  # 播放列表不可能这么大
+                    break
+        finally:
+            r.close(); rel()
+        body = bytes(buf).decode("utf-8", "ignore")
         if not body.lstrip("\ufeff \r\n\t").startswith("#EXTM3U"):
             return Response(body[:500], status=502)
         base = r.url
@@ -1583,10 +1692,15 @@ def px():
         if k in r.headers:
             hd[k] = r.headers[k]
     def gen():
-        if first:
-            yield first
-        yield from it
-    return Response(gen(), status=r.status_code, mimetype=ct or "video/mp2t", headers=hd)
+        try:
+            if first:
+                yield first
+            yield from it
+        finally:
+            r.close(); rel()
+    resp = Response(gen(), status=r.status_code, mimetype=ct or "video/mp2t", headers=hd)
+    resp.call_on_close(rel)
+    return resp
 
 @app.route("/hls.js")
 def hls_js():
@@ -1620,8 +1734,8 @@ if __name__ == "__main__":
         print("ok")
         sys.exit(0)
     if len(sys.argv) >= 2 and sys.argv[1] == "--auth-show":
-        c = auth_conf()
-        print((c or {}).get("user", ""), (c or {}).get("pass", "（旧版未保存，请重置）") if c else "")
+        c = auth_conf()  # 只显示账号；密码不再保存明文，忘了就重置
+        print((c or {}).get("user", ""))
         sys.exit(0)
     if len(sys.argv) >= 2 and sys.argv[1] == "--check-auth":
         sys.exit(0 if auth_conf() else 1)
