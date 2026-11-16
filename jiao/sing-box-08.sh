@@ -2915,6 +2915,26 @@ fi
 }
 
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
+# 证书是否已被 nginx 使用：某个 nginx 配置引用了该证书目录，或 server_name 里有这个域名/IP
+cert_used_by_nginx() {
+    local d="$1" path="$2" files
+    files=$(ls /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* 2>/dev/null)
+    [ -z "$files" ] && return 1
+    grep -qsF "${path}/" $files && return 0
+    awk -v d="$d" '
+        { sub(/#.*/, "") }
+        {
+            for (i = 1; i <= NF; i++) {
+                if ($i == "server_name") { on = 1; continue }
+                if (!on) continue
+                n = $i; e = (n ~ /;/); sub(/;.*$/, "", n)
+                if (n == d || n == "[" d "]") f = 1
+                if (e) on = 0
+            }
+        }
+        END { exit !f }
+    ' $files
+}
 check_and_issue_ssl() {
     local input_domain="$1"
 
@@ -2955,6 +2975,9 @@ check_and_issue_ssl() {
             local cert_file_tmp="${cert_paths[$idx]}/fullchain.pem"
             if openssl x509 -in "$cert_file_tmp" -noout -issuer 2>/dev/null | grep -qi "CloudFlare Origin SSL"; then
             cert_mark=" ${red}【15年证书】${re}"
+            fi
+            if cert_used_by_nginx "${cert_domains[$idx]}" "${cert_paths[$idx]}"; then
+            cert_mark="${cert_mark} ${yellow}【nginx已使用】${re}"
             fi
             echo -e " ${i}) ${cert_domains[$idx]}${cert_mark}  (路径: ${cert_paths[$idx]})"
             ((i++))
