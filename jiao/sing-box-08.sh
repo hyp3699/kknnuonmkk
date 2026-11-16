@@ -14037,15 +14037,45 @@ rm -f "$tmp"
 exit 0
 FJEOF
     chmod 755 /usr/local/bin/forgejo-log-limit
-    # journald 总大小上限 20M（99- 前缀的 drop-in 优先级最高）
-    local jconf=/etc/systemd/journald.conf.d/99-size-limit.conf
-    local want='[Journal]\nSystemMaxUse=20M\nRuntimeMaxUse=20M\nMaxRetentionSec=7day\n'
-    if [ "$(cat "$jconf" 2>/dev/null)" != "$(printf "$want")" ]; then
-        mkdir -p /etc/systemd/journald.conf.d
-        printf "$want" > "$jconf"
+    # Forgejo 用独立的 journald 命名空间（LogNamespace=forgejo，systemd ≥ 245），
+    # 单独限制 20M，不影响 sing-box 等其他服务的日志。
+    # 撤销旧版本脚本写的全局 20M 限制
+    if grep -qs '^SystemMaxUse=20M' /etc/systemd/journald.conf.d/99-size-limit.conf; then
+        rm -f /etc/systemd/journald.conf.d/99-size-limit.conf
         systemctl restart systemd-journald 2>/dev/null
-        journalctl --vacuum-size=20M >/dev/null 2>&1
     fi
+    printf '[Journal]\nSystemMaxUse=20M\nRuntimeMaxUse=20M\nMaxRetentionSec=7day\n' > /etc/systemd/journald@forgejo.conf
+}
+
+fj_has_ns() {
+    local v
+    v=$(systemctl --version 2>/dev/null | awk 'NR==1{print $2}' | grep -oE '^[0-9]+')
+    [ -n "$v" ] && [ "$v" -ge 245 ]
+}
+
+fj_logs() {
+    if grep -q '^LogNamespace=forgejo' "$FJ_UNIT" 2>/dev/null; then
+        journalctl --namespace=forgejo -n "${1:-50}" --no-pager 2>/dev/null
+    else
+        journalctl -u forgejo -n "${1:-50}" --no-pager 2>/dev/null
+    fi
+}
+
+# 给 forgejo.service 补上日志限制相关设置（新装和老安装都走这里）
+fj_patch_unit() {
+    [ -f "$FJ_UNIT" ] || return 0
+    local changed=0
+    if ! grep -q 'forgejo-log-limit' "$FJ_UNIT"; then
+        sed -i -E 's#^(ExecStart=/usr/local/bin/forgejo web.*)$#ExecStartPre=+/usr/local/bin/forgejo-log-limit\n\1#' "$FJ_UNIT"; changed=1
+    fi
+    if ! grep -q '^LogRateLimitIntervalSec=' "$FJ_UNIT"; then
+        sed -i -E 's#^(ExecStart=/usr/local/bin/forgejo web.*)$#\1\nLogRateLimitIntervalSec=30s\nLogRateLimitBurst=300#' "$FJ_UNIT"; changed=1
+    fi
+    if fj_has_ns && ! grep -q '^LogNamespace=forgejo' "$FJ_UNIT"; then
+        sed -i -E 's#^(ExecStart=/usr/local/bin/forgejo web.*)$#\1\nLogNamespace=forgejo#' "$FJ_UNIT"; changed=1
+    fi
+    [ "$changed" = 1 ] && systemctl daemon-reload
+    return $((1 - changed))
 }
 
 fj_install() {
@@ -14070,11 +14100,9 @@ fj_install() {
             green "已是最新版本 v${ver}"
             fj_write_log_limit
             # 老安装补上日志限制
-            if ! grep -q 'forgejo-log-limit' "$FJ_UNIT" 2>/dev/null; then
-                sed -i -E 's#^(ExecStart=/usr/local/bin/forgejo web.*)$#ExecStartPre=+/usr/local/bin/forgejo-log-limit\n\1\nLogRateLimitIntervalSec=30s\nLogRateLimitBurst=300#' "$FJ_UNIT"
-                systemctl daemon-reload
+            if fj_patch_unit; then
                 systemctl restart forgejo
-                green "已开启日志限制"
+                green "已开启 Forgejo 独立日志限制（20M）"
             fi
             return 0
         fi
@@ -14149,6 +14177,7 @@ Environment=USER=git HOME=/home/git FORGEJO_WORK_DIR=/var/lib/forgejo
 [Install]
 WantedBy=multi-user.target
 FJEOF
+    fj_patch_unit
     systemctl daemon-reload
     systemctl enable --now forgejo >/dev/null 2>&1
     sleep 2
@@ -14156,7 +14185,7 @@ FJEOF
         green "Forgejo v${ver} 已启动"
         fj_show_addr
     else
-        red "Forgejo 启动失败，查看日志: journalctl -u forgejo -n 50"
+        red "Forgejo 启动失败，查看日志: Forgejo 菜单 9"
     fi
 }
 
@@ -14314,7 +14343,7 @@ FJEOF
     if systemctl is-active --quiet forgejo; then
         green "域名已设置为 ${new_domain}，现在只能通过域名访问（IP:端口 已关闭）"
     else
-        red "Forgejo 重启失败，查看日志: journalctl -u forgejo -n 50"
+        red "Forgejo 重启失败，查看日志: Forgejo 菜单 9"
     fi
     fj_show_addr
 }
@@ -14372,7 +14401,7 @@ fj_uninstall() {
     [[ "$yn" =~ ^[Yy]$ ]] || { yellow "已取消"; return 0; }
     reading "是否同时删除仓库数据和配置？(y/n，默认 n 保留): " keep
     systemctl disable --now forgejo >/dev/null 2>&1
-    rm -f "$FJ_UNIT" "$FJ_BIN" /usr/local/bin/forgejo-log-limit
+    rm -f "$FJ_UNIT" "$FJ_BIN" /usr/local/bin/forgejo-log-limit /etc/systemd/journald@forgejo.conf
     systemctl daemon-reload
     if [ -f "$FJ_NGX" ]; then
         rm -f "$FJ_NGX"
@@ -14426,7 +14455,7 @@ forgejo_manage() {
             6) fj_set_domain ;;
             7) fj_remove_domain ;;
             8) fj_change_port ;;
-            9) journalctl -u forgejo -n 50 --no-pager 2>/dev/null ;;
+            9) fj_logs 50 ;;
             10) fj_uninstall ;;
             0) return 0 ;;
             *) red "无效的选项" ;;
