@@ -21,12 +21,15 @@ echo "== 安装模式：$MODE"
 
 echo "[1/6] 安装 Python"
 if command -v apt >/dev/null; then
-  apt update -y && apt install -y python3 python3-venv curl
+  apt update -y || true
+  apt install -y python3 python3-venv curl || echo "    ⚠ apt 有报错（多半是别的软件包如 nginx 配置坏了），继续安装"
 elif command -v dnf >/dev/null; then
   dnf install -y python3 curl
 elif command -v yum >/dev/null; then
   yum install -y python3 curl
 fi
+
+command -v python3 >/dev/null && python3 -c "import venv,ensurepip" 2>/dev/null || { echo "❌ python3-venv 没装上，请先修好 apt（运行 apt -f install 看报错）"; exit 1; }
 
 OLD_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" 2>/dev/null || { [ -f "$APP_DIR/danmu_server.py" ] && echo "旧版(无版本号)" || echo "未安装"; })
 echo "[2/6] 下载弹幕服务 + 依赖"
