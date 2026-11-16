@@ -9755,6 +9755,38 @@ update_script() {
     exec bash "$local_file"
 }
 
+shortcut_menu() {
+    clear
+    green "=== 快捷指令 / 影视 ===\n"
+    green "1. 快捷指令（原 13）"
+    skyblue "------------"
+    green "2. 影视播放器（弹幕 + 精简网页版，ys）"
+    skyblue "------------"
+    green "0. 返回主菜单"
+    skyblue "------------"
+    local c _sb_remote_tmp
+    read -rp "请选择 [0-2]: " c
+    case "$c" in
+        1)
+            clear
+            _sb_remote_tmp=$(mktemp /tmp/sb-remote.XXXXXX.sh)
+            if verified_download "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/aa.sh" "$_sb_remote_tmp" ""; then bash "$_sb_remote_tmp"; else red "远程脚本下载失败或校验未通过，已取消执行"; sleep 1; fi
+            rm -f "$_sb_remote_tmp"
+            ;;
+        2)
+            clear
+            if [ -x /usr/local/bin/ys ]; then
+                /usr/local/bin/ys
+            else
+                _sb_remote_tmp=$(mktemp /tmp/sb-remote.XXXXXX.sh)
+                if verified_download "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/ys.sh?t=$(date +%s)" "$_sb_remote_tmp" ""; then bash "$_sb_remote_tmp"; else red "远程脚本下载失败或校验未通过，已取消执行"; sleep 1; fi
+                rm -f "$_sb_remote_tmp"
+            fi
+            ;;
+        *) return ;;
+    esac
+}
+
 bbr_menu() {
     local bbr_status=$(sysctl -n net.ipv4.tcp_congestion_control)
     green "=== BBR ===\n"
@@ -14516,7 +14548,7 @@ menu() {
    printf "%b%-28s%b%s%b\n" "$green" "1. 安装sing-box" "$red" "10. 开启BBR" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "2. 卸载sing-box" "$red" "11. 更新脚本" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. nftables防火墙" "$re"
-   printf "%b%-28s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令" "$re"
+   printf "%b%-28s%b%s%b\n" "$green" "4. cf管理" "$red" "13. 快捷指令/影视" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "5. 查看节点信息" "$red" "14. 本机信息" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "6. 配置文件查看" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. Forgejo" "$re"
@@ -14590,12 +14622,7 @@ fi
 	    10) bbr_menu ;;
 		11) update_script ;;
 		12) iptables_ssl ;;
-		13) 
-           clear
-		   _sb_remote_tmp=$(mktemp /tmp/sb-remote.XXXXXX.sh)
-           if verified_download "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/jiao/aa.sh" "$_sb_remote_tmp" ""; then bash "$_sb_remote_tmp"; else red "远程脚本下载失败或校验未通过，已取消执行"; sleep 1; fi
-           rm -f "$_sb_remote_tmp"
-		   ;;
+		13) shortcut_menu ;;
 		14) vps_s ;;
 		15)  warp_manage ;;
 		
