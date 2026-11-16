@@ -14168,11 +14168,24 @@ fj_set_domain() {
     local new_domain old_domain hp port url
     old_domain=$(fj_domain)
     [ -n "$old_domain" ] && yellow "当前域名: ${old_domain}"
-    reading "请输入 Forgejo 域名（需已解析到本机）: " new_domain
-    new_domain=$(echo "$new_domain" | tr -d '[:space:]' | sed -E 's#^https?://##; s#/.*$##')
-    if ! [[ "$new_domain" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; then
-        red "域名格式不正确"; return 1
+
+    # 和脚本其他地方一样：列出已有证书（域名或 IP）直接选，或选 1 申请新证书
+    if ! check_and_issue_ssl "" || [ -z "$domain" ] || [ -z "$cert_file" ] || [ -z "$key_file" ]; then
+        _reset_int_trap 2>/dev/null
+        red "未选择证书，域名未修改"; return 1
     fi
+    _reset_int_trap 2>/dev/null
+    new_domain="$domain"
+    # 选的是泛域名证书时，需要再输入具体子域名
+    if [[ "$new_domain" == \*.* ]]; then
+        local sub
+        reading "这是泛域名证书 ${new_domain}，请输入要用的前缀（如 git）: " sub
+        sub=$(echo "$sub" | tr -d '[:space:]')
+        [[ "$sub" =~ ^[A-Za-z0-9-]+$ ]] || { red "前缀无效"; return 1; }
+        new_domain="${sub}.${new_domain#\*.}"
+    fi
+    # IPv6 证书在 nginx / URL 里要加方括号
+    [[ "$new_domain" == *:* && "$new_domain" != \[* ]] && new_domain="[${new_domain}]"
 
     hp=$(fj_https_port); hp=${hp:-443}
     reading "请输入 HTTPS 端口（回车默认 ${hp}）: " port
@@ -14189,12 +14202,6 @@ fj_set_domain() {
 
     command -v nginx >/dev/null 2>&1 || manage_packages install nginx
     command -v nginx >/dev/null 2>&1 || { red "nginx 安装失败"; return 1; }
-
-    yellow "正在准备 ${new_domain} 的证书..."
-    if ! check_and_issue_ssl "$new_domain" || [ -z "$cert_file" ] || [ -z "$key_file" ]; then
-        _reset_int_trap 2>/dev/null
-        red "证书获取失败，域名未修改"; return 1
-    fi
 
     port=$(fj_port)
     mkdir -p /etc/nginx/conf.d
