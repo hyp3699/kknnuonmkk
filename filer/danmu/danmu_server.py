@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.9.2"  # 1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.9.3"  # 1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -921,7 +921,7 @@ def web_sites():
         try:
             d = json.load(open(p, encoding="utf-8"))
             SITES_CACHE[2] = [{"key": s.get("key"), "name": s.get("name"), "api": s.get("api"), "type": s.get("type")}
-                              for s in d.get("sites", []) if s.get("type") in (0, 1) and str(s.get("api", "")).startswith("http")]
+                              for s in d.get("sites", []) if s.get("type") in (0, 1, 4) and str(s.get("api", "")).startswith("http")]
             SITES_CACHE[0] = mt
         except Exception as e:
             print("[web] sites err", repr(e), flush=True)
@@ -1042,11 +1042,14 @@ def config_sites(d, base):
     out = []
     for s in d.get("sites") or []:
         api = str(s.get("api") or "").strip()
-        if s.get("type") in (0, 1) and api:
+        if s.get("type") in (0, 1, 4) and api:
             if not api.startswith("http"):
                 api = urllib.parse.urljoin(base, api)
-            if api.startswith("http"):
-                out.append({"key": str(s.get("key") or s.get("name")), "name": str(s.get("name") or s.get("key")), "api": api, "type": s.get("type")})
+            host = (urllib.parse.urlsplit(api).hostname or "").lower()
+            if api.startswith("http") and host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+                ext = s.get("ext")
+                out.append({"key": str(s.get("key") or s.get("name")), "name": str(s.get("name") or s.get("key")), "api": api, "type": s.get("type"),
+                            "ext": ext if isinstance(ext, str) else (json.dumps(ext, ensure_ascii=False) if ext else "")})
     return out
 
 def cfg_sites(cid, force=False):
@@ -1153,7 +1156,46 @@ def xml_vod(text):
         out["class"] = [{"type_id": t.get("id"), "type_name": (t.text or "").strip()} for t in cl.findall("ty")]
     return out
 
+def t4_get(site, params, timeout=12):
+    sp = urllib.parse.urlsplit(site["api"])
+    q = dict(urllib.parse.parse_qsl(sp.query))
+    if site.get("ext"):
+        q["extend"] = site["ext"]
+    q.update({k: v for k, v in params.items() if v not in (None, "")})
+    r = get(urllib.parse.urlunsplit(sp._replace(query="")), params=q, timeout=timeout, verify=False)
+    r.encoding = "utf-8"
+    try:
+        return json.loads(r.text.lstrip("\ufeff"))
+    except Exception:
+        raise ValueError(re.sub(r"<[^>]+>", "", r.text)[:60].strip() or f"接口返回异常 HTTP{r.status_code}")
+
+def t4_call(site, ac=None, t=None, pg=None, wd=None, ids=None, **_):
+    """TVBox type 4（T4）：首页 filter=true / 分类 ac=detail&t=&pg= / 详情 ac=detail&ids= / 搜索 wd=&quick=false"""
+    if ids:
+        j = t4_get(site, {"ac": "detail", "ids": ids})
+    elif wd:
+        j = t4_get(site, {"wd": wd, "quick": "false", "pg": pg or "1"})
+    elif t:
+        j = t4_get(site, {"ac": "detail", "t": t, "pg": pg or "1"})
+    else:
+        j = t4_get(site, {"filter": "true"})
+        if ac == "detail" and not (j.get("list") or []) and (j.get("class") or []):  # 首页没推荐就取第一个分类
+            j2 = t4_get(site, {"ac": "detail", "t": j["class"][0].get("type_id"), "pg": pg or "1"})
+            j2["class"] = j.get("class")
+            j = j2
+    pc = j.get("pagecount")
+    try:
+        pc = int(pc)
+    except Exception:
+        pc = 1 if (ids or not t) else 999
+    if pc <= 0:
+        pc = 999 if (j.get("list") or []) else 1
+    return {"class": j.get("class") or [], "list": j.get("list") or [], "page": int(j.get("page") or pg or 1) if str(j.get("page") or pg or 1).isdigit() else 1,
+            "pagecount": pc}
+
 def vod_call(site, **params):
+    if site.get("type") == 4:
+        return t4_call(site, **params)
     sp = urllib.parse.urlsplit(site["api"])
     q = dict(urllib.parse.parse_qsl(sp.query))
     q.update({k: v for k, v in params.items() if v not in (None, "")})
@@ -1327,9 +1369,14 @@ def api_test():
             d = vod_call(site, ac="detail", ids=ids)
     except Exception as e:
         return jsonify({"ok": False, "ms": int((time.time() - t0) * 1000), "msg": ("接口打不开：" + (str(e) or type(e).__name__))[:80]})
+    if site.get("type") == 4 and not any(v.get("vod_play_url") for v in d["list"]):
+        try:
+            d = vod_call(site, ids=str(d["list"][0].get("vod_id")))
+        except Exception as e:
+            return jsonify({"ok": False, "ms": int((time.time() - t0) * 1000), "msg": "详情打不开：" + str(e)[:60]})
     ms = int((time.time() - t0) * 1000)
-    url = ""
-    for v in d["list"]:
+    url, th = "", {}
+    for v in (d["list"] if site.get("type") != 4 else []):
         for part in str(v.get("vod_play_url") or "").split("$$$"):
             for ep in part.split("#"):
                 u = ep.split("$")[-1].strip()
@@ -1337,10 +1384,24 @@ def api_test():
                     url = u; break
             if url: break
         if url: break
+    if not url and site.get("type") == 4:
+        for v in d["list"]:
+            fr = str(v.get("vod_play_from") or "").split("$$$")
+            for fi, part in enumerate(str(v.get("vod_play_url") or "").split("$$$")):
+                ep = part.split("#")[0]
+                if ep:
+                    try:
+                        j = t4_get(site, {"play": ep.split("$")[-1], "flag": fr[fi] if fi < len(fr) else ""}, timeout=12)
+                        url = j.get("url") if isinstance(j.get("url"), str) else ""
+                        th = j.get("header") if isinstance(j.get("header"), dict) else {}
+                    except Exception:
+                        pass
+                    break
+            break
     if not url:
         return jsonify({"ok": False, "ms": ms, "msg": "没有播放地址"})
     try:
-        r = S.get(url, headers={"User-Agent": UA}, timeout=8, verify=False, stream=True)
+        r = S.get(url, headers=dict({"User-Agent": UA}, **{str(k): str(v) for k, v in th.items()}), timeout=8, verify=False, stream=True)
         head = next(r.iter_content(2048), b"")
         r.close()
         if r.status_code >= 400:  # 很多 CDN 拒绝机房 IP，手机上通常能播，不算失效
@@ -1378,10 +1439,41 @@ def api_vod():
         if not ids:
             for v in d["list"]:
                 v.pop("vod_play_url", None); v.pop("vod_content", None)
+        if site.get("type") == 4:
+            d["t4"] = 1
         return jsonify(d)
     except Exception as e:
         print("[web] vod err", key, ac, repr(e), flush=True)
         return jsonify({"error": str(e)[:200], "list": [], "class": []}), 502
+
+@app.route("/api/play")
+def api_play():
+    """T4 播放解析：play=&flag= → 真实地址 + 请求头"""
+    site = find_site(arg("key"))
+    if not site:
+        return jsonify({"error": "no site"}), 404
+    pid, flag = arg("id"), arg("flag")
+    if site.get("type") != 4:
+        return jsonify({"url": pid})
+    try:
+        j = t4_get(site, {"play": pid, "flag": flag}, timeout=15)
+    except Exception as e:
+        return jsonify({"error": "解析失败：" + str(e)[:80]}), 502
+    u = j.get("url") or ""
+    if isinstance(u, list):  # 多清晰度 ["名称","地址",...]
+        u = next((x for x in u[1::2] if str(x).startswith("http")), "")
+    hd = j.get("header") or j.get("headers") or {}
+    if isinstance(hd, str):
+        try:
+            hd = json.loads(hd)
+        except Exception:
+            hd = {}
+    if not str(u).startswith("http"):
+        return jsonify({"error": "这一集没有解析出播放地址"}), 502
+    if str(j.get("parse")) == "1" or str(j.get("jx")) == "1":
+        if not re.search(r"\.(m3u8|mp4|flv)", u):
+            return jsonify({"error": "这一集要网页嗅探解析，网页播放器不支持，换一条线路试试", "url": u}), 502
+    return jsonify({"url": u, "header": hd})
 
 @app.route("/api/dm")
 def api_dm():
@@ -1415,6 +1507,12 @@ def px():
     if not re.match(r"https?://", u):
         return "bad url", 400
     h = {"User-Agent": UA}
+    hx = arg("h")
+    if hx:
+        try:
+            h.update({str(k): str(v) for k, v in json.loads(hx).items() if str(k).lower() not in ("host", "range")})
+        except Exception:
+            pass
     if request.headers.get("Range"):
         h["Range"] = request.headers["Range"]
     try:
@@ -1430,7 +1528,7 @@ def px():
             return Response(body, status=502)
         base = r.url
         def fix(m):
-            return "/px?u=" + quote(urllib.parse.urljoin(base, m), safe="")
+            return "/px?u=" + quote(urllib.parse.urljoin(base, m), safe="") + ("&h=" + quote(hx, safe="") if hx else "")
         lines = []
         for ln in body.splitlines():
             s = ln.strip()

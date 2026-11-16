@@ -300,8 +300,8 @@ async function openVod(key,id){
   const v=d&&d.list&&d.list[0];
   if(!v){$('#info').innerHTML='<div class="msg">详情加载失败</div>';return}
   const froms=(v.vod_play_from||'播放').split('$$$'), urls=(v.vod_play_url||'').split('$$$');
-  v.groups=froms.map((f,i)=>({f,eps:(urls[i]||'').split('#').filter(Boolean).map((x,j)=>{const k=x.indexOf('$');return k>=0?{n:x.slice(0,k)||`第${j+1}集`,u:x.slice(k+1)}:{n:`第${j+1}集`,u:x}}).filter(e=>/^https?:/.test(e.u))})).filter(g=>g.eps.length);
-  v.key=key; st.vod=v;
+  v.groups=froms.map((f,i)=>({f,eps:(urls[i]||'').split('#').filter(Boolean).map((x,j)=>{const k=x.indexOf('$');return k>=0?{n:x.slice(0,k)||`第${j+1}集`,u:x.slice(k+1)}:{n:`第${j+1}集`,u:x}}).filter(e=>d.t4?e.u:/^https?:/.test(e.u))})).filter(g=>g.eps.length);
+  v.key=key; v.t4=!!d.t4; st.vod=v;
   $('#dtitle').textContent=v.vod_name;
   $('#info').innerHTML=`<h2>${esc(v.vod_name)}</h2><div class="meta">${esc([v.vod_year,v.vod_area,v.type_name,v.vod_remarks].filter(Boolean).join(' · '))}</div>${v.vod_actor?`<div class="meta">${esc(v.vod_actor)}</div>`:''}<div class="desc">${esc((v.vod_content||'').replace(/<[^>]+>/g,''))}</div>`;
   if(!v.groups.length){$('#eps').innerHTML='<div class="msg">没有可播放的地址</div>';return}
@@ -325,7 +325,7 @@ function renderFroms(fi){
 $('#froms').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;renderFroms(i);play(i,Math.min(st.ep,st.vod.groups[i].eps.length-1),$('#v').currentTime)};
 $('#eps').onclick=e=>{const b=e.target.closest('button');if(b)play(st.from,+b.dataset.i,0)};
 
-let hls=null, triedPx=false;
+let hls=null, triedPx=false, HDR='';
 const V=$('#v');
 function stopPlay(){if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([])}
 function setSt(t){$('#st').textContent=t}
@@ -334,13 +334,19 @@ function play(fi,ei,t0){
   st.from=fi;st.ep=ei;triedPx=false;
   $('#eps').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('on',i===ei));
   const ep=st.vod.groups[fi].eps[ei]; if(!ep) return;
-  load(ep.u,t0||0,st.px);
+  if(st.vod.t4){  // T4 接口：先让服务器解析出真实地址
+    const vod=st.vod;stopPlay();setSt('解析中…');
+    api(`/api/play?key=${encodeURIComponent(vod.key)}&id=${encodeURIComponent(ep.u)}&flag=${encodeURIComponent(vod.groups[fi].f)}`).then(r=>{
+      if(st.vod!==vod||st.from!==fi||st.ep!==ei)return;
+      if(!r||!r.url){setSt((r&&r.error)||'解析失败，换个线路试试');return}
+      HDR=r.header&&Object.keys(r.header).length?JSON.stringify(r.header):'';load(r.url,t0||0,st.px||!!HDR)}).catch(()=>setSt('解析失败，换个线路试试'));
+  }else{HDR='';load(ep.u,t0||0,st.px)}
   const isMovie=st.vod.groups[fi].eps.length===1;
   loadDm(st.vod.vod_name,isMovie?'':ep.n);
 }
 function load(u,t0,px){
   if(hls){hls.destroy();hls=null}
-  const src=px?'/px?u='+encodeURIComponent(u):u;
+  const src=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;
   setSt(px?'代理播放中…':'连接中…');
   const isHls=/\.m3u8/i.test(u)||!/\.(mp4|mkv|webm|flv)(\?|$)/i.test(u);
   const start=()=>{if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
@@ -363,7 +369,7 @@ $('#bnext').onclick=next;
 setInterval(()=>{if(st.vod&&!V.paused)saveHist()},10000);
 V.addEventListener('pause',()=>saveHist());
 $('#bpx').classList.toggle('on',st.px);
-$('#bpx').onclick=()=>{st.px=!st.px;LS.px=st.px?'1':'0';$('#bpx').classList.toggle('on',st.px);if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];load(ep.u,V.currentTime,st.px)}};
+$('#bpx').onclick=()=>{st.px=!st.px;LS.px=st.px?'1':'0';$('#bpx').classList.toggle('on',st.px);if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
 $('#bfs').onclick=async()=>{const b=$('#box');
   if(document.fullscreenElement){document.exitFullscreen();return}
   if(b.requestFullscreen){await b.requestFullscreen().catch(()=>{});try{await screen.orientation.lock('landscape')}catch(e){}}
