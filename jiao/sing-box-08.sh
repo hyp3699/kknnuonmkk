@@ -14110,13 +14110,168 @@ FJEOF
 fj_show_addr() {
     local ip port
     port=$(fj_port)
-    ip=$(curl -4 -s --max-time 5 https://api.ipify.org 2>/dev/null)
-    [ -z "$ip" ] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
-    green "访问地址: ${purple}http://${ip}:${port}${re}"
+    local d hp
+    d=$(fj_domain)
+    if [ -n "$d" ]; then
+        hp=$(fj_https_port)
+        if [ "${hp:-443}" = "443" ]; then green "访问地址: ${purple}https://${d}${re}"; else green "访问地址: ${purple}https://${d}:${hp}${re}"; fi
+        port="${hp:-443}"
+    else
+        ip=$(curl -4 -s --max-time 5 https://api.ipify.org 2>/dev/null)
+        [ -z "$ip" ] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+        green "访问地址: ${purple}http://${ip}:${port}${re}"
+    fi
     if ! grep -q 'INSTALL_LOCK *= *true' "$FJ_CONF" 2>/dev/null; then
         yellow "首次访问会进入安装向导：数据库保持 SQLite3，填写站点地址后在底部创建管理员账号"
     fi
     yellow "如开了防火墙，请放行 TCP ${port}（主菜单 12 nftables防火墙）"
+}
+
+FJ_NGX="/etc/nginx/conf.d/forgejo.conf"
+
+# 在 app.ini 的指定段里设置 key = value（没有该段就追加）
+fj_ini_set() {
+    local sec="$1" key="$2" val="$3" tmp
+    tmp=$(mktemp) || return 1
+    awk -v sec="[$sec]" -v key="$key" -v val="$val" '
+        function out() { print key " = " val; done=1 }
+        /^[[:space:]]*\[/ { if (insec && !done) out(); insec = ($0 == sec) }
+        insec && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" { if (!done) out(); next }
+        { print }
+        END { if (!done) { if (!insec) print "\n" sec; out() } }
+    ' "$FJ_CONF" > "$tmp" && cat "$tmp" > "$FJ_CONF"
+    rm -f "$tmp"
+}
+
+fj_ini_del() {
+    local sec="$1" key="$2" tmp
+    tmp=$(mktemp) || return 1
+    awk -v sec="[$sec]" -v key="$key" '
+        /^[[:space:]]*\[/ { insec = ($0 == sec) }
+        insec && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" { next }
+        { print }
+    ' "$FJ_CONF" > "$tmp" && cat "$tmp" > "$FJ_CONF"
+    rm -f "$tmp"
+}
+
+fj_domain() {
+    [ -f "$FJ_NGX" ] || return 1
+    awk '$1=="server_name" {sub(";","",$2); print $2; exit}' "$FJ_NGX"
+}
+
+fj_https_port() {
+    awk '$1=="listen" && $2 ~ /^[0-9]+$/ {print $2; exit}' "$FJ_NGX" 2>/dev/null
+}
+
+fj_set_domain() {
+    [ -x "$FJ_BIN" ] || { red "未安装 Forgejo"; return 1; }
+    local new_domain old_domain hp port url
+    old_domain=$(fj_domain)
+    [ -n "$old_domain" ] && yellow "当前域名: ${old_domain}"
+    reading "请输入 Forgejo 域名（需已解析到本机）: " new_domain
+    new_domain=$(echo "$new_domain" | tr -d '[:space:]' | sed -E 's#^https?://##; s#/.*$##')
+    if ! [[ "$new_domain" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; then
+        red "域名格式不正确"; return 1
+    fi
+
+    hp=$(fj_https_port); hp=${hp:-443}
+    reading "请输入 HTTPS 端口（回车默认 ${hp}）: " port
+    hp=${port:-$hp}
+    if ! [[ "$hp" =~ ^[0-9]+$ ]] || [ "$hp" -lt 1 ] || [ "$hp" -gt 65535 ]; then
+        red "端口无效"; return 1
+    fi
+    # 被 nginx 以外的程序占用（比如 sing-box 的 443 入站）就不能用
+    local occ
+    occ=$(ss -tlnpH "sport = :${hp}" 2>/dev/null)
+    if [ -n "$occ" ] && ! echo "$occ" | grep -q '"nginx"'; then
+        red "端口 ${hp} 已被其他程序占用，请换一个端口"; return 1
+    fi
+
+    command -v nginx >/dev/null 2>&1 || manage_packages install nginx
+    command -v nginx >/dev/null 2>&1 || { red "nginx 安装失败"; return 1; }
+
+    yellow "正在准备 ${new_domain} 的证书..."
+    if ! check_and_issue_ssl "$new_domain" || [ -z "$cert_file" ] || [ -z "$key_file" ]; then
+        _reset_int_trap 2>/dev/null
+        red "证书获取失败，域名未修改"; return 1
+    fi
+
+    port=$(fj_port)
+    mkdir -p /etc/nginx/conf.d
+    [ -f "$FJ_NGX" ] && cp -f "$FJ_NGX" "${FJ_NGX}.bak"
+    cat > "$FJ_NGX" <<FJEOF
+# Forgejo 反向代理（由 sing-box 脚本生成）
+server {
+    listen ${hp} ssl;
+    listen [::]:${hp} ssl;
+    http2 on;
+    server_name ${new_domain};
+
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 512M;
+
+    location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection \$http_connection;
+        proxy_set_header Upgrade \$http_upgrade;
+    }
+}
+FJEOF
+    # 老版本 nginx 不认识 "http2 on;"，改用 listen ... ssl http2
+    if ! nginx -t >/dev/null 2>&1; then
+        sed -i -E '/^[[:space:]]*http2 on;/d; s/^([[:space:]]*listen [^;]*) ssl;/\1 ssl http2;/' "$FJ_NGX"
+    fi
+    if ! nginx -t >/dev/null 2>&1; then
+        red "nginx 配置检测失败，已还原："
+        nginx -t 2>&1 | tail -n 3
+        if [ -f "${FJ_NGX}.bak" ]; then mv -f "${FJ_NGX}.bak" "$FJ_NGX"; else rm -f "$FJ_NGX"; fi
+        return 1
+    fi
+    rm -f "${FJ_NGX}.bak"
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        systemctl reload nginx
+    else
+        systemctl enable --now nginx >/dev/null 2>&1
+    fi
+    type ensure_nginx_autostart >/dev/null 2>&1 && ensure_nginx_autostart >/dev/null 2>&1
+
+    url="https://${new_domain}/"
+    [ "$hp" != "443" ] && url="https://${new_domain}:${hp}/"
+    fj_ini_set server DOMAIN "$new_domain"
+    fj_ini_set server SSH_DOMAIN "$new_domain"
+    fj_ini_set server ROOT_URL "$url"
+    fj_ini_set server HTTP_ADDR "127.0.0.1"
+    systemctl restart forgejo
+    sleep 2
+    if systemctl is-active --quiet forgejo; then
+        green "域名已设置为 ${new_domain}，现在只能通过域名访问（IP:端口 已关闭）"
+    else
+        red "Forgejo 重启失败，查看日志: journalctl -u forgejo -n 50"
+    fi
+    fj_show_addr
+}
+
+fj_remove_domain() {
+    [ -f "$FJ_NGX" ] || { yellow "未配置域名"; return 0; }
+    local yn
+    reading "确定移除域名 $(fj_domain)，恢复 IP:端口 访问？(y/n): " yn
+    [[ "$yn" =~ ^[Yy]$ ]] || { yellow "已取消"; return 0; }
+    rm -f "$FJ_NGX"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null
+    fj_ini_del server HTTP_ADDR
+    fj_ini_del server DOMAIN
+    fj_ini_del server SSH_DOMAIN
+    fj_ini_del server ROOT_URL
+    systemctl restart forgejo
+    green "已移除域名（证书保留在证书管理里）"
+    fj_show_addr
 }
 
 fj_change_port() {
@@ -14140,6 +14295,10 @@ fj_change_port() {
     fi
     # 安装向导写入的 ROOT_URL 带旧端口时一并更新
     sed -i -E "s#^([[:space:]]*ROOT_URL[[:space:]]*=[[:space:]]*https?://[^/:]+):${old}/#\1:${port}/#" "$FJ_CONF"
+    if [ -f "$FJ_NGX" ]; then
+        sed -i -E "s#proxy_pass http://127\.0\.0\.1:[0-9]+;#proxy_pass http://127.0.0.1:${port};#" "$FJ_NGX"
+        nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null
+    fi
     systemctl restart forgejo
     green "端口已改为 ${port}"
     fj_show_addr
@@ -14154,6 +14313,10 @@ fj_uninstall() {
     systemctl disable --now forgejo >/dev/null 2>&1
     rm -f "$FJ_UNIT" "$FJ_BIN"
     systemctl daemon-reload
+    if [ -f "$FJ_NGX" ]; then
+        rm -f "$FJ_NGX"
+        nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null
+    fi
     if [[ "$keep" =~ ^[Yy]$ ]]; then
         rm -rf "$FJ_DATA" /etc/forgejo
         userdel -r git >/dev/null 2>&1
@@ -14173,15 +14336,23 @@ forgejo_manage() {
         [ -x "$FJ_BIN" ] && ver=" v$("$FJ_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
         echo -e "${purple}状态: ${st}${ver}${re}"
         [ -x "$FJ_BIN" ] && echo -e "${purple}端口: $(fj_port)${re}"
+        local fjd dom_label="配置域名"
+        fjd=$(fj_domain)
+        if [ -n "$fjd" ]; then
+            dom_label="更换域名"
+            echo -e "${purple}域名: ${fjd}${re}"
+        fi
         echo ""
         green "1. 安装 / 更新 Forgejo"
         green "2. 启动"
         green "3. 停止"
         green "4. 重启"
         green "5. 查看访问地址"
-        green "6. 修改端口"
-        green "7. 查看日志"
-        green "8. 卸载 Forgejo"
+        green "6. ${dom_label}"
+        green "7. 移除域名"
+        green "8. 修改端口"
+        green "9. 查看日志"
+        green "10. 卸载 Forgejo"
         purple "0. 返回主菜单"
         local c
         reading "请输入选择: " c || return 0
@@ -14191,9 +14362,11 @@ forgejo_manage() {
             3) [ -x "$FJ_BIN" ] && { systemctl disable --now forgejo >/dev/null 2>&1; green "已停止"; } || red "未安装 Forgejo" ;;
             4) [ -x "$FJ_BIN" ] && { systemctl restart forgejo && green "已重启"; } || red "未安装 Forgejo" ;;
             5) [ -x "$FJ_BIN" ] && fj_show_addr || red "未安装 Forgejo" ;;
-            6) fj_change_port ;;
-            7) journalctl -u forgejo -n 50 --no-pager 2>/dev/null ;;
-            8) fj_uninstall ;;
+            6) fj_set_domain ;;
+            7) fj_remove_domain ;;
+            8) fj_change_port ;;
+            9) journalctl -u forgejo -n 50 --no-pager 2>/dev/null ;;
+            10) fj_uninstall ;;
             0) return 0 ;;
             *) red "无效的选项" ;;
         esac
