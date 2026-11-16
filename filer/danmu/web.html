@@ -230,10 +230,10 @@ $('#clist').onclick=async e=>{const b=e.target.closest('button');if(!b)return;co
   else if(confirm('删除这个配置？')){await post('/api/configs/del',{id});if(LS.cfg===id)LS.cfg='jjoo';await loadCfgs();if(await loadSites())loadCats();loadSet()}};
 $('#cadd').onclick=async()=>{const u=$('#curl').value.trim();if(!u){$('#cst').textContent='先填配置地址';return}
   $('#cadd').disabled=true;$('#cst').textContent='读取配置中…';
-  try{const r=await fetch('/api/configs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('#cname').value.trim(),url:u})});const d=await r.json();
+  try{const r=await fetch('/api/configs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('#cname').value.trim(),url:u})});if(r.status===401){location.reload();return}let d;try{d=await r.json()}catch(e){d={msg:`服务器返回 HTTP${r.status}，可能还没更新到新版，运行 ys 选 1 更新`}}
     if(d.ok){$('#cst').textContent=(d.multi?`多仓配置，已添加 ${d.ids.length} 个仓库，`:'已添加，')+`共 ${d.total} 个站，网页可用 ${d.usable} 个`+(d.total&&!d.usable?'（全是 jar 爬虫，只能在 OK影视 里用）':'');
       $('#cname').value='';$('#curl').value='';await loadCfgs();loadCfgList()}
-    else $('#cst').textContent=d.msg||'添加失败'}catch(e){$('#cst').textContent='添加失败'}
+    else $('#cst').textContent=d.msg||'添加失败'}catch(e){$('#cst').textContent='添加失败：'+(e.message||'网络错误')}
   $('#cadd').disabled=false};
 function renderSet(){
   $('#slist').innerHTML=SITES.length?SITES.map(s=>{const t=TEST[s.key];

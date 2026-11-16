@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.9.1"  # 1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.9.2"  # 1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -967,29 +967,61 @@ def loose_json(t):
         i += 1
     return json.loads(re.sub(r",\s*([}\]])", r"\1", "".join(out)))
 
-def decode_config(b):
-    """OK影视/TVBox 配置：明文 JSON、图片尾部 **base64、纯 base64"""
+def _aes_dec(mode, key, data, iv=b""):
+    import subprocess
+    cmd = ["openssl", "enc", "-d", f"-aes-128-{mode}", "-K", key.hex()] + (["-iv", iv.hex()] if mode == "cbc" else [])
+    p = subprocess.run(cmd, input=data, capture_output=True, timeout=20)
+    if p.returncode:
+        raise ValueError("解密失败")
+    return p.stdout
+
+def decode_config(b, key=""):
+    """与 OK影视(FongMi Decoder) 一致：明文 JSON / xxxxxxxx**base64(常藏在图片尾) / 2423 开头 AES-CBC / ;pk;KEY 的 AES-ECB"""
     import base64
     if isinstance(b, str):
         b = b.encode("utf-8")
-    t = b.decode("utf-8", "ignore").strip()
+    t = b.decode("utf-8", "ignore").strip().lstrip("\ufeff")
     if t[:1] in "{[":
         return loose_json(t)
-    i = b.find(b"**")
-    if i >= 0:
-        x = b[i + 2:].decode("latin1").strip()
-        return loose_json(base64.b64decode(x + "=" * (-len(x) % 4)).decode("utf-8", "ignore"))
-    if re.fullmatch(r"[A-Za-z0-9+/=\s]+", t[:2000]):
+    m = re.search(rb"[A-Za-z0-9]{8}\*\*", b)
+    if m:
+        x = re.sub(r"\s", "", b[m.end():].decode("latin1"))
+        t = base64.b64decode(x + "=" * (-len(x) % 4)).decode("utf-8", "ignore").strip()
+        if t[:1] in "{[":
+            return loose_json(t)
+    if t.startswith("2423"):
+        raw = bytes.fromhex(re.sub(r"[^0-9a-fA-F]", "", t))
+        dec = raw.decode("latin1").lower()
+        k = (dec[dec.index("$#") + 2: dec.index("#$")] + "0" * 16)[:16].encode("latin1")
+        iv = (dec[-13:] + "0" * 16)[:16].encode("latin1")
+        h = re.sub(r"[^0-9a-fA-F]", "", t)
+        body = bytes.fromhex(h[h.index("2324") + 4: len(h) - 26])
+        return loose_json(_aes_dec("cbc", k, body, iv).decode("utf-8", "ignore"))
+    if key:
+        kk = (key + "0" * 16)[:16].encode()
         try:
-            return loose_json(base64.b64decode(re.sub(r"\s", "", t) + "==="[: -len(re.sub(r"\s", "", t)) % 4]).decode("utf-8", "ignore"))
+            body = bytes.fromhex(t)
+        except Exception:
+            body = base64.b64decode(t + "=" * (-len(t) % 4))
+        return loose_json(_aes_dec("ecb", kk, body).decode("utf-8", "ignore"))
+    if re.fullmatch(r"[A-Za-z0-9+/=\s]+", t[:4000] or "x"):
+        try:
+            x = re.sub(r"\s", "", t)
+            return loose_json(base64.b64decode(x + "=" * (-len(x) % 4)).decode("utf-8", "ignore"))
         except Exception:
             pass
-    if t.startswith("2423"):
-        raise ValueError("这是 AES 加密配置，网页暂不支持")
+    if "<html" in t[:2000].lower():
+        raise ValueError("地址返回的是网页，不是配置（可能地址已失效，或要换成 /tv 之类的完整地址）")
     raise ValueError("看不懂这个配置（不是 JSON）")
 
 def fetch_config(url):
     u = url.strip()
+    key = ""
+    if ";" in u:  # OK影视 的 地址;pk;密钥 写法
+        parts = u.split(";")
+        u, key = parts[0], (parts[2] if len(parts) > 2 else "")
+    if not re.match(r"https?://", u, re.I):
+        u = "http://" + u
     try:
         sp = urllib.parse.urlsplit(u)
         if sp.hostname and not sp.hostname.isascii():
@@ -998,7 +1030,12 @@ def fetch_config(url):
         pass
     r = S.get(u, headers={"User-Agent": "okhttp/3.12.13"}, timeout=15, verify=False, allow_redirects=True)
     r.raise_for_status()
-    d = decode_config(r.content)
+    try:
+        d = decode_config(r.content, key)
+    except json.JSONDecodeError:
+        raise ValueError("配置内容格式有错，解析不了")
+    if not isinstance(d, dict):
+        raise ValueError("配置格式不对")
     return d, r.url
 
 def config_sites(d, base):
@@ -1053,12 +1090,24 @@ def api_configs():
         return jsonify(out)
     j = request.get_json(silent=True) or {}
     url, name = str(j.get("url", "")).strip(), str(j.get("name", "")).strip()
-    if not re.match(r"https?://", url):
-        return jsonify({"ok": False, "msg": "配置地址要以 http:// 或 https:// 开头"}), 400
+    if not url:
+        return jsonify({"ok": False, "msg": "先填配置地址"}), 400
+    if not re.match(r"https?://", url, re.I):
+        url = "http://" + url
     try:
         d, final = fetch_config(url)
     except Exception as e:
-        return jsonify({"ok": False, "msg": ("配置打不开：" + (str(e) or type(e).__name__))[:150]}), 400
+        print("[cfg] add err", url, repr(e), flush=True)
+        msg = str(e) or type(e).__name__
+        if "NameResolution" in msg or "getaddrinfo" in msg:
+            msg = "域名解析不了（地址写错或已失效）"
+        elif "Timeout" in msg or "timed out" in msg:
+            msg = "连接超时（服务器连不上这个地址）"
+        elif "ConnectionError" in type(e).__name__ or "Max retries" in msg:
+            msg = "连接失败（服务器连不上这个地址）"
+        elif "HTTPError" in type(e).__name__:
+            msg = "地址返回 " + msg.split(" for url")[0]
+        return jsonify({"ok": False, "msg": "配置打不开：" + msg[:150]}), 400
     lst = cfg_list(); added = []
     subs = [(str(x.get("name") or ""), str(x.get("url") or "")) for x in (d.get("urls") or []) if isinstance(x, dict)] if isinstance(d, dict) else []
     items = subs[:30] if subs and not d.get("sites") else [(name, url)]
