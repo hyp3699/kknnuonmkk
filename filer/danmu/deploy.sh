@@ -10,12 +10,17 @@ set -e
 [ "$(id -u)" = 0 ] || { echo "请用 root 运行（sudo -i 后再执行）"; exit 1; }
 
 APP_DIR=/opt/danmu
-PORT=${PORT:-2525}
+UNITF=/etc/systemd/system/danmu.service
+# 重复运行时保留已有设置（端口、是否开网页版），命令行传入的优先
+old_env() { grep -oP "^Environment=$1=\K\S+" "$UNITF" 2>/dev/null | tail -1 || true; }
+PORT=${PORT:-$(old_env PORT)}; PORT=${PORT:-2525}
 RAW=https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer
 SRC=$RAW/danmu/danmu_server.py
+[ -z "$MODE" ] && [ "$(old_env WEB)" = 1 ] && MODE=web
 MODE=${MODE:-danmu}
 case "$MODE" in danmu|web|moontv) ;; *) echo "MODE 只能是 danmu / web / moontv"; exit 1;; esac
-WEB_PORT=${WEB_PORT:-3003}
+WEB_PORT=${WEB_PORT:-$(old_env WEB_PORT)}; WEB_PORT=${WEB_PORT:-3003}
+pubip() { curl -s4 --connect-timeout 3 --max-time 5 ifconfig.me 2>/dev/null || true; }
 [ "$MODE" = web ] && SVC_WEB=1 || SVC_WEB=0
 echo "== 安装模式：$MODE"
 
@@ -32,20 +37,47 @@ fi
 command -v python3 >/dev/null && python3 -c "import venv,ensurepip" 2>/dev/null || { echo "❌ python3-venv 没装上，请先修好 apt（运行 apt -f install 看报错）"; exit 1; }
 
 OLD_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" 2>/dev/null || { [ -f "$APP_DIR/danmu_server.py" ] && echo "旧版(无版本号)" || echo "未安装"; })
+FIRST=0; [ -s "$APP_DIR/www/jjoo.json" ] || FIRST=1
 echo "[2/6] 下载弹幕服务 + 依赖"
-mkdir -p "$APP_DIR"
-curl -fsSL "$SRC" -o "$APP_DIR/danmu_server.py"
+mkdir -p "$APP_DIR" "$APP_DIR/tools" "$APP_DIR/www"
+# 先全部下载到临时目录并检查，任何一个失败就保留旧版退出，不会留下半截文件
+NEW=$(mktemp -d); BAK="$APP_DIR/.bak"; trap 'rm -rf "$NEW"' EXIT
+dl() { curl -fsSL --retry 2 --connect-timeout 10 --max-time 120 "$1?t=$(date +%s)" -o "$2" && [ -s "$2" ]; }
+dl "$SRC" "$NEW/danmu_server.py" && python3 -c "import ast,sys;ast.parse(open(sys.argv[1],encoding='utf-8').read())" "$NEW/danmu_server.py" \
+  || { echo "❌ 下载 danmu_server.py 失败或文件不完整，已保留旧版（$OLD_VER）"; exit 1; }
+dl "$RAW/tools/update_sites.py" "$NEW/update_sites.py" && python3 -c "import ast,sys;ast.parse(open(sys.argv[1],encoding='utf-8').read())" "$NEW/update_sites.py" \
+  || { echo "❌ 下载 update_sites.py 失败，已保留旧版"; exit 1; }
 if [ "$MODE" = web ]; then
-  curl -fsSL "$RAW/danmu/web.html" -o "$APP_DIR/web.html"
-  curl -fsSL https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o "$APP_DIR/hls.min.js" || rm -f "$APP_DIR/hls.min.js"
+  dl "$RAW/danmu/web.html" "$NEW/web.html" && grep -q '</html>' "$NEW/web.html" || { echo "❌ 下载 web.html 失败，已保留旧版"; exit 1; }
+  # hls.js 失败不致命：保留本地旧版
+  if curl -fsSL --connect-timeout 10 --max-time 60 https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o "$NEW/hls.min.js" && [ "$(stat -c %s "$NEW/hls.min.js")" -gt 100000 ]; then :; else rm -f "$NEW/hls.min.js"; echo "    ⚠ hls.js 下载失败，继续用本地旧版"; fi
 fi
-python3 -m venv "$APP_DIR/venv"
-NEW_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" || echo "未知")
+NEW_VER=$(grep -oP '^VERSION = "\K[^"]+' "$NEW/danmu_server.py" || echo "未知")
 echo "    版本：$OLD_VER -> $NEW_VER"
-"$APP_DIR/venv/bin/pip" install -q --upgrade pip flask requests zhconv
+python3 -m venv "$APP_DIR/venv"
+"$APP_DIR/venv/bin/pip" install -q --upgrade pip flask requests zhconv || { echo "❌ 安装依赖失败（pip），已保留旧版"; exit 1; }
+# 备份旧版再替换
+rm -rf "$BAK"; mkdir -p "$BAK"
+for f in danmu_server.py web.html hls.min.js; do [ -f "$APP_DIR/$f" ] && cp -p "$APP_DIR/$f" "$BAK/"; done
+[ -f "$APP_DIR/tools/update_sites.py" ] && cp -p "$APP_DIR/tools/update_sites.py" "$BAK/"
+[ -f "$UNITF" ] && cp -p "$UNITF" "$BAK/danmu.service"
+for f in danmu_server.py web.html hls.min.js; do [ -f "$NEW/$f" ] && mv -f "$NEW/$f" "$APP_DIR/$f"; done
+mv -f "$NEW/update_sites.py" "$APP_DIR/tools/update_sites.py"
+rollback() {
+  echo "    ↩ 回滚到旧版 $OLD_VER"
+  for f in danmu_server.py web.html hls.min.js; do [ -f "$BAK/$f" ] && cp -p "$BAK/$f" "$APP_DIR/$f"; done
+  [ -f "$BAK/update_sites.py" ] && cp -p "$BAK/update_sites.py" "$APP_DIR/tools/update_sites.py"
+  [ -f "$BAK/danmu.service" ] && cp -p "$BAK/danmu.service" "$UNITF"
+  systemctl daemon-reload; systemctl restart danmu || true
+}
+# 带超时的端口检查：$1 端口  $2 判定字符串（空=有响应即可）
+wait_up() { local i; for i in $(seq 1 20); do
+  if [ -n "$2" ]; then curl -s --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null | grep -q "$2" && return 0
+  else curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/" 2>/dev/null && return 0; fi
+  sleep 1; done; return 1; }
 
 echo "[3/6] 注册 systemd 开机自启"
-cat > /etc/systemd/system/danmu.service <<UNIT
+cat > "$UNITF" <<UNIT
 [Unit]
 Description=Danmu server (no key)
 After=network-online.target
@@ -70,21 +102,28 @@ if [ "$MODE" = web ] && [ -f /opt/moontv/docker-compose.yml ] && command -v dock
 fi
 # 网页登录账号：第一次装时随机生成，之后保持不变（ys 菜单可重置）
 NEW_AUTH=""
-if [ "$MODE" = web ] && [ ! -s "$APP_DIR/web_auth.json" ]; then
+AUTHC() { AUTH_FILE="$APP_DIR/web_auth.json" "$APP_DIR/venv/bin/python" "$APP_DIR/danmu_server.py" "$@"; }
+if [ "$MODE" = web ] && ! AUTHC --check-auth >/dev/null 2>&1; then
+  [ -s "$APP_DIR/web_auth.json" ] && { echo "    ⚠ 原账号文件损坏，重新生成账号"; mv -f "$APP_DIR/web_auth.json" "$APP_DIR/web_auth.json.bad"; }
   WEB_USER=${WEB_USER:-admin}
   WEB_PASS=${WEB_PASS:-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 10)}
-  AUTH_FILE="$APP_DIR/web_auth.json" "$APP_DIR/venv/bin/python" "$APP_DIR/danmu_server.py" --set-auth "$WEB_USER" "$WEB_PASS" >/dev/null && NEW_AUTH=1
+  if AUTHC --set-auth "$WEB_USER" "$WEB_PASS" >/dev/null && AUTHC --check-auth >/dev/null 2>&1; then
+    NEW_AUTH=1
+  else
+    echo "❌ 网页账号设置失败，安装中止（网页播放器不会在没有密码的情况下启动）"; rollback; exit 1
+  fi
 fi
-systemctl restart danmu
+if ! systemctl restart danmu || ! wait_up "$PORT" ok; then
+  echo "❌ 新版启动失败，日志："; journalctl -u danmu -n 20 --no-pager || true
+  rollback; exit 1
+fi
 
-echo "[4/6] 采集站自动维护（每 2 天 北京时间 04:00）"
-mkdir -p "$APP_DIR/tools" "$APP_DIR/www"
-curl -fsSL "$RAW/tools/update_sites.py" -o "$APP_DIR/tools/update_sites.py"
-[ -s "$APP_DIR/www/jjoo.json" ] || curl -fsSL "$RAW/jjoo.json" -o "$APP_DIR/www/jjoo.json"
-[ -s "$APP_DIR/tools/sites_state.json" ] || curl -fsSL "$RAW/tools/sites_state.json" -o "$APP_DIR/tools/sites_state.json" || echo '{"fails":{}}' > "$APP_DIR/tools/sites_state.json"
+echo "[4/6] 采集站自动维护"
+if [ ! -s "$APP_DIR/www/jjoo.json" ]; then dl "$RAW/jjoo.json" "$NEW/jjoo.json" && mv -f "$NEW/jjoo.json" "$APP_DIR/www/jjoo.json" || echo "    ⚠ jjoo.json 下载失败，稍后选 ys 4 更新"; fi
+[ -s "$APP_DIR/tools/sites_state.json" ] || dl "$RAW/tools/sites_state.json" "$APP_DIR/tools/sites_state.json" || echo '{"fails":{}}' > "$APP_DIR/tools/sites_state.json"
 touch /etc/danmu.env
 SITES_ENV="JJOO_PATH=$APP_DIR/www/jjoo.json STATE_PATH=$APP_DIR/tools/sites_state.json MOONTV_OUT=$APP_DIR/www/moontv.txt"
-env $SITES_ENV "$APP_DIR/venv/bin/python" "$APP_DIR/tools/update_sites.py" --export-only
+[ -s "$APP_DIR/www/jjoo.json" ] && { env $SITES_ENV "$APP_DIR/venv/bin/python" "$APP_DIR/tools/update_sites.py" --export-only || true; }
 cat > /etc/systemd/system/danmu-sites.service <<UNIT
 [Unit]
 Description=Update video sites (jjoo.json / moontv.txt)
@@ -96,27 +135,45 @@ Environment=$SITES_ENV
 ExecStart=$APP_DIR/venv/bin/python $APP_DIR/tools/update_sites.py
 TimeoutStartSec=3600
 UNIT
-# 更新间隔：/etc/danmu.env 的 SITES_EVERY（天数 1-30，或 6h 这样的小时，off=关闭），ys 菜单可改，默认 2 天
-SE=$(grep -oP '^SITES_EVERY=\K.*' /etc/danmu.env 2>/dev/null | tail -1); SE=${SE:-2}
-case "$SE" in
-  *h) TL="OnBootSec=10min
+# 更新间隔：/etc/danmu.env 的 SITES_EVERY，ys 菜单 4 可改，默认 2（天）
+#   1 = 每天北京时间 04:00   7 = 每周日 04:00（固定时刻，关机错过会补跑）
+#   其它天数 N / 小时 Nh = 固定间隔：距上次更新满 N 天/小时（开机 15 分钟后先跑一次）
+#   off = 关闭
+SE=$(grep -oP '^SITES_EVERY=\K.*' /etc/danmu.env 2>/dev/null | tail -1 || true); SE=${SE:-2}
+echo "$SE" | grep -qE '^(off|[1-9][0-9]?|[1-9][0-9]?h)$' || { echo "    ⚠ SITES_EVERY=$SE 无效，按 2 天"; SE=2; }
+if [ "$SE" = off ]; then
+  systemctl disable --now danmu-sites.timer >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/danmu-sites.timer
+  systemctl daemon-reload
+  echo "    采集站自动更新：已关闭"
+else
+  case "$SE" in
+    *h) TL="OnBootSec=15min
 OnUnitActiveSec=${SE%h}h" ;;
-  1) TL="OnCalendar=*-*-* 20:00:00 UTC" ;;
-  7) TL="OnCalendar=Sun *-*-* 20:00:00 UTC" ;;
-  *) TL="OnCalendar=*-*-1/$SE 20:00:00 UTC" ;;
-esac
-cat > /etc/systemd/system/danmu-sites.timer <<UNIT
+    1)  TL="OnCalendar=*-*-* 20:00:00 UTC
+Persistent=true" ;;
+    7)  TL="OnCalendar=Sun *-*-* 20:00:00 UTC
+Persistent=true" ;;
+    *)  TL="OnBootSec=15min
+OnUnitActiveSec=${SE}d" ;;
+  esac
+  cat > /etc/systemd/system/danmu-sites.timer <<UNIT
 [Unit]
 Description=Update video sites (SITES_EVERY=$SE)
 [Timer]
 $TL
-Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
-systemctl daemon-reload
-if [ "$SE" = off ]; then systemctl disable --now danmu-sites.timer >/dev/null 2>&1; else systemctl enable --now danmu-sites.timer >/dev/null 2>&1; fi
-systemctl start --no-block danmu-sites.service   # 立即后台跑一次（约 2-5 分钟）
+  systemctl daemon-reload
+  systemctl enable danmu-sites.timer >/dev/null 2>&1 || true
+  systemctl restart danmu-sites.timer || true
+fi
+# 只有第一次安装（或 SITES_NOW=1）才立即全量更新采集站；平时更新程序不跑
+if [ "$FIRST" = 1 ] || [ "${SITES_NOW:-0}" = 1 ]; then
+  systemctl start --no-block danmu-sites.service || true   # 后台跑一次（约 2-5 分钟）
+  echo "    已在后台更新采集站（约 2-5 分钟）"
+fi
 
 echo "[5/6] 放行端口 $PORT"
 command -v ufw >/dev/null && ufw allow $PORT/tcp >/dev/null 2>&1 || true
@@ -184,24 +241,38 @@ fi
 
 curl -fsSL "$RAW/danmu/ys.sh" -o /usr/local/bin/ys && chmod +x /usr/local/bin/ys || true
 
-sleep 2
-RUN_VER=$(curl -s "http://127.0.0.1:$PORT/version" 2>/dev/null)
-if curl -s "http://127.0.0.1:$PORT/" | grep -q ok; then
-  echo "✅ 弹幕服务已启动，运行版本 v${RUN_VER:-?}：http://$(curl -s4 ifconfig.me 2>/dev/null || echo 你的IP):$PORT/danmu?name=狂飙&episode=第1集"
+IP=$(pubip); IP=${IP:-你的IP}
+RUN_VER=$(curl -s --max-time 3 "http://127.0.0.1:$PORT/version" 2>/dev/null || true)
+OKALL=1
+if wait_up "$PORT" ok; then
+  echo "✅ 弹幕服务已启动，运行版本 v${RUN_VER:-?}：http://$IP:$PORT/danmu?name=狂飙&episode=第1集"
 else
-  echo "❌ 启动失败，查看日志：journalctl -u danmu -n 50"
+  OKALL=0; echo "❌ 弹幕服务没响应，查看日志：journalctl -u danmu -n 50"
 fi
-IP=$(curl -s4 ifconfig.me 2>/dev/null || echo 你的IP)
-DD=$(grep -oP '^DANMU_DOMAIN=\K.*' /etc/danmu.env 2>/dev/null)
-echo "📺 OK影视 配置地址：${DD:-http://$IP:$PORT}/sub/jjoo.json"
-echo "🔄 采集站下次更新：$(systemctl list-timers danmu-sites.timer --no-pager 2>/dev/null | awk 'NR==2{print $1,$2,$3}')  手动更新：systemctl start danmu-sites  日志：journalctl -u danmu-sites -n 50"
 if [ "$MODE" = web ]; then
-  WD=$(grep -oP '^WEB_DOMAIN=\K.*' /etc/danmu.env 2>/dev/null)
+  WB=$(grep -oP '^WEB_BIND=\K.*' /etc/danmu.env 2>/dev/null | tail -1 || true)
+  OCC=$(ss -ltnpH "sport = :$WEB_PORT" 2>/dev/null | grep -oP 'users:\(\("\K[^"]+' | head -1 || true)
+  if [ -n "$OCC" ] && ! echo "$OCC" | grep -qi python; then
+    OKALL=0; echo "❌ 网页播放器端口 $WEB_PORT 被 $OCC 占用，换端口：WEB_PORT=其它端口 bash deploy_web.sh"
+  elif wait_up "$WEB_PORT" ""; then echo "✅ 网页播放器已启动（端口 $WEB_PORT）"
+  else
+    OKALL=0
+    echo "❌ 网页播放器端口 $WEB_PORT 没响应${OCC:+（端口被 $OCC 占用）}，查看日志：journalctl -u danmu -n 50"
+  fi
+fi
+if [ "$MODE" = moontv ]; then
+  wait_up "$WEB_PORT" "" && echo "✅ MoonTVPlus 已启动（端口 $WEB_PORT）" || { OKALL=0; echo "⚠ MoonTVPlus 还没响应（首次拉镜像可能要几分钟）：cd /opt/moontv && docker compose logs --tail 50"; }
+fi
+DD=$(grep -oP '^DANMU_DOMAIN=\K.*' /etc/danmu.env 2>/dev/null | tail -1 || true)
+echo "📺 OK影视 配置地址：${DD:-http://$IP:$PORT}/sub/jjoo.json"
+echo "🔄 采集站自动更新：$( [ "$SE" = off ] && echo 已关闭 || systemctl list-timers danmu-sites.timer --no-pager 2>/dev/null | awk 'NR==2{print "下次 "$1,$2,$3}' || true)  手动更新：ys 选 4"
+if [ "$MODE" = web ]; then
+  WD=$(grep -oP '^WEB_DOMAIN=\K.*' /etc/danmu.env 2>/dev/null | tail -1 || true)
   echo "🌐 网页播放器：${WD:-http://$IP:$WEB_PORT}"
   if [ -n "$NEW_AUTH" ]; then
     echo "   账号 $WEB_USER   密码 $WEB_PASS   （请记下来；忘了可输入 ys 重置）"
   else
-    echo "   账号 $(AUTH_FILE="$APP_DIR/web_auth.json" "$APP_DIR/venv/bin/python" "$APP_DIR/danmu_server.py" --auth-user 2>/dev/null)（密码不变，忘了输入 ys 重置）"
+    echo "   账号 $(AUTHC --auth-user 2>/dev/null || true)（密码不变，ys 选 7 查看）"
   fi
 fi
 if [ "$MODE" = moontv ]; then
@@ -210,3 +281,4 @@ if [ "$MODE" = moontv ]; then
 fi
 [ "$MODE" = danmu ] && echo "提示：云厂商安全组要放行 $PORT 端口。" || echo "提示：云厂商安全组要放行 $PORT 和 $WEB_PORT 端口。"
 echo "管理菜单：输入 ys（安装/更新/重启/日志/卸载）"
+[ "$OKALL" = 1 ] || exit 1

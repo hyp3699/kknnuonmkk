@@ -18,7 +18,7 @@ env_of() { systemctl show -p Environment --value danmu 2>/dev/null | tr ' ' '\n'
 port() { p=$(env_of PORT); echo "${p:-2525}"; }
 web_port() { p=$(env_of WEB_PORT); echo "${p:-3003}"; }
 web_on() { [ "$(env_of WEB)" = 1 ]; }
-ip() { curl -s4 -m 3 ifconfig.me 2>/dev/null || echo 你的IP; }
+ip() { curl -s4 --connect-timeout 3 --max-time 5 ifconfig.me 2>/dev/null || echo 你的IP; }
 installed() { [ -f "$APP_DIR/danmu_server.py" ] && [ -f /etc/systemd/system/danmu.service ]; }
 getenv() { grep -oP "^$1=\K.*" "$ENVF" 2>/dev/null | tail -1; }
 setenv() { touch "$ENVF"; sed -i "/^$1=/d" "$ENVF"; [ -n "$2" ] && echo "$1=$2" >> "$ENVF"; }
@@ -75,19 +75,21 @@ write_timer() {  # $1 = 天数 / Nh / off（与 deploy.sh 相同规则，更新�
   local e=$1 tl
   setenv SITES_EVERY "$e"
   case "$e" in
-    off) systemctl disable --now danmu-sites.timer >/dev/null 2>&1; return ;;
-    *h) tl="OnBootSec=10min
-OnUnitActiveSec=${e%h}h" ;;
-    1) tl="OnCalendar=*-*-* 20:00:00 UTC" ;;
-    7) tl="OnCalendar=Sun *-*-* 20:00:00 UTC" ;;
-    *) tl="OnCalendar=*-*-1/$e 20:00:00 UTC" ;;
+    off) systemctl disable --now danmu-sites.timer >/dev/null 2>&1; rm -f /etc/systemd/system/danmu-sites.timer; systemctl daemon-reload; return ;;
+    *h) tl="OnBootSec=15min
+OnUnitActiveSec=${e%h}h" ;;   # 固定间隔
+    1) tl="OnCalendar=*-*-* 20:00:00 UTC
+Persistent=true" ;;           # 每天北京时间 04:00
+    7) tl="OnCalendar=Sun *-*-* 20:00:00 UTC
+Persistent=true" ;;           # 每周日 04:00
+    *) tl="OnBootSec=15min
+OnUnitActiveSec=${e}d" ;;     # 固定间隔 N 天
   esac
   cat > /etc/systemd/system/danmu-sites.timer <<UNIT
 [Unit]
 Description=Update video sites (SITES_EVERY=$e)
 [Timer]
 $tl
-Persistent=true
 [Install]
 WantedBy=timers.target
 UNIT
@@ -459,7 +461,7 @@ while true; do
   purple "=== 影视播放器管理（弹幕 + 精简网页版）==="
   show_status
   echo "-----------------------------"
-  green "1. 安装 / 更新"
+  green "1. 安装 / 更新（只更新程序，不重跑采集站）"
   green "2. 查看地址"
   green "3. 重启服务"
   green "4. 采集站（立即更新 / 更新间隔）"

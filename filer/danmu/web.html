@@ -382,7 +382,7 @@ function fail(msg){
   if(LS.auto==='0'){setSt(msg+'，换个线路或点「换源」试试');return}
   st.triedF.add(st.from);
   const g=vod.groups.findIndex((x,i)=>!st.triedF.has(i));
-  if(g>=0){setSt(msg+'，自动换线路…');renderFroms(g);play(g,Math.min(st.ep,vod.groups[g].eps.length-1),0);return}
+  if(g>=0){setSt(msg+'，自动换线路…');renderFroms(g);play(g,Math.min(st.ep,vod.groups[g].eps.length-1),lastT);return}
   setSt(msg+'，自动换采集站…');saveHist();
   const a=altFind(vod.vod_name);
   const pick=()=>{if(st.vod!==vod)return true;const x=a.list.find(x=>!AUTO.keys.has(x.key));
@@ -401,7 +401,7 @@ function stopPlay(){LG++;clearTimeout(WDT);V.onerror=null;if(hls){hls.destroy();
 function setSt(t){$('#st').textContent=t}
 function play(fi,ei,t0){
   saveHist();
-  st.from=fi;st.ep=ei;triedPx=false;
+  st.from=fi;st.ep=ei;triedPx=false;lastT=t0||0;
   $('#eps').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('on',i===ei));
   const ep=st.vod.groups[fi].eps[ei]; if(!ep) return;
   if(st.vod.t4){  // T4 接口：先让服务器解析出真实地址
@@ -414,30 +414,40 @@ function play(fi,ei,t0){
   const isMovie=st.vod.groups[fi].eps.length===1;
   loadDm(st.vod.vod_name,isMovie?'':ep.n);
 }
-function load(u,t0,px){
+const kindOf=u=>/\.m3u8(\?|#|$)/i.test(u)?'hls':(/\.(mp4|mkv|webm|flv|mov|m4v)(\?|#|$)/i.test(u)?'file':'');
+function load(u,t0,px,kind){
+  const lg=++LG;clearTimeout(WDT);
   if(hls){hls.destroy();hls=null}
+  V.onerror=null;V.onloadedmetadata=null;V.removeAttribute('src');
   const src=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;
   const why=px?(st.px?'代理':(HDR?'这个站要求走代理':'直连不行，已自动走代理')):'';
   $('#bpx').classList.toggle('auto',px&&!st.px);$('#bpx').textContent=px&&!st.px?'代理(自动)':'代理';
   setSt(px?why+'，连接中…':'连接中…');
-  const isHls=/\.m3u8/i.test(u)||!/\.(mp4|mkv|webm|flv)(\?|$)/i.test(u);
-  const lg=++LG;clearTimeout(WDT);V.onerror=null;
+  kind=kind||kindOf(u);
+  if(!kind){  // 地址看不出类型：让服务器看一眼内容（m3u8 / mp4）
+    api(`/api/probe?u=${encodeURIComponent(u)}`+(HDR?'&h='+encodeURIComponent(HDR):'')).then(r=>{if(lg===LG)load(u,t0,px,(r&&r.kind)||'try')}).catch(()=>{if(lg===LG)load(u,t0,px,'try')});
+    return}
+  const toPx=(t,m)=>{if(!px&&!triedPx){triedPx=true;setSt(m);load(u,t,true,kind==='try'?'':kind);return true}return false};
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
-    if(!px&&!triedPx){triedPx=true;setSt('直连超时，改用代理…');load(u,t0,true)}else fail('连接超时')},20000);
-  const start=()=>{clearTimeout(WDT);if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
-  if(isHls&&window.Hls&&Hls.isSupported()){
-    hls=new Hls({maxBufferLength:30});
-    hls.loadSource(src);hls.attachMedia(V);
-    hls.on(Hls.Events.MANIFEST_PARSED,()=>{setSt(px?why+'播放':'');start()});
-    hls.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal||lg!==LG)return;
-      if(!px&&!triedPx){triedPx=true;setSt('直连失败，改用代理…');load(u,V.currentTime||t0,true)}
-      else if(d.type===Hls.ErrorTypes.MEDIA_ERROR){hls.recoverMediaError()}
-      else fail('播放失败')});
-  }else{
-    V.src=src;V.onloadedmetadata=()=>{setSt(px?why+'播放':'');start()};
-    V.onerror=()=>{if(lg!==LG)return;if(!px&&!triedPx){triedPx=true;load(u,t0,true)}else fail('播放失败')};
-  }
+    if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
+  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);setSt(px?why+'播放':'');if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+  const asFile=()=>{V.src=src;V.onloadedmetadata=start;
+    V.onerror=()=>{if(lg!==LG)return;if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
+  if(kind!=='file'&&window.Hls&&Hls.isSupported()){
+    let netTry=0,medTry=0;
+    hls=new Hls({maxBufferLength:30});const h=hls;
+    h.loadSource(src);h.attachMedia(V);
+    h.on(Hls.Events.MANIFEST_PARSED,start);
+    h.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal||lg!==LG)return;
+      if(kind==='try'&&(d.details===Hls.ErrorDetails.MANIFEST_PARSING_ERROR)){h.destroy();if(hls===h)hls=null;kind='file';asFile();return}  // 不是 m3u8，当普通视频
+      if(!toPx(lastT||t0,'直连失败，改用代理…')){
+        if(d.type===Hls.ErrorTypes.MEDIA_ERROR&&medTry<3){medTry++;if(medTry===2)h.swapAudioCodec();h.recoverMediaError();return}
+        if(d.type===Hls.ErrorTypes.NETWORK_ERROR&&netTry<2&&V.readyState>=1){netTry++;setSt('网络卡了一下，重试中…');setTimeout(()=>{if(lg===LG)h.startLoad(V.currentTime)},1500*netTry);return}
+        fail('播放失败')}});
+  }else asFile();
 }
+let lastT=0;
+V.addEventListener('timeupdate',()=>{if(V.currentTime>0)lastT=V.currentTime});
 V.addEventListener('ended',()=>next());
 function next(){const g=st.vod&&st.vod.groups[st.from];if(g&&st.ep+1<g.eps.length)play(st.from,st.ep+1,0)}
 $('#bnext').onclick=next;
@@ -479,6 +489,7 @@ async function loadDm(name,ep){
 }
 function seekDm(){box.innerHTML='';lanes=[];const t=V.currentTime+(DMC.off||0);dmi=0;while(dmi<DM.length&&DM[dmi][0]<t)dmi++}
 V.addEventListener('seeked',seekDm);
+V.addEventListener('ratechange',()=>{lanes=[]});  // 倍速：新弹幕按倍速飞
 V.addEventListener('pause',()=>box.classList.add('paused'));
 V.addEventListener('play',()=>box.classList.remove('paused'));
 function shoot(d){
@@ -491,9 +502,9 @@ function shoot(d){
   if(d[1]===4||d[1]===5){ // 顶部/底部固定
     el.style.left='50%';el.style.transform='translateX(-50%)';
     el.style[d[1]===5?'top':'bottom']=(Math.random()*3|0)*lh+4+'px';
-    box.appendChild(el);setTimeout(()=>el.remove(),4000);return}
+    box.appendChild(el);setTimeout(()=>el.remove(),4000/(V.playbackRate||1));return}
   let li=0,best=Infinity;for(let i=0;i<n;i++){const t=lanes[i]||0;if(t<now){li=i;best=-1;break}if(t<best){best=t;li=i}}
-  box.appendChild(el);const w=el.offsetWidth,dur=8000*100/DMC.sp,sp=(W+w)/dur;
+  box.appendChild(el);const w=el.offsetWidth,dur=8000*100/DMC.sp/(V.playbackRate||1),sp=(W+w)/dur;
   lanes[li]=now+(w+20)/sp;
   el.style.top=li*lh+4+'px';el.style.setProperty('--d',-(W+w)+'px');
   el.style.animation=`fly ${dur}ms linear forwards`;el.onanimationend=()=>el.remove();

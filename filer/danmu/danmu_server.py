@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.9.5"  # 1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.9.6"  # 1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -713,16 +713,20 @@ def set_auth(user, pw):
     os.replace(tmp, AUTH_FILE)
 
 def auth_conf():
+    """返回有效账号配置；没有/损坏都返回 None（网页端口此时一律拒绝访问，不再放行）"""
     try:
         mt = os.path.getmtime(AUTH_FILE)
     except Exception:
         return None
     if AUTH_CACHE[0] != mt:
         try:
-            AUTH_CACHE[1] = json.load(open(AUTH_FILE))
-            AUTH_CACHE[0] = mt
+            c = json.load(open(AUTH_FILE))
+            if not all(isinstance(c.get(k), str) and c.get(k) for k in ("user", "hash", "salt", "secret")):
+                raise ValueError("bad auth")
+            AUTH_CACHE[1] = c
         except Exception:
-            return None
+            AUTH_CACHE[1] = None
+        AUTH_CACHE[0] = mt
     return AUTH_CACHE[1]
 
 def auth_token(c):
@@ -731,7 +735,7 @@ def auth_token(c):
 def authed():
     c = auth_conf()
     if not c:
-        return True  # 没设账号就不拦（deploy/ys 会创建）
+        return False  # 没有有效账号配置时拒绝（ys 选 8 设置账号）
     t = request.cookies.get("ys_auth", "")
     return bool(t) and hmac.compare_digest(t, auth_token(c))
 
@@ -814,6 +818,9 @@ def web_guard():
         return None
     if p in ("/login", "/hls.js", "/favicon.ico"):
         return None
+    if not auth_conf():
+        msg = "网页播放器还没有有效的账号密码，在 VPS 上运行 ys 选 8 设置"
+        return (jsonify({"error": msg}), 503) if (p.startswith("/api/") or p == "/px") else Response(msg, status=503, mimetype="text/plain; charset=utf-8")
     if authed():
         return None
     if p.startswith("/api/") or p == "/px":
@@ -1446,6 +1453,31 @@ def api_vod():
         print("[web] vod err", key, ac, repr(e), flush=True)
         return jsonify({"error": str(e)[:200], "list": [], "class": []}), 502
 
+@app.route("/api/probe")
+def api_probe():
+    """看一眼播放地址的内容：hls / file / 空（不确定）"""
+    u = arg("u")
+    if not re.match(r"https?://", u):
+        return jsonify({"kind": ""})
+    h = {"User-Agent": UA, "Range": "bytes=0-2047"}
+    try:
+        h.update({str(k): str(v) for k, v in json.loads(arg("h") or "{}").items() if str(k).lower() not in ("host", "range")})
+    except Exception:
+        pass
+    try:
+        r = S.get(u, headers=h, stream=True, timeout=6, verify=False, allow_redirects=True)
+        ct = r.headers.get("Content-Type", "").lower()
+        b = next(r.iter_content(2048), b"")
+        r.close()
+    except Exception:
+        return jsonify({"kind": ""})
+    t = b.lstrip(b"\xef\xbb\xbf \r\n\t")
+    if t.startswith(b"#EXTM3U") or "mpegurl" in ct:
+        return jsonify({"kind": "hls"})
+    if b[4:8] == b"ftyp" or b[:3] == b"FLV" or b[:4] == b"\x1a\x45\xdf\xa3" or ct.startswith(("video/", "audio/")):
+        return jsonify({"kind": "file"})
+    return jsonify({"kind": ""})
+
 @app.route("/api/play")
 def api_play():
     """T4 播放解析：play=&flag= → 真实地址 + 请求头"""
@@ -1522,10 +1554,19 @@ def px():
     ct = r.headers.get("Content-Type", "")
     if r.status_code >= 400:
         return Response(f"upstream {r.status_code}", status=r.status_code, headers={"Access-Control-Allow-Origin": "*"})
-    if ".m3u8" in u.split("?")[0] or "mpegurl" in ct.lower():
-        body = r.content.decode("utf-8", "ignore")
-        if not body.lstrip().startswith("#EXTM3U"):
-            return Response(body, status=502)
+    is_m3u = ".m3u8" in u.split("?")[0] or "mpegurl" in ct.lower()
+    first = b""
+    it = r.iter_content(64 * 1024)
+    if not is_m3u and not ct.lower().startswith(("video/", "audio/")):
+        try:
+            first = next(it, b"")  # 无后缀/类型乱写的源：看内容是不是 #EXTM3U
+        except Exception:
+            first = b""
+        is_m3u = first.lstrip(b"\xef\xbb\xbf \r\n\t").startswith(b"#EXTM3U")
+    if is_m3u:
+        body = (first + b"".join(it)).decode("utf-8", "ignore")
+        if not body.lstrip("\ufeff \r\n\t").startswith("#EXTM3U"):
+            return Response(body[:500], status=502)
         base = r.url
         def fix(m):
             return "/px?u=" + quote(urllib.parse.urljoin(base, m), safe="") + ("&h=" + quote(hx, safe="") if hx else "")
@@ -1541,7 +1582,11 @@ def px():
     for k in ("Content-Length", "Content-Range", "Accept-Ranges"):
         if k in r.headers:
             hd[k] = r.headers[k]
-    return Response(r.iter_content(64 * 1024), status=r.status_code, mimetype=ct or "video/mp2t", headers=hd)
+    def gen():
+        if first:
+            yield first
+        yield from it
+    return Response(gen(), status=r.status_code, mimetype=ct or "video/mp2t", headers=hd)
 
 @app.route("/hls.js")
 def hls_js():
@@ -1578,6 +1623,8 @@ if __name__ == "__main__":
         c = auth_conf()
         print((c or {}).get("user", ""), (c or {}).get("pass", "（旧版未保存，请重置）") if c else "")
         sys.exit(0)
+    if len(sys.argv) >= 2 and sys.argv[1] == "--check-auth":
+        sys.exit(0 if auth_conf() else 1)
     if len(sys.argv) >= 2 and sys.argv[1] == "--auth-user":
         c = auth_conf()
         print(c["user"] if c else "")
