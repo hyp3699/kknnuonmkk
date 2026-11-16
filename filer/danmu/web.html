@@ -317,11 +317,17 @@ async function openVod(key,id){
   $('#info').innerHTML=`<h2>${esc(v.vod_name)}</h2><div class="meta">${esc([v.vod_year,v.vod_area,v.type_name,v.vod_remarks].filter(Boolean).join(' · '))}</div>${v.vod_actor?`<div class="meta">${esc(v.vod_actor)}</div>`:''}<div class="desc">${esc((v.vod_content||'').replace(/<[^>]+>/g,''))}</div>`;
   if(!v.groups.length){$('#eps').innerHTML='<div class="msg">没有可播放的地址</div>';return}
   // 优先 m3u8 线路；恢复上次进度
-  let saved=null;try{const r=await api(`/api/history?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}`);if(r)saved={f:r.f,e:r.e,t:r.t}}catch(e){}
+  // 播放记录按片名合并：别的配置/采集站看过的，换到这里按集名接着播
+  let saved=null,same=true;try{const r=await api(`/api/history?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}&name=${encodeURIComponent(v.vod_name)}`);if(r){same=r.key===key&&String(r.id)===String(id);saved={f:r.f,e:r.e,t:r.t,en:r.en}}}catch(e){}
   if(!saved)saved=JSON.parse(LS['h_'+key+'_'+id]||'null');
   let fi=v.groups.findIndex(g=>/m3u8/i.test(g.f)||/\.m3u8/i.test(g.eps[0].u)); if(fi<0) fi=0;
-  if(saved&&v.groups[saved.f]) fi=saved.f;
-  renderFroms(fi); play(fi,saved&&saved.f===fi?Math.min(saved.e,v.groups[fi].eps.length-1):0,saved?saved.t:0);
+  if(saved&&same&&v.groups[saved.f]) fi=saved.f;
+  let ei=0;
+  if(saved){const eps=v.groups[fi].eps;
+    if(same&&saved.f===fi)ei=Math.min(saved.e||0,eps.length-1);
+    else if(!same){const num=t=>{const m=String(t||'').match(/\d+/);return m?+m[0]:null},sn=num(saved.en);let j=saved.en?eps.findIndex(x=>x.n===saved.en):-1;if(j<0&&sn!=null)j=eps.findIndex(x=>num(x.n)===sn);ei=j>=0?j:Math.min(saved.e||0,eps.length-1)}}
+  if(saved&&!same)setSt('已接上其他站的播放记录');
+  renderFroms(fi); play(fi,ei,saved&&(same?saved.f===fi:true)?saved.t:0);
 }
 function renderFroms(fi){
   $('#froms').innerHTML=st.vod.groups.length>1?st.vod.groups.map((g,i)=>`<button data-i="${i}" class="${i===fi?'on':''}">${esc(g.f)}</button>`).join(''):'';

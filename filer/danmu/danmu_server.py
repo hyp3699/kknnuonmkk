@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.9.0"  # 1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.9.1"  # 1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -867,15 +867,33 @@ def hist_save(h):
         json.dump(h, f, ensure_ascii=False)
     os.replace(tmp, HIST_FILE)
 
+def hname(n):
+    return re.sub(r"[\W_]+", "", str(n or "")).lower()
+
+def hist_merge(h):
+    """同一片名只留最新一条（不分配置、采集站）"""
+    seen, out = set(), []
+    for x in sorted(h, key=lambda x: -int(x.get("ts") or 0)):
+        k = hname(x.get("name")) or f'{x.get("key")}|{x.get("id")}'
+        if k not in seen:
+            seen.add(k); out.append(x)
+    return out
+
 @app.route("/api/history", methods=["GET", "POST", "DELETE"])
 def api_history():
     with HLOCK:
         h = hist_load()
         if request.method == "GET":
-            key, vid = arg("key"), arg("id")
+            key, vid, nm = arg("key"), arg("id"), hname(arg("name"))
             if key:
-                return jsonify(next((x for x in h if x.get("key") == key and str(x.get("id")) == vid), None))
-            return jsonify(h)
+                r = next((x for x in h if x.get("key") == key and str(x.get("id")) == vid), None)
+                if not r and nm:
+                    r = next((x for x in h if hname(x.get("name")) == nm), None)
+                return jsonify(r)
+            m = hist_merge(h)
+            if len(m) != len(h):
+                hist_save(m)
+            return jsonify(m)
         if request.method == "DELETE":
             key, vid = arg("key"), arg("id")
             h = [x for x in h if key and not (x.get("key") == key and str(x.get("id")) == vid)]
@@ -888,7 +906,8 @@ def api_history():
         rec = {k: j.get(k) for k in keep if j.get(k) is not None}
         rec["id"] = str(rec["id"])
         rec["ts"] = int(time.time())
-        h = [rec] + [x for x in h if not (x.get("key") == rec["key"] and str(x.get("id")) == rec["id"])]
+        nm = hname(rec.get("name"))
+        h = [rec] + [x for x in h if not (x.get("key") == rec["key"] and str(x.get("id")) == rec["id"]) and not (nm and hname(x.get("name")) == nm)]
         hist_save(h[:300])
         return jsonify({"ok": True})
 
