@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.8.0"  # 1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.9.0"  # 1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -908,6 +908,164 @@ def web_sites():
             print("[web] sites err", repr(e), flush=True)
     return SITES_CACHE[2]
 
+# ---------- 多配置：jjoo 内置 + 用户添加的配置地址（每个配置单独一类） ----------
+CONFIGS_FILE = os.environ.get("CONFIGS_FILE", os.path.join(DATA_DIR, "web_configs.json"))
+CFG_CACHE = {}  # id -> (ts, sites, total, err)
+
+def cfg_list():
+    try:
+        return json.load(open(CONFIGS_FILE, encoding="utf-8"))
+    except Exception:
+        return []
+
+def cfg_save(lst):
+    tmp = CONFIGS_FILE + ".tmp"
+    json.dump(lst, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    os.replace(tmp, CONFIGS_FILE)
+
+def loose_json(t):
+    t = t.lstrip("\ufeff").strip()
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+    out, i, n, instr = [], 0, len(t), False   # 去掉 // 和 /* */ 注释（不动字符串里的）、尾逗号
+    while i < n:
+        c = t[i]
+        if instr:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(t[i + 1]); i += 2; continue
+            if c == '"': instr = False
+        elif c == '"':
+            instr = True; out.append(c)
+        elif t.startswith("//", i):
+            j = t.find("\n", i); i = n if j < 0 else j; continue
+        elif t.startswith("/*", i):
+            j = t.find("*/", i + 2); i = n if j < 0 else j + 2; continue
+        else:
+            out.append(c)
+        i += 1
+    return json.loads(re.sub(r",\s*([}\]])", r"\1", "".join(out)))
+
+def decode_config(b):
+    """OK影视/TVBox 配置：明文 JSON、图片尾部 **base64、纯 base64"""
+    import base64
+    if isinstance(b, str):
+        b = b.encode("utf-8")
+    t = b.decode("utf-8", "ignore").strip()
+    if t[:1] in "{[":
+        return loose_json(t)
+    i = b.find(b"**")
+    if i >= 0:
+        x = b[i + 2:].decode("latin1").strip()
+        return loose_json(base64.b64decode(x + "=" * (-len(x) % 4)).decode("utf-8", "ignore"))
+    if re.fullmatch(r"[A-Za-z0-9+/=\s]+", t[:2000]):
+        try:
+            return loose_json(base64.b64decode(re.sub(r"\s", "", t) + "==="[: -len(re.sub(r"\s", "", t)) % 4]).decode("utf-8", "ignore"))
+        except Exception:
+            pass
+    if t.startswith("2423"):
+        raise ValueError("这是 AES 加密配置，网页暂不支持")
+    raise ValueError("看不懂这个配置（不是 JSON）")
+
+def fetch_config(url):
+    u = url.strip()
+    try:
+        sp = urllib.parse.urlsplit(u)
+        if sp.hostname and not sp.hostname.isascii():
+            u = urllib.parse.urlunsplit(sp._replace(netloc=sp.netloc.replace(sp.hostname, sp.hostname.encode("idna").decode())))
+    except Exception:
+        pass
+    r = S.get(u, headers={"User-Agent": "okhttp/3.12.13"}, timeout=15, verify=False, allow_redirects=True)
+    r.raise_for_status()
+    d = decode_config(r.content)
+    return d, r.url
+
+def config_sites(d, base):
+    out = []
+    for s in d.get("sites") or []:
+        api = str(s.get("api") or "").strip()
+        if s.get("type") in (0, 1) and api:
+            if not api.startswith("http"):
+                api = urllib.parse.urljoin(base, api)
+            if api.startswith("http"):
+                out.append({"key": str(s.get("key") or s.get("name")), "name": str(s.get("name") or s.get("key")), "api": api, "type": s.get("type")})
+    return out
+
+def cfg_sites(cid, force=False):
+    """返回 (sites, total, err)"""
+    if cid in ("", "jjoo"):
+        ss = web_sites()
+        return ss, len(ss), ""
+    c = next((x for x in cfg_list() if x.get("id") == cid), None)
+    if not c:
+        return [], 0, "配置不存在"
+    hit = CFG_CACHE.get(cid)
+    if hit and not force and time.time() - hit[0] < 1800:
+        return hit[1], hit[2], hit[3]
+    try:
+        d, final = fetch_config(c["url"])
+        ss = [dict(x, key=f"{cid}:{x['key']}") for x in config_sites(d, final)]
+        res = (time.time(), ss, len(d.get("sites") or []), "")
+    except Exception as e:
+        if hit:  # 拉取失败沿用上次
+            return hit[1], hit[2], hit[3]
+        res = (time.time() - 1500, [], 0, ("加载失败：" + (str(e) or type(e).__name__))[:120])
+    CFG_CACHE[cid] = res
+    return res[1], res[2], res[3]
+
+def find_site(key):
+    key = key or ""
+    if ":" in key:
+        cid = key.split(":", 1)[0]
+        if any(x.get("id") == cid for x in cfg_list()):
+            return next((s for s in cfg_sites(cid)[0] if s["key"] == key), None)
+    return next((s for s in web_sites() if s["key"] == key), None)
+
+@app.route("/api/configs", methods=["GET", "POST"])
+def api_configs():
+    if request.method == "GET":
+        out = [{"id": "jjoo", "name": "jjoo（内置）", "url": "", "builtin": 1}] + cfg_list()
+        if arg("count"):
+            for c in out:
+                ss, total, err = cfg_sites(c["id"])
+                c.update(usable=len(ss), total=total, err=err)
+        return jsonify(out)
+    j = request.get_json(silent=True) or {}
+    url, name = str(j.get("url", "")).strip(), str(j.get("name", "")).strip()
+    if not re.match(r"https?://", url):
+        return jsonify({"ok": False, "msg": "配置地址要以 http:// 或 https:// 开头"}), 400
+    try:
+        d, final = fetch_config(url)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": ("配置打不开：" + (str(e) or type(e).__name__))[:150]}), 400
+    lst = cfg_list(); added = []
+    subs = [(str(x.get("name") or ""), str(x.get("url") or "")) for x in (d.get("urls") or []) if isinstance(x, dict)] if isinstance(d, dict) else []
+    items = subs[:30] if subs and not d.get("sites") else [(name, url)]
+    for nm, u in items:
+        if not u or any(x.get("url") == u for x in lst):
+            continue
+        n = 1
+        while any(x.get("id") == f"c{n}" for x in lst):
+            n += 1
+        nm = nm or urllib.parse.urlsplit(u).hostname or f"配置{n}"
+        lst.append({"id": f"c{n}", "name": nm, "url": u}); added.append(f"c{n}")
+    if not added:
+        return jsonify({"ok": False, "msg": "这个配置已经添加过了"}), 400
+    cfg_save(lst)
+    usable = total = 0
+    for cid in added:
+        ss, t, _ = cfg_sites(cid, force=True); usable += len(ss); total += t
+    return jsonify({"ok": True, "ids": added, "usable": usable, "total": total, "multi": len(added) > 1})
+
+@app.route("/api/configs/del", methods=["POST"])
+def api_configs_del():
+    cid = (request.get_json(silent=True) or {}).get("id")
+    lst = [x for x in cfg_list() if x.get("id") != cid]
+    cfg_save(lst); CFG_CACHE.pop(cid, None)
+    return jsonify({"ok": True})
+
 def xml_vod(text):
     root = ET.fromstring(text.strip().encode("utf-8") if isinstance(text, str) else text)
     lst = root.find("list")
@@ -945,9 +1103,12 @@ def vod_call(site, **params):
 
 @app.route("/api/sites")
 def api_sites():
+    ss, total, err = cfg_sites(arg("cfg") or "jjoo", force=bool(arg("refresh")))
     if arg("full"):
-        return jsonify([{"key": s["key"], "name": s["name"], "api": s["api"], "type": s["type"]} for s in web_sites()])
-    return jsonify([{"key": s["key"], "name": s["name"]} for s in web_sites()])
+        return jsonify([{"key": s["key"], "name": s["name"], "api": s["api"], "type": s["type"]} for s in ss])
+    if arg("meta"):
+        return jsonify({"sites": [{"key": s["key"], "name": s["name"]} for s in ss], "total": total, "err": err})
+    return jsonify([{"key": s["key"], "name": s["name"]} for s in ss])
 
 # ---------- 网页设置：采集站增删、测试、编辑 jjoo.json ----------
 CONF_LOCK = threading.Lock()
@@ -1084,7 +1245,7 @@ def api_site_del():
 @app.route("/api/test")
 def api_test():
     """测试一个采集站：列表 + 第一个视频的播放地址能否打开"""
-    site = next((s for s in web_sites() if s["key"] == arg("key")), None)
+    site = find_site(arg("key"))
     if not site:
         return jsonify({"ok": False, "msg": "没有这个站"})
     t0 = time.time()
@@ -1128,7 +1289,7 @@ def api_test():
 @app.route("/api/vod")
 def api_vod():
     key = arg("key")
-    site = next((s for s in web_sites() if s["key"] == key), None)
+    site = find_site(key)
     if not site:
         return jsonify({"error": "no site"}), 404
     ac, t, pg, wd, ids = arg("ac") or "detail", arg("t"), arg("pg") or "1", arg("wd"), arg("ids")
