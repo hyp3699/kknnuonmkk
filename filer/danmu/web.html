@@ -52,6 +52,8 @@ button.on{background:#e50914;border-color:#e50914}
 .info h2{margin:6px 0;font-size:18px}
 .info .meta{color:#999;font-size:12px}
 .info .desc{color:#aaa;font-size:13px;max-height:5.6em;overflow:hidden;margin:6px 0}
+#alt{padding:4px 10px;display:none}#alt .si{cursor:pointer}#alt .si.cur b{color:#e50914}
+#src{color:#e6a23c;font-size:12px;margin-left:6px}
 #froms{display:flex;gap:6px;overflow-x:auto;padding:6px 10px}
 #froms button{white-space:nowrap}
 #eps{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px;padding:6px 10px}
@@ -74,7 +76,7 @@ button.on{background:#e50914;border-color:#e50914}
 </div>
 <div id="srch" style="display:none">
   <header><button class="back">‹</button><input id="kw" placeholder="搜索当前配置的全部采集站" enterkeyhint="search"><button id="go">搜索</button></header>
-  <div class="st" id="qst" style="padding:8px 10px 0"></div>
+  <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 0"><div class="st" id="qst"></div><button id="qstop" style="display:none;margin-left:auto">停止搜索</button></div>
   <div id="qres"></div>
 </div>
 <div id="hist" style="display:none">
@@ -105,8 +107,11 @@ button.on{background:#e50914;border-color:#e50914}
     <button id="bpx">代理</button>
     <button id="bfs">全屏</button>
     <button id="bnext">下一集</button>
+    <button id="balt">换源</button>
+    <button id="bauto">自动换源</button>
     <span class="st" id="st"></span>
   </div>
+  <div id="alt"></div>
   <div class="info" id="info"></div>
   <div id="froms"></div>
   <div id="eps"></div>
@@ -175,6 +180,8 @@ async function search(){
   const kw=$('#kw').value.trim();if(!kw)return;$('#kw').blur();
   const gen=++QGEN, q=CUR.map(s=>s);let done=0,hit=0,n=q.length;
   $('#qres').innerHTML='';$('#qst').textContent=n?`搜索中 0/${n}`:'当前配置没有可用站';
+  $('#qstop').style.display=n?'':'none';
+  $('#qstop').onclick=()=>{if(gen!==QGEN)return;QGEN++;$('#qstop').style.display='none';$('#qst').textContent=`已停止：搜了 ${done}/${n} 个站，${hit} 个站有结果`};
   const worker=async()=>{while(q.length&&gen===QGEN){const s=q.shift();let d=null;
     try{const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),15000);
       d=await api(`/api/vod?key=${encodeURIComponent(s.key)}&wd=${encodeURIComponent(kw)}&pg=1`,{signal:ctl.signal});clearTimeout(tm)}catch(e){}
@@ -183,7 +190,7 @@ async function search(){
     if(L.length){hit++;
       $('#qres').insertAdjacentHTML('beforeend',`<div class="qh"><span>${esc(s.name)}</span><span>${L.length}${d.pagecount>1?'+':''}</span></div><div class="grid2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;padding:8px 10px">`+
         L.map(v=>`<div class="card" data-k="${esc(s.key)}" data-id="${esc(String(v.vod_id))}"><div class="pic" style="background-image:url('${esc(v.vod_pic||'')}')"></div><div class="rm">${esc(v.vod_remarks||'')}</div><div class="nm">${esc(v.vod_name)}</div></div>`).join('')+'</div>')}
-    $('#qst').textContent=done<n?`搜索中 ${done}/${n}，${hit} 个站有结果`:`搜完 ${n} 个站，${hit} 个站有结果`+(hit?'':'，换个关键词试试')}};
+    $('#qst').textContent=done<n?`搜索中 ${done}/${n}，${hit} 个站有结果`:`搜完 ${n} 个站，${hit} 个站有结果`+(hit?'':'，换个关键词试试');if(done>=n)$('#qstop').style.display='none'}};
   await Promise.all(Array.from({length:8},worker));
 }
 $('#go').onclick=search; $('#kw').onkeydown=e=>{if(e.key==='Enter')search()};
@@ -302,9 +309,11 @@ async function openVod(key,id){
   const froms=(v.vod_play_from||'播放').split('$$$'), urls=(v.vod_play_url||'').split('$$$');
   v.groups=froms.map((f,i)=>({f,eps:(urls[i]||'').split('#').filter(Boolean).map((x,j)=>{const k=x.indexOf('$');return k>=0?{n:x.slice(0,k)||`第${j+1}集`,u:x.slice(k+1)}:{n:`第${j+1}集`,u:x}}).filter(e=>d.t4?e.u:/^https?:/.test(e.u))})).filter(g=>g.eps.length);
   v.key=key; v.t4=!!d.t4; st.vod=v;
-  $('#dtitle').textContent=v.vod_name;
+  $('#dtitle').innerHTML=esc(v.vod_name)+`<span id="src">${esc(siteName(key))}</span>`;
+  if(!AUTO.name||nm(AUTO.name)!==nm(v.vod_name))AUTO={name:v.vod_name,keys:new Set()};AUTO.keys.add(key);st.triedF=new Set();
+  $('#alt').style.display='none';
   $('#info').innerHTML=`<h2>${esc(v.vod_name)}</h2><div class="meta">${esc([v.vod_year,v.vod_area,v.type_name,v.vod_remarks].filter(Boolean).join(' · '))}</div>${v.vod_actor?`<div class="meta">${esc(v.vod_actor)}</div>`:''}<div class="desc">${esc((v.vod_content||'').replace(/<[^>]+>/g,''))}</div>`;
-  if(!v.groups.length){$('#eps').innerHTML='<div class="msg">没有可播放的地址</div>';return}
+  if(!v.groups.length){$('#eps').innerHTML='<div class="msg">没有可播放的地址</div>';fail('这个站没有可播放的地址');return}
   // 优先 m3u8 线路；恢复上次进度
   // 播放记录按片名合并：别的配置/采集站看过的，换到这里按集名接着播
   let saved=null,same=true;try{const r=await api(`/api/history?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}&name=${encodeURIComponent(v.vod_name)}`);if(r){same=r.key===key&&String(r.id)===String(id);saved={f:r.f,e:r.e,t:r.t,en:r.en}}}catch(e){}
@@ -322,12 +331,53 @@ function renderFroms(fi){
   $('#froms').innerHTML=st.vod.groups.length>1?st.vod.groups.map((g,i)=>`<button data-i="${i}" class="${i===fi?'on':''}">${esc(g.f)}</button>`).join(''):'';
   $('#eps').innerHTML=st.vod.groups[fi].eps.map((e,i)=>`<button data-i="${i}" title="${esc(e.n)}">${esc(e.n)}</button>`).join('');
 }
+// ---------- 换源：同名视频在当前配置其它采集站 ----------
+const nm=t=>String(t||'').toLowerCase().replace(/[\s\p{P}\p{S}]/gu,'');
+const siteName=k=>NAMES[k]||String(k).replace(/^c\d+:/,'');
+let ALT=null, AUTO={name:'',keys:new Set()};
+$('#bauto').classList.toggle('on',LS.auto!=='0');
+$('#bauto').onclick=()=>{LS.auto=LS.auto==='0'?'1':'0';$('#bauto').classList.toggle('on',LS.auto!=='0');setSt(LS.auto==='0'?'已关闭自动换源':'已开启：播放失败会自动换线路/采集站')};
+function altFind(name){  // 结果缓存，边搜边出
+  if(ALT&&nm(ALT.name)===nm(name))return ALT;
+  const a=ALT={name,list:[],done:false,n:CUR.length,cnt:0,subs:[]},q=CUR.slice(),k=nm(name);
+  const tell=()=>a.subs.forEach(f=>f());
+  const worker=async()=>{while(q.length&&ALT===a){const s=q.shift();
+    try{const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),10000);
+      const d=await api(`/api/vod?key=${encodeURIComponent(s.key)}&wd=${encodeURIComponent(name)}&pg=1`,{signal:ctl.signal});clearTimeout(tm);
+      const v=(d&&d.list||[]).find(x=>nm(x.vod_name)===k);
+      if(v&&ALT===a)a.list.push({key:s.key,id:String(v.vod_id),rm:v.vod_remarks||''})}catch(e){}
+    a.cnt++;tell()}};
+  Promise.all(Array.from({length:8},worker)).then(()=>{a.done=true;tell()});
+  return a;
+}
+function goSrc(k,id){location.replace(`#/v/${encodeURIComponent(k)}/${encodeURIComponent(id)}`)}
+function renderAlt(){const a=ALT,b=$('#alt');if(!a||b.style.display==='none')return;
+  b.innerHTML=`<div class="st" style="padding:4px 0">${a.done?`${a.n} 个站里 ${a.list.length} 个有这部`:`查找中 ${a.cnt}/${a.n}，找到 ${a.list.length} 个`}</div>`+
+    a.list.map(x=>`<div class="si${x.key===st.vod.key?' cur':''}" data-k="${esc(x.key)}" data-id="${esc(x.id)}"><div class="n"><b>${esc(siteName(x.key))}</b><small>${esc(x.rm)}</small></div><div class="r">${x.key===st.vod.key?'当前':(AUTO.keys.has(x.key)?'<span class="bad">已试过</span>':'')}</div></div>`).join('')}
+$('#balt').onclick=()=>{const b=$('#alt');if(b.style.display!=='none'){b.style.display='none';return}
+  if(!st.vod)return;b.style.display='block';const a=altFind(st.vod.vod_name);if(!a.subs.includes(renderAlt))a.subs.push(renderAlt);renderAlt()};
+$('#alt').onclick=e=>{const r=e.target.closest('.si');if(!r||r.dataset.k===st.vod.key)return;saveHist();goSrc(r.dataset.k,r.dataset.id)};
+function fail(msg){
+  const vod=st.vod;if(!vod)return;
+  if(LS.auto==='0'){setSt(msg+'，换个线路或点「换源」试试');return}
+  st.triedF.add(st.from);
+  const g=vod.groups.findIndex((x,i)=>!st.triedF.has(i));
+  if(g>=0){setSt(msg+'，自动换线路…');renderFroms(g);play(g,Math.min(st.ep,vod.groups[g].eps.length-1),0);return}
+  setSt(msg+'，自动换采集站…');saveHist();
+  const a=altFind(vod.vod_name);
+  const pick=()=>{if(st.vod!==vod)return true;const x=a.list.find(x=>!AUTO.keys.has(x.key));
+    if(x){goSrc(x.key,x.id);return true}
+    if(a.done){setSt('所有站都播放失败了，换个关键词搜搜');return true}
+    setSt(`${msg}，正在找其它站 ${a.cnt}/${a.n}…`);return false};
+  if(!pick()){const f=()=>{if(pick())a.subs=a.subs.filter(y=>y!==f)};a.subs.push(f)}
+}
 $('#froms').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;renderFroms(i);play(i,Math.min(st.ep,st.vod.groups[i].eps.length-1),$('#v').currentTime)};
 $('#eps').onclick=e=>{const b=e.target.closest('button');if(b)play(st.from,+b.dataset.i,0)};
 
 let hls=null, triedPx=false, HDR='';
 const V=$('#v');
-function stopPlay(){if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([])}
+let LG=0,WDT=0;
+function stopPlay(){LG++;clearTimeout(WDT);V.onerror=null;if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([])}
 function setSt(t){$('#st').textContent=t}
 function play(fi,ei,t0){
   saveHist();
@@ -338,8 +388,8 @@ function play(fi,ei,t0){
     const vod=st.vod;stopPlay();setSt('解析中…');
     api(`/api/play?key=${encodeURIComponent(vod.key)}&id=${encodeURIComponent(ep.u)}&flag=${encodeURIComponent(vod.groups[fi].f)}`).then(r=>{
       if(st.vod!==vod||st.from!==fi||st.ep!==ei)return;
-      if(!r||!r.url){setSt((r&&r.error)||'解析失败，换个线路试试');return}
-      HDR=r.header&&Object.keys(r.header).length?JSON.stringify(r.header):'';load(r.url,t0||0,st.px||!!HDR)}).catch(()=>setSt('解析失败，换个线路试试'));
+      if(!r||!r.url){fail((r&&r.error)||'解析失败');return}
+      HDR=r.header&&Object.keys(r.header).length?JSON.stringify(r.header):'';load(r.url,t0||0,st.px||!!HDR)}).catch(()=>{if(st.vod===vod&&st.from===fi&&st.ep===ei)fail('解析失败')});
   }else{HDR='';load(ep.u,t0||0,st.px)}
   const isMovie=st.vod.groups[fi].eps.length===1;
   loadDm(st.vod.vod_name,isMovie?'':ep.n);
@@ -349,18 +399,21 @@ function load(u,t0,px){
   const src=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;
   setSt(px?'代理播放中…':'连接中…');
   const isHls=/\.m3u8/i.test(u)||!/\.(mp4|mkv|webm|flv)(\?|$)/i.test(u);
-  const start=()=>{if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+  const lg=++LG;clearTimeout(WDT);V.onerror=null;
+  WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
+    if(!px&&!triedPx){triedPx=true;setSt('直连超时，改用代理…');load(u,t0,true)}else fail('连接超时')},20000);
+  const start=()=>{clearTimeout(WDT);if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
   if(isHls&&window.Hls&&Hls.isSupported()){
     hls=new Hls({maxBufferLength:30});
     hls.loadSource(src);hls.attachMedia(V);
     hls.on(Hls.Events.MANIFEST_PARSED,()=>{setSt(px?'代理播放':'');start()});
-    hls.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal)return;
+    hls.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal||lg!==LG)return;
       if(!px&&!triedPx){triedPx=true;setSt('直连失败，改用代理…');load(u,V.currentTime||t0,true)}
       else if(d.type===Hls.ErrorTypes.MEDIA_ERROR){hls.recoverMediaError()}
-      else setSt('播放失败，换个线路或站点试试')});
+      else fail('播放失败')});
   }else{
     V.src=src;V.onloadedmetadata=()=>{setSt('');start()};
-    V.onerror=()=>{if(!px&&!triedPx){triedPx=true;load(u,t0,true)}else setSt('播放失败，换个线路或站点试试')};
+    V.onerror=()=>{if(lg!==LG)return;if(!px&&!triedPx){triedPx=true;load(u,t0,true)}else fail('播放失败')};
   }
 }
 V.addEventListener('ended',()=>next());
