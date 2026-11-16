@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "2.0.0"  # 2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "2.0.1"  # 2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -874,18 +874,22 @@ NODES_FILE = os.environ.get("NODES_FILE", os.path.join(DATA_DIR, "web_nodes.json
 SB_DIR = os.path.join(DATA_DIR, "sb")
 NODE_BASE = int(os.environ.get("NODE_PORT", "20810") or 20810)
 NODE = {"proc": None, "sig": None, "err": "", "lock": threading.Lock(), "last": 0}
-NODE_HOSTS = {}  # host -> 到期时间：自动模式下直连失败、走节点成功的站，记 6 小时
-NODE_MODES = ("off", "auto", "all")
+NODE_HOSTS = {}  # host -> (到期时间, 节点id)：自动模式下直连失败、走某节点成功的站，记 6 小时
+NODE_MODES = ("off", "auto", "fixed")  # 不用 / 自动切换（直连失败依次试节点）/ 指定节点（全部走 active）
 
 def nodes_load():
     try:
         d = json.load(open(NODES_FILE, encoding="utf-8"))
         if isinstance(d, dict) and isinstance(d.get("nodes"), list):
-            d.setdefault("mode", "auto"); d.setdefault("video", 0); d.setdefault("active", "")
+            d.setdefault("mode", "auto"); d.setdefault("active", "")
+            if d["mode"] == "all":
+                d["mode"] = "fixed"
+            if d["mode"] not in NODE_MODES:
+                d["mode"] = "auto"
             return d
     except Exception:
         pass
-    return {"mode": "auto", "video": 0, "active": "", "nodes": []}
+    return {"mode": "auto", "active": "", "nodes": []}
 
 def nodes_save(d):
     tmp = NODES_FILE + ".tmp"
@@ -1129,15 +1133,9 @@ def sb_apply(d=None, force=False):
         return ""
 
 def node_px(d=None, idx=None):
-    """当前（或第 idx 个）节点的本地代理；没开就返回 None"""
+    """第 idx 个节点的本地代理（sing-box 没在跑会尝试拉起）；不可用返回 None"""
     d = d or nodes_load()
-    if idx is None:
-        if d["mode"] == "off":
-            return None
-        idx = next((i for i, n in enumerate(d["nodes"]) if n.get("id") == d.get("active")), None)
-        if idx is None:
-            return None
-    if idx >= len(d["nodes"]):
+    if idx is None or idx >= len(d["nodes"]):
         return None
     p = NODE["proc"]
     if not p or p.poll() is not None:
@@ -1152,51 +1150,66 @@ def node_px(d=None, idx=None):
 def _bad_status(r):
     return r.status_code in (401, 403, 407, 429, 451) or r.status_code >= 500
 
+def _close(r):
+    try:
+        r.close()
+    except Exception:
+        pass
+
 def site_get(url, safe=False, **kw):
-    """采集站请求：自动模式先直连，连不上/被拒（403 等）再走节点并记住这个站；全部模式直接走节点"""
+    """采集站/视频请求。自动：先直连，连不上或被拒（403/5xx 等）就依次换节点，成功的节点按站记 6 小时；指定：全部走选中的节点"""
     d = nodes_load()
-    px = node_px(d)
     timeout = kw.pop("timeout", 12)
-    def do(p, to):
+    def do(idx, to=timeout):
+        p = node_px(d, idx) if idx is not None else None
+        if idx is not None and not p:
+            raise ConnectionError("节点不可用")
         if safe:
             return safe_get(url, kw.get("headers") or {}, to, proxies=p)
         return S.get(url, proxies=p, timeout=to, **kw)
-    if not px:
-        return do(None, timeout)
+    ids = [n["id"] for n in d["nodes"]]
+    if d["mode"] == "off" or not ids:
+        return do(None)
+    if d["mode"] == "fixed":
+        return do(ids.index(d["active"]) if d["active"] in ids else 0)
     host = (urllib.parse.urlsplit(url).hostname or "").lower()
-    if d["mode"] == "all" or NODE_HOSTS.get(host, 0) > time.time():
+    order = [None] + list(range(len(ids)))
+    rem = NODE_HOSTS.get(host)
+    if rem and rem[0] > time.time() and rem[1] in ids:
+        i = ids.index(rem[1])
+        order = [i] + [x for x in order if x != i]
+    else:
+        NODE_HOSTS.pop(host, None)
+    first, err, tries = None, None, 0
+    for idx in order:
+        if idx is not None:
+            tries += 1
+            if tries > 3:  # 最多试 3 个节点，免得一直卡着
+                break
         try:
-            r = do(px, timeout)
-            if d["mode"] == "all" or not _bad_status(r):
-                return r
+            r = do(idx, (5, timeout) if idx is None and isinstance(timeout, (int, float)) else timeout)
         except ValueError:
             raise
-        except Exception:
-            if d["mode"] == "all":
-                raise
-        NODE_HOSTS.pop(host, None)
-    r, err = None, None
-    try:
-        r = do(None, (5, timeout) if isinstance(timeout, (int, float)) else timeout)
+        except Exception as e:
+            err = err or e
+            if idx is not None and rem and rem[1] == ids[idx]:
+                NODE_HOSTS.pop(host, None)
+            continue
         if not _bad_status(r):
+            if idx is not None:
+                if not (rem and rem[1] == ids[idx]):
+                    print("[node] via", d["nodes"][idx]["name"], host, flush=True)
+                NODE_HOSTS[host] = (time.time() + 6 * 3600, ids[idx])
+            if first is not None:
+                _close(first)
             return r
-    except ValueError:
-        raise
-    except Exception as e:
-        err = e
-    try:
-        r2 = do(px, timeout)
-        if not _bad_status(r2):
-            NODE_HOSTS[host] = time.time() + 6 * 3600
-            print("[node] via node:", host, flush=True)
-            return r2
-        if r is None:
-            return r2
-    except Exception:
-        pass
-    if r is not None:
-        return r
-    raise err
+        if first is None:
+            first = r
+        else:
+            _close(r)
+    if first is not None:
+        return first
+    raise err or ConnectionError("连不上")
 
 def node_test(idx):
     """经第 idx 个节点访问，返回出口 IP/地区和耗时"""
@@ -2168,8 +2181,10 @@ def api_nodes():
     d = nodes_load()
     if request.method == "GET":
         p = NODE["proc"]
-        return jsonify({"mode": d["mode"], "video": d["video"], "active": d["active"], "bin": bool(sb_bin()),
-                        "running": bool(p and p.poll() is None), "err": NODE["err"], "hosts": sorted(h for h, t in NODE_HOSTS.items() if t > time.time()),
+        nm = {n["id"]: n["name"] for n in d["nodes"]}
+        return jsonify({"mode": d["mode"], "active": d["active"], "bin": bool(sb_bin()),
+                        "running": bool(p and p.poll() is None), "err": NODE["err"],
+                        "hosts": sorted(f"{h}→{nm[t[1]]}" for h, t in list(NODE_HOSTS.items()) if t[0] > time.time() and t[1] in nm),
                         "nodes": [{"id": n["id"], "name": n["name"], "type": n["ob"].get("type"), "server": f'{n["ob"].get("server")}:{n["ob"].get("server_port")}'} for n in d["nodes"]]})
     j = request.get_json(silent=True) or {}
     act = j.get("act")
@@ -2210,10 +2225,10 @@ def api_nodes():
         d["active"] = j["id"]; nodes_save(d); NODE_HOSTS.clear()
         return jsonify({"ok": True})
     if act == "mode" and j.get("mode") in NODE_MODES:
-        d["mode"] = j["mode"]; nodes_save(d); NODE_HOSTS.clear()
-        return jsonify({"ok": True})
-    if act == "video":
-        d["video"] = 1 if j.get("on") else 0; nodes_save(d)
+        d["mode"] = j["mode"]
+        if j.get("id") and any(n["id"] == j["id"] for n in d["nodes"]):
+            d["active"] = j["id"]
+        nodes_save(d); NODE_HOSTS.clear()
         return jsonify({"ok": True})
     if act == "test":
         idx = next((i for i, n in enumerate(d["nodes"]) if n["id"] == j.get("id")), None)
@@ -2371,8 +2386,7 @@ def px():
 
 def px_inner(u, h, hx, rel):
     try:
-        d = nodes_load()
-        r = safe_get(u, h, 15, proxies=node_px(d) if d.get("video") else None)
+        r = site_get(u, safe=True, headers=h, timeout=15)
     except ValueError as e:
         rel()
         return str(e), 403

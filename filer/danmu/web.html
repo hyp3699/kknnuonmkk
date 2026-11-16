@@ -37,6 +37,8 @@ button.on{background:#e50914;border-color:#e50914}
 .si .r{font-size:12px;max-width:38%;text-align:right}.ok{color:#4caf50}.bad{color:#f55}.warn{color:#e6a23c}
 .si button{padding:5px 8px;font-size:12px}
 #nlink{width:100%;height:64px;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}#nodebox{border-top:1px solid #222}
+#npop{position:fixed;top:52px;right:8px;z-index:50;width:min(340px,94vw);max-height:70vh;overflow:auto;background:#181818;border:1px solid #333;border-radius:10px;box-shadow:0 6px 24px #000a}
+#npop .si{cursor:pointer}#npop .si.cur b{color:#e50914}#bnode.on{border-color:#e50914}
 #raw{width:100%;height:70vh;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}
 #more,.msg{text-align:center;padding:14px;color:#888}
 #detail{display:none;padding-bottom:30px}
@@ -69,6 +71,7 @@ button.on{background:#e50914;border-color:#e50914}
     <select id="cfg"></select>
     <select id="site"></select>
     <span style="flex:1"></span>
+    <button id="bnode" title="节点切换">🌐</button>
     <button id="bq" title="搜索">🔍</button>
     <button id="bh">记录</button>
     <button id="bset" title="设置">⚙️</button>
@@ -77,6 +80,7 @@ button.on{background:#e50914;border-color:#e50914}
   <div id="grid"></div>
   <div id="more"></div>
 </div>
+<div id="npop" class="sbox" style="display:none"></div>
 <div id="srch" style="display:none">
   <header><button class="back">‹</button><input id="kw" placeholder="搜索当前配置的全部采集站" enterkeyhint="search"><button id="go">搜索</button></header>
   <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 0"><div class="st" id="qst"></div><button id="qstop" style="display:none;margin-left:auto">停止搜索</button></div>
@@ -87,15 +91,14 @@ button.on{background:#e50914;border-color:#e50914}
   <div id="hgrid"></div>
 </div>
 <div id="set" style="display:none">
-  <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="sraw">编辑 jjoo</button></header>
+  <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="bnadd">添加节点</button><button id="sraw">编辑 jjoo</button></header>
   <div class="sbox">
     <div class="srow" style="margin-top:8px"><input id="cname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="curl" placeholder="配置地址 http://xxx/tv"><button id="cadd">添加配置</button></div>
     <div class="st" id="cst"></div>
     <div id="clist"></div>
   </div>
-  <div class="sbox" id="nodebox">
-    <div class="srow"><b style="flex:1">出口节点</b><select id="nmode" style="max-width:60%"><option value="off">不用节点</option><option value="auto">直连失败才走节点</option><option value="all">采集站全部走节点</option></select></div>
-    <div class="srow"><label style="font-size:13px;color:#aaa"><input type="checkbox" id="nvid" style="min-width:0;flex:none"> 视频代理也走节点（点"代理"或自动代理时）</label></div>
+  <div class="sbox" id="nodebox" style="display:none">
+    <div class="srow"><b style="flex:1">出口节点</b><button id="nclose">收起</button></div>
     <textarea id="nlink" spellcheck="false" placeholder="粘贴节点链接：vless:// vmess:// trojan:// ss:// hy2:// tuic://，可多行或 base64 订阅内容，也可粘贴 sing-box 出站 JSON"></textarea>
     <div class="srow" style="margin-top:6px"><input id="nname" placeholder="名称（可空）"><button id="nadd">添加节点</button></div>
     <div class="st" id="nst"></div>
@@ -249,7 +252,7 @@ $('#bset').onclick=()=>location.hash='#/s';$('#set .back').onclick=()=>goBack();
 // ---------- 设置：采集站 ----------
 let SITES=[],TEST={};
 async function loadSet(){
-  $('#rawbox').style.display='none';$('#set .sbox').style.display='block';$('#sitebox').style.display='block';
+  $('#rawbox').style.display='none';$('#set .sbox').style.display='block';$('#sitebox').style.display='block';$('#nodebox').style.display=NBOX?'block':'none';
   const isJ=LS.cfg==='jjoo';document.querySelectorAll('.jonly').forEach(x=>x.style.display=isJ?'flex':'none');$('#sraw').style.display=isJ?'':'none';
   loadCfgList();loadNodes();
   $('#slist').innerHTML='<div class="msg">加载中…</div>';
@@ -271,29 +274,41 @@ $('#cadd').onclick=async()=>{const u=$('#curl').value.trim();if(!u){$('#cst').te
       $('#cname').value='';$('#curl').value='';await loadCfgs();loadCfgList()}
     else $('#cst').textContent=d.msg||'添加失败'}catch(e){$('#cst').textContent='添加失败：'+(e.message||'网络错误')}
   $('#cadd').disabled=false};
-// ---------- 设置：出口节点（服务器上单独的 sing-box） ----------
-let NT={};
+// ---------- 出口节点（服务器上单独的 sing-box）：设置里添加/测试/删除，🌐 里切换 ----------
+let NT={},NBOX=false,ND=null;
+async function getNodes(){try{ND=await api('/api/nodes')}catch(e){ND=null}$('#bnode').classList.toggle('on',!!(ND&&ND.mode!=='off'&&ND.nodes.length));return ND}
+function nodeStatus(d){const info=[];if(d.nodes.length){if(!d.bin)info.push('<span class="bad">服务器上没有 sing-box，运行 ys 选 1 更新</span>');else if(d.err)info.push(`<span class="bad">${esc(d.err)}</span>`);else info.push(d.running?'<span class="ok">sing-box 运行中</span>':'<span class="warn">sing-box 未运行</span>')}
+  if(d.mode==='auto'&&d.hosts&&d.hosts.length)info.push('正在走节点：'+esc(d.hosts.join('、')));return info.join(' · ')}
 async function loadNodes(){
-  let d;try{d=await api('/api/nodes')}catch(e){$('#nlist').innerHTML='<div class="msg">节点列表读取失败（服务器可能还没更新到 2.0.0）</div>';return}
-  $('#nmode').value=d.mode;$('#nvid').checked=!!d.video;
-  const info=[];if(d.nodes.length){if(!d.bin)info.push('<span class="bad">服务器上没有 sing-box，运行 ys 选 1 更新</span>');else if(d.err)info.push(`<span class="bad">${esc(d.err)}</span>`);else info.push(d.running?'<span class="ok">sing-box 运行中</span>':'<span class="warn">sing-box 未运行</span>')}
-  if(d.hosts&&d.hosts.length)info.push('正在走节点的站：'+esc(d.hosts.join('、')));
-  $('#nst').innerHTML=info.join(' · ');
-  $('#nlist').innerHTML=d.nodes.length?d.nodes.map(n=>{const t=NT[n.id];const r=!t?'':t==='…'?'<span class="st">测试中…</span>':`<span class="${t.ok?'ok':'bad'}">${esc(t.msg)}${t.ms!=null?' · '+t.ms+'ms':''}</span>`;
-    return `<div class="si" data-n="${esc(n.id)}"><div class="n"><b>${esc(n.name)}${n.id===d.active?' ✓':''}</b><small>${esc(n.type+' · '+n.server)}</small></div><div class="r">${r}</div><button data-a="t">测试</button>${n.id===d.active?'':'<button data-a="u">使用</button>'}<button data-a="d">删除</button></div>`}).join(''):'<div class="msg">还没有节点。国外 IP 打不开的采集站，可以加一个香港/国内节点</div>';
+  const d=await getNodes();if(!d){$('#nlist').innerHTML='<div class="msg">节点列表读取失败（服务器可能还没更新）</div>';return}
+  $('#nst').innerHTML=nodeStatus(d);
+  $('#nlist').innerHTML=d.nodes.map(n=>{const t=NT[n.id];const r=!t?'':t==='…'?'<span class="st">测试中…</span>':`<span class="${t.ok?'ok':'bad'}">${esc(t.msg)}${t.ms!=null?' · '+t.ms+'ms':''}</span>`;
+    return `<div class="si" data-n="${esc(n.id)}"><div class="n"><b>${esc(n.name)}</b><small>${esc(n.type+' · '+n.server)}</small></div><div class="r">${r}</div><button data-a="t">测试</button><button data-a="d">删除</button></div>`}).join('');
 }
-$('#nmode').onchange=async()=>{await post('/api/nodes',{act:'mode',mode:$('#nmode').value});loadNodes()};
-$('#nvid').onchange=async()=>{await post('/api/nodes',{act:'video',on:$('#nvid').checked})};
+$('#bnadd').onclick=()=>{NBOX=!NBOX;loadSet();if(NBOX)setTimeout(()=>{$('#nodebox').scrollIntoView({behavior:'smooth'});$('#nlink').focus()},50)};
+$('#nclose').onclick=()=>{NBOX=false;$('#nodebox').style.display='none'};
 $('#nadd').onclick=async()=>{const l=$('#nlink').value.trim();if(!l){$('#nst').textContent='先粘贴节点链接';return}
   $('#nadd').disabled=true;$('#nst').textContent='添加中…';
   try{const d=await post('/api/nodes',{act:'add',link:l,name:$('#nname').value.trim()});
-    if(d.ok){$('#nlink').value='';$('#nname').value='';await loadNodes();$('#nst').textContent=`已添加 ${d.n} 个节点`+(d.msg?'，'+d.msg:'')}else $('#nst').textContent=d.msg||'添加失败'}
+    if(d.ok){$('#nlink').value='';$('#nname').value='';await loadNodes();$('#nst').innerHTML=`已添加 ${d.n} 个节点`+(d.msg?'，'+esc(d.msg):'')}else $('#nst').textContent=d.msg||'添加失败'}
   catch(e){$('#nst').textContent='添加失败：'+(e.message||'网络错误')}
   $('#nadd').disabled=false};
 $('#nlist').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const id=b.closest('.si').dataset.n;
   if(b.dataset.a==='t'){NT[id]='…';loadNodes();try{NT[id]=await post('/api/nodes',{act:'test',id})}catch(x){NT[id]={ok:false,msg:'测试出错'}}loadNodes()}
-  else if(b.dataset.a==='u'){await post('/api/nodes',{act:'use',id});loadNodes()}
   else if(confirm('删除这个节点？')){await post('/api/nodes',{act:'del',id});delete NT[id];loadNodes()}};
+// 🌐 节点切换
+async function renderPop(){const p=$('#npop');p.innerHTML='<div class="msg">加载中…</div>';const d=await getNodes();
+  if(!d){p.innerHTML='<div class="msg">读取失败（服务器可能还没更新）</div>';return}
+  const it=(mode,id,name,sub)=>{const cur=d.mode===mode&&(mode!=='fixed'||d.active===id);return `<div class="si${cur?' cur':''}" data-m="${mode}" data-id="${esc(id||'')}"><div class="n"><b>${cur?'✓ ':''}${esc(name)}</b><small>${esc(sub)}</small></div></div>`};
+  p.innerHTML=`<div class="srow"><b style="flex:1">采集站和视频代理走哪里</b><button id="npx">关闭</button></div>`+
+    it('auto','','自动切换','先直连，连不上或被拒就依次换节点')+it('off','','不用节点','全部用服务器自己的 IP')+
+    d.nodes.map(n=>it('fixed',n.id,'指定：'+n.name,n.type+' · '+n.server)).join('')+
+    (d.nodes.length?'':'<div class="msg">还没有节点，在 ⚙️ 设置里点“添加节点”</div>')+`<div class="st" style="padding:6px 4px">${nodeStatus(d)}</div>`;
+  $('#npx').onclick=()=>p.style.display='none'}
+$('#bnode').onclick=e=>{e.stopPropagation();const p=$('#npop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPop()};
+$('#npop').onclick=async e=>{e.stopPropagation();const r=e.target.closest('.si[data-m]');if(!r)return;await post('/api/nodes',{act:'mode',mode:r.dataset.m,id:r.dataset.id});renderPop()};
+document.addEventListener('click',()=>{$('#npop').style.display='none'});
+getNodes();
 function renderSet(){
   $('#slist').innerHTML=SITES.length?SITES.map(s=>{const t=TEST[s.key];
     const r=!t?'':t==='…'?'<span class="st">测试中…</span>':`<span class="${t.ok?(t.warn?'warn':'ok'):'bad'}">${esc(t.msg)}${t.ms!=null?' · '+(t.ms/1000).toFixed(1)+'s':''}</span>`;
