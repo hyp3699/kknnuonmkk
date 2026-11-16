@@ -14037,11 +14037,14 @@ rm -f "$tmp"
 exit 0
 FJEOF
     chmod 755 /usr/local/bin/forgejo-log-limit
-    # journald 总大小上限（已有自定义设置则不覆盖）
-    if ! grep -rqs '^[[:space:]]*SystemMaxUse=' /etc/systemd/journald.conf /etc/systemd/journald.conf.d/; then
+    # journald 总大小上限 20M（99- 前缀的 drop-in 优先级最高）
+    local jconf=/etc/systemd/journald.conf.d/99-size-limit.conf
+    local want='[Journal]\nSystemMaxUse=20M\nRuntimeMaxUse=20M\nMaxRetentionSec=7day\n'
+    if [ "$(cat "$jconf" 2>/dev/null)" != "$(printf "$want")" ]; then
         mkdir -p /etc/systemd/journald.conf.d
-        printf '[Journal]\nSystemMaxUse=200M\nMaxRetentionSec=7day\n' > /etc/systemd/journald.conf.d/99-size-limit.conf
+        printf "$want" > "$jconf"
         systemctl restart systemd-journald 2>/dev/null
+        journalctl --vacuum-size=20M >/dev/null 2>&1
     fi
 }
 
@@ -14065,9 +14068,9 @@ fj_install() {
         cur=$("$FJ_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
         if [ "$cur" = "$ver" ]; then
             green "已是最新版本 v${ver}"
+            fj_write_log_limit
             # 老安装补上日志限制
             if ! grep -q 'forgejo-log-limit' "$FJ_UNIT" 2>/dev/null; then
-                fj_write_log_limit
                 sed -i -E 's#^(ExecStart=/usr/local/bin/forgejo web.*)$#ExecStartPre=+/usr/local/bin/forgejo-log-limit\n\1\nLogRateLimitIntervalSec=30s\nLogRateLimitBurst=300#' "$FJ_UNIT"
                 systemctl daemon-reload
                 systemctl restart forgejo
