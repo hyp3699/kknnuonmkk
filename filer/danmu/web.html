@@ -84,14 +84,11 @@ button.on{background:#e50914;border-color:#e50914}
 <div id="set" style="display:none">
   <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="sraw">编辑 jjoo</button></header>
   <div class="sbox">
-    <div class="qh"><b>配置（每个配置单独一类，跟 OK影视 的配置地址一样）</b></div>
     <div class="srow" style="margin-top:8px"><input id="cname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="curl" placeholder="配置地址 http://xxx/tv"><button id="cadd">添加配置</button></div>
     <div class="st" id="cst"></div>
     <div id="clist"></div>
-    <div class="qh" style="margin-top:14px"><b id="stitle">采集站</b></div>
   </div>
   <div class="sbox" id="sitebox">
-    <div class="srow jonly"><input id="aname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="aapi" placeholder="接口地址 https://xxx/api.php/provide/vod/"><button id="aadd">添加</button></div>
     <div class="srow"><button id="tall">全部测试</button><button id="tdel" disabled>删除失效</button><span class="st" id="sst"></span></div>
     <div id="slist"></div>
   </div>
@@ -218,7 +215,6 @@ let SITES=[],TEST={};
 async function loadSet(){
   $('#rawbox').style.display='none';$('#set .sbox').style.display='block';$('#sitebox').style.display='block';
   const isJ=LS.cfg==='jjoo';document.querySelectorAll('.jonly').forEach(x=>x.style.display=isJ?'flex':'none');$('#sraw').style.display=isJ?'':'none';
-  $('#stitle').textContent=`采集站 · ${$('#cfg').selectedOptions[0]?.textContent||''}`+(isJ?'':'（远程配置只能测试，不能修改）');
   loadCfgList();
   $('#slist').innerHTML='<div class="msg">加载中…</div>';
   try{SITES=await api('/api/sites?full=1&cfg='+encodeURIComponent(LS.cfg))}catch(e){SITES=[]}
@@ -262,13 +258,6 @@ $('#tall').onclick=async()=>{
 };
 $('#tdel').onclick=()=>{const bad=SITES.filter(s=>TEST[s.key]&&TEST[s.key]!=='…'&&!TEST[s.key].ok);
   delKeys(bad.map(s=>s.key),`删除这 ${bad.length} 个失效站？\n`+bad.map(s=>s.name).join('、').slice(0,300))};
-$('#aadd').onclick=async()=>{
-  const apiu=$('#aapi').value.trim();if(!apiu){$('#sst').textContent='先填接口地址';return}
-  $('#aadd').disabled=true;$('#sst').textContent='检测接口中…';
-  try{const r=await fetch('/api/site',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('#aname').value.trim(),api:apiu})});const d=await r.json();
-    if(d.ok){$('#sst').textContent=`已添加（${d.type===0?'XML':'JSON'} 接口）`;$('#aname').value='';$('#aapi').value='';await loadSet();refreshSites();testOne(d.key)}
-    else $('#sst').textContent=d.msg||'添加失败'}catch(e){$('#sst').textContent='添加失败'}
-  $('#aadd').disabled=false};
 $('#sraw').onclick=async()=>{$('#set .sbox').style.display='none';$('#sitebox').style.display='none';$('#rawbox').style.display='block';$('#raw').value='加载中…';
   $('#raw').value=await fetch('/api/conf').then(r=>r.text())};
 $('#rcancel').onclick=loadSet;
