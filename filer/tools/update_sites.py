@@ -6,15 +6,16 @@
 3. 已有站连续 6 次「确定失效」（域名不存在 / 被停放成网页 / 404）才删除；
    超时、连不上、Cloudflare 这类可能只是屏蔽海外的不计入
 """
-import base64, json, os, re, socket, sys, time
+import base64, hashlib, json, os, re, socket, sys, time
 import concurrent.futures as cf
 from urllib.parse import urlsplit, parse_qsl, urlencode
 import requests
 
 requests.packages.urllib3.disable_warnings()
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-JJOO = os.path.join(ROOT, "jjoo.json")
-STATE = os.path.join(ROOT, "tools", "sites_state.json")
+JJOO = os.environ.get("JJOO_PATH") or os.path.join(ROOT, "jjoo.json")
+STATE = os.environ.get("STATE_PATH") or os.path.join(ROOT, "tools", "sites_state.json")
+MOONTV_OUT = os.environ.get("MOONTV_OUT")  # 设置后额外生成 MoonTV/MoonTVPlus 配置订阅（Base58）
 UA = "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36"
 TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 MAX_NEW = int(os.environ.get("MAX_NEW", "50"))        # 每次最多新增
@@ -251,6 +252,50 @@ def load_cfg(path):
     return sites if isinstance(sites, list) else []
 
 
+# ---------- MoonTV / MoonTVPlus 配置订阅 ----------
+B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+def b58encode(b):
+    n = int.from_bytes(b, "big")
+    out = []
+    chunk = 58 ** 10
+    while n:
+        n, r = divmod(n, chunk)
+        part = []
+        for _ in range(10):
+            r, d = divmod(r, 58)
+            part.append(B58[d])
+        out.extend(part)
+    s = "".join(reversed(out)).lstrip("1")
+    pad = len(b) - len(b.lstrip(b"\0"))
+    return "1" * pad + s
+
+
+def export_moontv(raw, out):
+    """jjoo.json 里的 type1(JSON) 苹果CMS 站 -> MoonTV 配置文件，Base58 编码后写入 out"""
+    sites = json.loads(raw).get("sites", [])
+    api_site, used = {}, set()
+    for s in sites:
+        api = str(s.get("api", "")).strip()
+        if s.get("type") != 1 or not api.startswith("http"):
+            continue
+        p = urlsplit(api)
+        base = f"{p.scheme}://{p.netloc}{p.path}".rstrip("/")
+        k = norm(base)
+        if k in used:
+            continue
+        used.add(k)
+        key = "s" + hashlib.md5(k.encode()).hexdigest()[:10]
+        api_site[key] = {"api": base, "name": str(s.get("name") or key)}
+    cfg = {"cache_time": 7200, "api_site": api_site}
+    txt = json.dumps(cfg, ensure_ascii=False)
+    tmp = out + ".tmp"
+    open(tmp, "w").write(b58encode(txt.encode("utf-8")))
+    os.replace(tmp, out)
+    open(out.rsplit(".", 1)[0] + ".json", "w", encoding="utf-8").write(json.dumps(cfg, ensure_ascii=False, indent=1))
+    print("MoonTV 配置站点", len(api_site), "->", out)
+
+
 def main():
     raw = open(JJOO, encoding="utf-8").read()
     state = json.load(open(STATE)) if os.path.exists(STATE) else {"fails": {}}
@@ -342,4 +387,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if "--export-only" in sys.argv:
+        export_moontv(open(JJOO, encoding="utf-8").read(), MOONTV_OUT)
+    else:
+        main()
+        if MOONTV_OUT:
+            export_moontv(open(JJOO, encoding="utf-8").read(), MOONTV_OUT)

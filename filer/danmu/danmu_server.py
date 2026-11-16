@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.4.1"  # 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.5.0"  # 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, time, json, zlib, html, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -494,6 +494,173 @@ def danmu():
     res = proxy + native
     print("[danmu]", name, epid, "->", [x["name"] for x in res], flush=True)
     return jsonify(res)
+
+
+# ---------------- 弹弹play / danmu_api 兼容接口（MoonTVPlus 网页版用） ----------------
+# MoonTVPlus 后台「弹幕」填 http://本机:2525 ，token 随便（路径前缀会被忽略）
+IDS_FILE = os.environ.get("IDS_FILE", "/opt/danmu/anime_ids.json")
+try:
+    IDS = json.load(open(IDS_FILE))
+except Exception:
+    IDS = {}
+IDS_LOCK = threading.Lock()
+
+def anime_id(title, cat, count):
+    aid = zlib.crc32(f"{title}|{cat}".encode()) % 200000 + 1
+    with IDS_LOCK:
+        if IDS.get(str(aid)) != [title, cat, count]:
+            IDS[str(aid)] = [title, cat, count]
+            try:
+                json.dump(IDS, open(IDS_FILE, "w"), ensure_ascii=False)
+            except Exception:
+                pass
+    return aid
+
+def ep_count(row):
+    if str(row.get("cat_id")) == "1":
+        return 1
+    n = len(row.get("seriesPlaylinks") or [])
+    return n or 100
+
+TYPE_DESC = {"1": ("movie", "电影"), "2": ("tvseries", "电视剧"), "3": ("tvseries", "综艺"), "4": ("tvseries", "动漫")}
+
+def dd_search(keyword):
+    try:
+        rows = search360(keyword)[:8]
+    except Exception:
+        rows = []
+    animes = []
+    for r in rows:
+        cat = str(r.get("cat_id"))
+        aid = anime_id(r.get("titleTxt") or keyword, cat, ep_count(r))
+        t, d = TYPE_DESC.get(cat, ("tvseries", "其他"))
+        animes.append({"animeId": aid, "bangumiId": str(aid), "animeTitle": r.get("titleTxt"), "type": t, "typeDescription": d,
+                       "imageUrl": r.get("cover"), "startDate": f"{r.get('year') or '2000'}-01-01T00:00:00", "episodeCount": ep_count(r),
+                       "rating": 0, "isFavorited": False, "source": "360"})
+    if not animes:  # 360 搜不到（台综港综/巴哈）也给一个条目，拉弹幕时走巴哈/B站搬运
+        aid = anime_id(keyword, "0", 100)
+        animes.append({"animeId": aid, "bangumiId": str(aid), "animeTitle": keyword, "type": "tvseries", "typeDescription": "其他",
+                       "episodeCount": 100, "rating": 0, "isFavorited": False, "source": "biliv"})
+    return animes
+
+def dd_route(rule, **kw):
+    def deco(f):
+        app.add_url_rule(rule, f.__name__, f, **kw)
+        app.add_url_rule("/<tok>" + rule, f.__name__ + "_tok", f, **kw)
+        return f
+    return deco
+
+@dd_route("/api/v2/search/anime")
+def dd_search_anime(tok=None):
+    kw = arg("keyword", "anime")
+    return jsonify({"errorCode": 0, "success": True, "errorMessage": "", "animes": dd_search(kw) if kw else []})
+
+@dd_route("/api/v2/search/episodes")
+def dd_search_episodes(tok=None):
+    kw = arg("anime", "keyword")
+    out = []
+    for a in (dd_search(kw) if kw else []):
+        out.append({"animeId": a["animeId"], "animeTitle": a["animeTitle"], "type": a["type"], "typeDescription": a["typeDescription"],
+                    "episodes": dd_eps(a["animeId"])})
+    return jsonify({"errorCode": 0, "success": True, "errorMessage": "", "hasMore": False, "animes": out})
+
+def dd_eps(aid):
+    title, cat, count = IDS.get(str(aid), ["", "2", 100])
+    if cat == "1":
+        return [{"episodeId": aid * 10000 + 1, "episodeTitle": "正片", "episodeNumber": "1"}]
+    return [{"episodeId": aid * 10000 + i, "episodeTitle": f"第{i}集", "episodeNumber": str(i)} for i in range(1, int(count) + 1)]
+
+@dd_route("/api/v2/bangumi/<int:aid>")
+def dd_bangumi(aid, tok=None):
+    if str(aid) not in IDS:
+        return jsonify({"errorCode": 404, "success": False, "errorMessage": "not found", "bangumi": {"episodes": []}})
+    title = IDS[str(aid)][0]
+    return jsonify({"errorCode": 0, "success": True, "errorMessage": "",
+                    "bangumi": {"animeId": aid, "bangumiId": str(aid), "animeTitle": title, "episodes": dd_eps(aid)}})
+
+@dd_route("/api/v2/match", methods=["POST", "GET"])
+def dd_match(tok=None):
+    j = request.get_json(silent=True) or {}
+    fn = j.get("fileName") or arg("fileName")
+    fn = re.sub(r"\.(mp4|mkv|m3u8|flv|avi|ts)$", "", fn or "", flags=re.I)
+    m = re.search(r"[Ss]\d+[Ee](\d+)|第\s*(\d+)\s*[集话期]|[\s\-_\.](\d{1,3})(?:\D|$)", fn)
+    ep = int(next(g for g in m.groups() if g)) if m else 1
+    name = re.split(r"[Ss]\d+[Ee]\d+|第\s*\d+\s*[集话期]|[\s\-_\.]\d{1,3}(?:\D|$)", fn)[0].strip(" .-_") or fn
+    a = dd_search(name)[:1]
+    if not a:
+        return jsonify({"errorCode": 0, "success": True, "isMatched": False, "matches": []})
+    a = a[0]
+    eid = a["animeId"] * 10000 + (1 if a["type"] == "movie" else ep)
+    return jsonify({"errorCode": 0, "success": True, "isMatched": True, "matches": [
+        {"episodeId": eid, "animeId": a["animeId"], "animeTitle": a["animeTitle"], "episodeTitle": f"第{ep}集",
+         "type": a["type"], "typeDescription": a["typeDescription"], "shift": 0}]})
+
+def host_site(u):
+    h = urllib.parse.urlsplit(u).hostname or ""
+    if "qq.com" in h: return "qq"
+    if "iqiyi" in h: return "qiyi"
+    if "mgtv" in h: return "imgo"
+    if "youku" in h: return "youku"
+    if "gamer.com.tw" in h: return "baha"
+    if "bilibili" in h: return "bilibili1" if "/bangumi/" in u else "biliv"
+    return None
+
+def xml_to_json(x):
+    out = []
+    for i, (p, txt) in enumerate(re.findall(r'<d p="([^"]+)">(.*?)</d>', x, re.S)):
+        f = p.split(",")
+        out.append({"cid": i, "p": f"{f[0]},{f[1]},{f[3]},[hark]", "m": html.unescape(txt)})
+    return out
+
+def dd_xml(eid):
+    aid, ep = divmod(int(eid), 10000)
+    title, cat, _ = IDS.get(str(aid), ["", "", 0])
+    if not title:
+        return EMPTY
+    items = resolve(title, "" if cat == "1" else f"第{ep}集")
+    for label, site, url in items:
+        try:
+            x = xml_for(site, url)
+            if x != EMPTY:
+                print("[dd]", title, ep, "->", label, flush=True)
+                return x
+        except Exception as e:
+            print("[dd] err", label, repr(e), flush=True)
+    return EMPTY
+
+def dd_out(x):
+    if arg("format") == "xml":
+        return Response(x, mimetype="application/xml")
+    c = xml_to_json(x)
+    return jsonify({"count": len(c), "comments": c})
+
+@dd_route("/api/v2/comment/<int:eid>")
+def dd_comment(eid, tok=None):
+    return dd_out(dd_xml(eid))
+
+@dd_route("/api/v2/comment")
+def dd_comment_url(tok=None):
+    u = arg("url")
+    site = host_site(u)
+    if not site or site not in FETCH:
+        return dd_out(EMPTY)
+    try:
+        return dd_out(xml_for(site, u))
+    except Exception:
+        return dd_out(EMPTY)
+
+# ---------------- 采集站配置文件（VPS 定时生成） ----------------
+WWW = os.environ.get("WWW_DIR", "/opt/danmu/www")
+
+@app.route("/sub/<path:fn>")
+def sub(fn):
+    from flask import send_from_directory
+    r = send_from_directory(WWW, fn, max_age=300)
+    if fn.endswith(".json"):
+        r.mimetype = "application/json"
+    elif fn.endswith(".txt"):
+        r.mimetype = "text/plain"
+    return r
 
 @app.route("/xml")
 def xml():

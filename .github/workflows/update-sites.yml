@@ -1,8 +1,7 @@
 name: 更新采集站
 
 on:
-  schedule:
-    - cron: "0 20 */2 * *"   # 每 2 天一次，北京时间 04:00
+  # 定时已迁到 VPS（systemd danmu-sites.timer，每 2 天），这里只保留手动运行
   workflow_dispatch:
     inputs:
       max_new:
