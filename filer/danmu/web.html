@@ -16,6 +16,7 @@ select{max-width:38%;min-width:0}
 input{flex:1;min-width:0}
 button{cursor:pointer}
 button.on{background:#e50914;border-color:#e50914}
+#bpx.auto:not(.on){border:1px dashed #e50914;color:#f88}
 #cats{display:flex;gap:6px;overflow-x:auto;padding:8px;background:#151515;scrollbar-width:none}
 #cats::-webkit-scrollbar{display:none}
 #cats button{white-space:nowrap;padding:5px 11px;border-radius:14px}
@@ -416,7 +417,9 @@ function play(fi,ei,t0){
 function load(u,t0,px){
   if(hls){hls.destroy();hls=null}
   const src=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;
-  setSt(px?'代理播放中…':'连接中…');
+  const why=px?(st.px?'代理':(HDR?'这个站要求走代理':'直连不行，已自动走代理')):'';
+  $('#bpx').classList.toggle('auto',px&&!st.px);$('#bpx').textContent=px&&!st.px?'代理(自动)':'代理';
+  setSt(px?why+'，连接中…':'连接中…');
   const isHls=/\.m3u8/i.test(u)||!/\.(mp4|mkv|webm|flv)(\?|$)/i.test(u);
   const lg=++LG;clearTimeout(WDT);V.onerror=null;
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
@@ -425,13 +428,13 @@ function load(u,t0,px){
   if(isHls&&window.Hls&&Hls.isSupported()){
     hls=new Hls({maxBufferLength:30});
     hls.loadSource(src);hls.attachMedia(V);
-    hls.on(Hls.Events.MANIFEST_PARSED,()=>{setSt(px?'代理播放':'');start()});
+    hls.on(Hls.Events.MANIFEST_PARSED,()=>{setSt(px?why+'播放':'');start()});
     hls.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal||lg!==LG)return;
       if(!px&&!triedPx){triedPx=true;setSt('直连失败，改用代理…');load(u,V.currentTime||t0,true)}
       else if(d.type===Hls.ErrorTypes.MEDIA_ERROR){hls.recoverMediaError()}
       else fail('播放失败')});
   }else{
-    V.src=src;V.onloadedmetadata=()=>{setSt('');start()};
+    V.src=src;V.onloadedmetadata=()=>{setSt(px?why+'播放':'');start()};
     V.onerror=()=>{if(lg!==LG)return;if(!px&&!triedPx){triedPx=true;load(u,t0,true)}else fail('播放失败')};
   }
 }
