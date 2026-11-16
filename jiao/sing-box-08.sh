@@ -14010,6 +14010,41 @@ fj_status_text() {
     if systemctl is-active --quiet forgejo 2>/dev/null; then echo "🟢运行中"; else echo "⚪已停止"; fi
 }
 
+# 日志限制：Forgejo 只记 Warn 以上，关闭路由/访问日志，只输出到 journald；
+# journald 限速 + 总大小上限。每次启动前由 ExecStartPre 重新写入，
+# 防止安装向导把日志级别改回 Info。
+fj_write_log_limit() {
+    cat > /usr/local/bin/forgejo-log-limit <<'FJEOF'
+#!/bin/sh
+CONF=/etc/forgejo/app.ini
+[ -f "$CONF" ] || exit 0
+tmp=$(mktemp) || exit 0
+awk '
+BEGIN {
+    n = split("MODE|console;LEVEL|Warn;logger.router.MODE|;logger.access.MODE|;logger.xorm.MODE|", kv, ";")
+    for (i = 1; i <= n; i++) { split(kv[i], p, "|"); key[i] = p[1]; val[p[1]] = p[2] }
+}
+function flush(   i) { for (i = 1; i <= n; i++) if (!seen[key[i]]) print key[i] " = " val[key[i]]; done = 1 }
+/^[[:space:]]*\[/ { if (inlog) flush(); inlog = ($0 ~ /^[[:space:]]*\[log\][[:space:]]*$/) }
+inlog && /=/ {
+    k = $0; sub(/=.*/, "", k); gsub(/[[:space:]]/, "", k)
+    if (k in val) { if (!seen[k]) print k " = " val[k]; seen[k] = 1; next }
+}
+{ print }
+END { if (inlog) flush(); else if (!done) { print ""; print "[log]"; flush() } }
+' "$CONF" > "$tmp" && cat "$tmp" > "$CONF"
+rm -f "$tmp"
+exit 0
+FJEOF
+    chmod 755 /usr/local/bin/forgejo-log-limit
+    # journald 总大小上限（已有自定义设置则不覆盖）
+    if ! grep -rqs '^[[:space:]]*SystemMaxUse=' /etc/systemd/journald.conf /etc/systemd/journald.conf.d/; then
+        mkdir -p /etc/systemd/journald.conf.d
+        printf '[Journal]\nSystemMaxUse=200M\nMaxRetentionSec=7day\n' > /etc/systemd/journald.conf.d/99-size-limit.conf
+        systemctl restart systemd-journald 2>/dev/null
+    fi
+}
+
 fj_install() {
     if ! command -v systemctl >/dev/null 2>&1; then
         red "Forgejo 安装仅支持 systemd 系统"; return 1
@@ -14028,7 +14063,18 @@ fj_install() {
     if [ -x "$FJ_BIN" ]; then
         local cur
         cur=$("$FJ_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
-        if [ "$cur" = "$ver" ]; then green "已是最新版本 v${ver}"; return 0; fi
+        if [ "$cur" = "$ver" ]; then
+            green "已是最新版本 v${ver}"
+            # 老安装补上日志限制
+            if ! grep -q 'forgejo-log-limit' "$FJ_UNIT" 2>/dev/null; then
+                fj_write_log_limit
+                sed -i -E 's#^(ExecStart=/usr/local/bin/forgejo web.*)$#ExecStartPre=+/usr/local/bin/forgejo-log-limit\n\1\nLogRateLimitIntervalSec=30s\nLogRateLimitBurst=300#' "$FJ_UNIT"
+                systemctl daemon-reload
+                systemctl restart forgejo
+                green "已开启日志限制"
+            fi
+            return 0
+        fi
         yellow "当前 v${cur:-未知}，将更新到 v${ver}（数据保留）"
     else
         port=""
@@ -14078,6 +14124,7 @@ FJEOF
         chmod 770 /etc/forgejo; chmod 660 "$FJ_CONF"
     fi
 
+    fj_write_log_limit
     cat > "$FJ_UNIT" <<'FJEOF'
 [Unit]
 Description=Forgejo (Beyond coding. We forge.)
@@ -14089,7 +14136,10 @@ Type=simple
 User=git
 Group=git
 WorkingDirectory=/var/lib/forgejo/
+ExecStartPre=+/usr/local/bin/forgejo-log-limit
 ExecStart=/usr/local/bin/forgejo web --config /etc/forgejo/app.ini
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=300
 Restart=always
 Environment=USER=git HOME=/home/git FORGEJO_WORK_DIR=/var/lib/forgejo
 
@@ -14219,6 +14269,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
 
     client_max_body_size 512M;
+    access_log off;
 
     location / {
         proxy_pass http://127.0.0.1:${port};
@@ -14318,7 +14369,7 @@ fj_uninstall() {
     [[ "$yn" =~ ^[Yy]$ ]] || { yellow "已取消"; return 0; }
     reading "是否同时删除仓库数据和配置？(y/n，默认 n 保留): " keep
     systemctl disable --now forgejo >/dev/null 2>&1
-    rm -f "$FJ_UNIT" "$FJ_BIN"
+    rm -f "$FJ_UNIT" "$FJ_BIN" /usr/local/bin/forgejo-log-limit
     systemctl daemon-reload
     if [ -f "$FJ_NGX" ]; then
         rm -f "$FJ_NGX"
