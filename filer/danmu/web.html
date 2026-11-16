@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>哈哈影视</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#111;color:#eee;font:14px/1.4 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+a{color:inherit;text-decoration:none}
+header{position:sticky;top:0;z-index:10;background:#1a1a1a;padding:8px;display:flex;gap:6px;align-items:center}
+select,input,button{font:inherit;color:#eee;background:#2a2a2a;border:1px solid #333;border-radius:8px;padding:7px 9px}
+select{max-width:42%}
+input{flex:1;min-width:0}
+button{cursor:pointer}
+button.on{background:#e50914;border-color:#e50914}
+#cats{display:flex;gap:6px;overflow-x:auto;padding:8px;background:#151515;scrollbar-width:none}
+#cats::-webkit-scrollbar{display:none}
+#cats button{white-space:nowrap;padding:5px 11px;border-radius:14px}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;padding:10px}
+.card{position:relative;cursor:pointer}
+.card .pic{width:100%;aspect-ratio:3/4;background:#222 center/cover no-repeat;border-radius:8px}
+.card .rm{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.7);font-size:11px;padding:1px 5px;border-radius:4px;max-width:90%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.card .nm{margin-top:4px;font-size:13px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#more,.msg{text-align:center;padding:14px;color:#888}
+#detail{display:none;padding-bottom:30px}
+#box{position:relative;background:#000;width:100%;aspect-ratio:16/9;overflow:hidden}
+#box video{width:100%;height:100%;display:block;background:#000}
+#dm{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+#dm div{position:absolute;white-space:nowrap;font-size:20px;font-weight:600;text-shadow:1px 1px 2px #000,0 0 1px #000;will-change:transform;left:100%}
+#dm.paused div{animation-play-state:paused!important}
+#dm.off{display:none}
+@keyframes fly{from{transform:translateX(0)}to{transform:translateX(var(--d))}}
+#box:fullscreen{aspect-ratio:auto;height:100%}
+#bar{display:flex;gap:6px;padding:8px;flex-wrap:wrap;align-items:center}
+#bar .st{color:#888;font-size:12px;flex:1;min-width:120px}
+.info{padding:0 10px}
+.info h2{margin:6px 0;font-size:18px}
+.info .meta{color:#999;font-size:12px}
+.info .desc{color:#aaa;font-size:13px;max-height:5.6em;overflow:hidden;margin:6px 0}
+#froms{display:flex;gap:6px;overflow-x:auto;padding:6px 10px}
+#froms button{white-space:nowrap}
+#eps{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px;padding:6px 10px}
+#eps button{padding:7px 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+</style>
+</head>
+<body>
+<div id="list">
+  <header>
+    <select id="site"></select>
+    <input id="kw" placeholder="站内搜索" enterkeyhint="search">
+    <button id="go">搜</button>
+  </header>
+  <div id="cats"></div>
+  <div id="grid"></div>
+  <div id="more"></div>
+</div>
+<div id="detail">
+  <header><button id="back">‹ 返回</button><span id="dtitle" style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis"></span></header>
+  <div id="box"><video id="v" playsinline webkit-playsinline controls preload="auto"></video><div id="dm"></div></div>
+  <div id="bar">
+    <button id="bdm" class="on">弹幕</button>
+    <button id="bpx">代理</button>
+    <button id="bfs">全屏</button>
+    <button id="bnext">下一集</button>
+    <span class="st" id="st"></span>
+  </div>
+  <div class="info" id="info"></div>
+  <div id="froms"></div>
+  <div id="eps"></div>
+</div>
+<script src="/hls.js"></script>
+<script>
+const $=s=>document.querySelector(s), LS=localStorage;
+const st={site:LS.site||'',cat:'',kw:'',pg:1,pc:1,loading:false,vod:null,from:0,ep:0,px:LS.px==='1',dmOn:LS.dm!=='0'};
+const api=(p)=>fetch(p).then(r=>r.json());
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ---------- 列表 ----------
+async function init(){
+  const sites=await api('/api/sites');
+  $('#site').innerHTML=sites.map(s=>`<option value="${esc(s.key)}">${esc(s.name)}</option>`).join('');
+  if(!sites.find(s=>s.key===st.site)) st.site=sites[0]?.key||'';
+  $('#site').value=st.site;
+  await loadCats(); route();
+}
+async function loadCats(){
+  $('#cats').innerHTML='<span class="msg">加载分类…</span>';
+  let cls=[];
+  try{cls=(await api(`/api/vod?ac=class&key=${encodeURIComponent(st.site)}`)).class||[]}catch(e){}
+  st.cat=''; st.kw='';
+  $('#cats').innerHTML=`<button data-t="" class="on">最新</button>`+cls.map(c=>`<button data-t="${esc(String(c.type_id))}">${esc(c.type_name)}</button>`).join('');
+  reload();
+}
+function reload(){st.pg=1;st.pc=1;$('#grid').innerHTML='';more()}
+async function more(){
+  if(st.loading||st.pg>st.pc) return;
+  st.loading=true; $('#more').textContent='加载中…';
+  try{
+    const q=`/api/vod?key=${encodeURIComponent(st.site)}&pg=${st.pg}`+(st.kw?`&wd=${encodeURIComponent(st.kw)}`:'')+(st.cat?`&t=${encodeURIComponent(st.cat)}`:'');
+    const d=await api(q);
+    if(d.error&&!d.list.length) throw new Error(d.error);
+    st.pc=d.pagecount||1; st.pg++;
+    $('#grid').insertAdjacentHTML('beforeend',d.list.map(v=>`<div class="card" data-id="${esc(String(v.vod_id))}"><div class="pic" style="background-image:url('${esc(v.vod_pic||'')}')"></div><div class="rm">${esc(v.vod_remarks||'')}</div><div class="nm">${esc(v.vod_name)}</div></div>`).join(''));
+    $('#more').textContent=st.pg>st.pc?($('#grid').children.length?'没有更多了':'没有内容，换个分类或站点'):'';
+  }catch(e){$('#more').textContent=(st.kw?'搜索失败：':'加载失败：')+(e.message||'')+'，换个站试试'}
+  st.loading=false;
+}
+$('#site').onchange=()=>{st.site=LS.site=$('#site').value;loadCats()};
+$('#cats').onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  $('#cats').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));st.cat=b.dataset.t;st.kw='';$('#kw').value='';reload()};
+const search=()=>{st.kw=$('#kw').value.trim();st.cat='';$('#cats').querySelectorAll('button').forEach((x,i)=>x.classList.toggle('on',!st.kw&&i===0));reload()};
+$('#go').onclick=search; $('#kw').onkeydown=e=>{if(e.key==='Enter'){search();e.target.blur()}};
+$('#grid').onclick=e=>{const c=e.target.closest('.card');if(c)location.hash=`#/v/${encodeURIComponent(st.site)}/${encodeURIComponent(c.dataset.id)}`};
+addEventListener('scroll',()=>{if($('#list').style.display!=='none'&&innerHeight+scrollY>document.body.scrollHeight-400)more()});
+
+// ---------- 路由 ----------
+let listScroll=0;
+function route(){
+  const m=location.hash.match(/^#\/v\/([^/]+)\/(.+)$/);
+  if(m){listScroll=scrollY;$('#list').style.display='none';$('#detail').style.display='block';scrollTo(0,0);openVod(decodeURIComponent(m[1]),decodeURIComponent(m[2]))}
+  else{stopPlay();$('#detail').style.display='none';$('#list').style.display='block';scrollTo(0,listScroll)}
+}
+addEventListener('hashchange',route);
+$('#back').onclick=()=>history.length>1?history.back():(location.hash='');
+
+// ---------- 详情 / 播放 ----------
+async function openVod(key,id){
+  $('#info').innerHTML='<div class="msg">加载中…</div>';$('#froms').innerHTML='';$('#eps').innerHTML='';$('#dtitle').textContent='';
+  let d; try{d=await api(`/api/vod?key=${encodeURIComponent(key)}&ids=${encodeURIComponent(id)}`)}catch(e){}
+  const v=d&&d.list&&d.list[0];
+  if(!v){$('#info').innerHTML='<div class="msg">详情加载失败</div>';return}
+  const froms=(v.vod_play_from||'播放').split('$$$'), urls=(v.vod_play_url||'').split('$$$');
+  v.groups=froms.map((f,i)=>({f,eps:(urls[i]||'').split('#').filter(Boolean).map((x,j)=>{const k=x.indexOf('$');return k>=0?{n:x.slice(0,k)||`第${j+1}集`,u:x.slice(k+1)}:{n:`第${j+1}集`,u:x}}).filter(e=>/^https?:/.test(e.u))})).filter(g=>g.eps.length);
+  v.key=key; st.vod=v;
+  $('#dtitle').textContent=v.vod_name;
+  $('#info').innerHTML=`<h2>${esc(v.vod_name)}</h2><div class="meta">${esc([v.vod_year,v.vod_area,v.type_name,v.vod_remarks].filter(Boolean).join(' · '))}</div>${v.vod_actor?`<div class="meta">${esc(v.vod_actor)}</div>`:''}<div class="desc">${esc((v.vod_content||'').replace(/<[^>]+>/g,''))}</div>`;
+  if(!v.groups.length){$('#eps').innerHTML='<div class="msg">没有可播放的地址</div>';return}
+  // 优先 m3u8 线路；恢复上次进度
+  const saved=JSON.parse(LS['h_'+key+'_'+id]||'null');
+  let fi=v.groups.findIndex(g=>/m3u8/i.test(g.f)||/\.m3u8/i.test(g.eps[0].u)); if(fi<0) fi=0;
+  if(saved&&v.groups[saved.f]) fi=saved.f;
+  renderFroms(fi); play(fi,saved&&saved.f===fi?Math.min(saved.e,v.groups[fi].eps.length-1):0,saved?saved.t:0);
+}
+function renderFroms(fi){
+  $('#froms').innerHTML=st.vod.groups.length>1?st.vod.groups.map((g,i)=>`<button data-i="${i}" class="${i===fi?'on':''}">${esc(g.f)}</button>`).join(''):'';
+  $('#eps').innerHTML=st.vod.groups[fi].eps.map((e,i)=>`<button data-i="${i}" title="${esc(e.n)}">${esc(e.n)}</button>`).join('');
+}
+$('#froms').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;renderFroms(i);play(i,Math.min(st.ep,st.vod.groups[i].eps.length-1),$('#v').currentTime)};
+$('#eps').onclick=e=>{const b=e.target.closest('button');if(b)play(st.from,+b.dataset.i,0)};
+
+let hls=null, triedPx=false;
+const V=$('#v');
+function stopPlay(){if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([])}
+function setSt(t){$('#st').textContent=t}
+function play(fi,ei,t0){
+  st.from=fi;st.ep=ei;triedPx=false;
+  $('#eps').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('on',i===ei));
+  const ep=st.vod.groups[fi].eps[ei]; if(!ep) return;
+  load(ep.u,t0||0,st.px);
+  const isMovie=st.vod.groups[fi].eps.length===1;
+  loadDm(st.vod.vod_name,isMovie?'':ep.n);
+}
+function load(u,t0,px){
+  if(hls){hls.destroy();hls=null}
+  const src=px?'/px?u='+encodeURIComponent(u):u;
+  setSt(px?'代理播放中…':'连接中…');
+  const isHls=/\.m3u8/i.test(u)||!/\.(mp4|mkv|webm|flv)(\?|$)/i.test(u);
+  const start=()=>{if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+  if(isHls&&window.Hls&&Hls.isSupported()){
+    hls=new Hls({maxBufferLength:30});
+    hls.loadSource(src);hls.attachMedia(V);
+    hls.on(Hls.Events.MANIFEST_PARSED,()=>{setSt(px?'代理播放':'');start()});
+    hls.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal)return;
+      if(!px&&!triedPx){triedPx=true;setSt('直连失败，改用代理…');load(u,V.currentTime||t0,true)}
+      else if(d.type===Hls.ErrorTypes.MEDIA_ERROR){hls.recoverMediaError()}
+      else setSt('播放失败，换个线路或站点试试')});
+  }else{
+    V.src=src;V.onloadedmetadata=()=>{setSt('');start()};
+    V.onerror=()=>{if(!px&&!triedPx){triedPx=true;load(u,t0,true)}else setSt('播放失败，换个线路或站点试试')};
+  }
+}
+V.addEventListener('ended',()=>next());
+function next(){const g=st.vod&&st.vod.groups[st.from];if(g&&st.ep+1<g.eps.length)play(st.from,st.ep+1,0)}
+$('#bnext').onclick=next;
+setInterval(()=>{if(st.vod&&!V.paused&&V.currentTime>3)LS['h_'+st.vod.key+'_'+st.vod.vod_id]=JSON.stringify({f:st.from,e:st.ep,t:Math.floor(V.currentTime)})},5000);
+$('#bpx').classList.toggle('on',st.px);
+$('#bpx').onclick=()=>{st.px=!st.px;LS.px=st.px?'1':'0';$('#bpx').classList.toggle('on',st.px);if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];load(ep.u,V.currentTime,st.px)}};
+$('#bfs').onclick=async()=>{const b=$('#box');
+  if(document.fullscreenElement){document.exitFullscreen();return}
+  if(b.requestFullscreen){await b.requestFullscreen().catch(()=>{});try{await screen.orientation.lock('landscape')}catch(e){}}
+  else if(V.webkitEnterFullscreen)V.webkitEnterFullscreen()};
+
+// ---------- 弹幕 ----------
+let DM=[],dmi=0,lanes=[],dmTok=0;
+const box=$('#dm');
+box.classList.toggle('off',!st.dmOn);$('#bdm').classList.toggle('on',st.dmOn);
+$('#bdm').onclick=()=>{st.dmOn=!st.dmOn;LS.dm=st.dmOn?'1':'0';box.classList.toggle('off',!st.dmOn);$('#bdm').classList.toggle('on',st.dmOn)};
+function dmReset(list){DM=list;dmi=0;box.innerHTML='';lanes=[]}
+async function loadDm(name,ep){
+  const tok=++dmTok;dmReset([]);$('#bdm').textContent='弹幕…';
+  try{const d=await api(`/api/dm?name=${encodeURIComponent(name)}&ep=${encodeURIComponent(ep)}`);
+    if(tok!==dmTok)return;d.sort((a,b)=>a[0]-b[0]);dmReset(d);seekDm();$('#bdm').textContent=d.length?`弹幕 ${d.length}`:'无弹幕'}
+  catch(e){if(tok===dmTok)$('#bdm').textContent='无弹幕'}
+}
+function seekDm(){box.innerHTML='';lanes=[];const t=V.currentTime;dmi=0;while(dmi<DM.length&&DM[dmi][0]<t)dmi++}
+V.addEventListener('seeked',seekDm);
+V.addEventListener('pause',()=>box.classList.add('paused'));
+V.addEventListener('play',()=>box.classList.remove('paused'));
+function shoot(d){
+  if(box.childElementCount>80)return;
+  const W=box.clientWidth,H=box.clientHeight,fs=Math.max(15,Math.min(24,W/32)),lh=fs+6,n=Math.max(1,Math.floor(H*0.75/lh));
+  const el=document.createElement('div');el.textContent=d[3];el.style.fontSize=fs+'px';
+  el.style.color='#'+(d[2]>>>0).toString(16).padStart(6,'0').slice(-6);
+  const now=performance.now();
+  if(d[1]===4||d[1]===5){ // 顶部/底部固定
+    el.style.left='50%';el.style.transform='translateX(-50%)';
+    el.style[d[1]===5?'top':'bottom']=(Math.random()*3|0)*lh+4+'px';
+    box.appendChild(el);setTimeout(()=>el.remove(),4000);return}
+  let li=0,best=Infinity;for(let i=0;i<n;i++){const t=lanes[i]||0;if(t<now){li=i;best=-1;break}if(t<best){best=t;li=i}}
+  box.appendChild(el);const w=el.offsetWidth,dur=8000,sp=(W+w)/dur;
+  lanes[li]=now+(w+20)/sp;
+  el.style.top=li*lh+4+'px';el.style.setProperty('--d',-(W+w)+'px');
+  el.style.animation=`fly ${dur}ms linear forwards`;el.onanimationend=()=>el.remove();
+}
+(function tick(){
+  if(st.dmOn&&!V.paused&&DM.length){const t=V.currentTime;
+    if(dmi<DM.length&&DM[dmi][0]<t-3)seekDm();
+    while(dmi<DM.length&&DM[dmi][0]<=t){shoot(DM[dmi]);dmi++}}
+  requestAnimationFrame(tick)})();
+
+init();
+</script>
+</body>
+</html>

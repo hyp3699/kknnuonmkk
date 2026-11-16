@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "1.5.0"  # 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "1.6.0"  # 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, time, json, zlib, html, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -674,8 +674,178 @@ def xml():
         x = EMPTY
     return Response(x, mimetype="application/xml")
 
+# ---------------- 精简网页播放器（端口 WEB_PORT，默认 3003） ----------------
+import xml.etree.ElementTree as ET
+WEB_PORT = int(os.environ.get("WEB_PORT", "3003"))
+WEB_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web.html")
+SITES_CACHE = [0, 0, []]
+
+def web_sites():
+    p = os.path.join(WWW, "jjoo.json")
+    try:
+        mt = os.path.getmtime(p)
+    except Exception:
+        return SITES_CACHE[2]
+    if mt != SITES_CACHE[0]:
+        try:
+            d = json.load(open(p, encoding="utf-8"))
+            SITES_CACHE[2] = [{"key": s.get("key"), "name": s.get("name"), "api": s.get("api"), "type": s.get("type")}
+                              for s in d.get("sites", []) if s.get("type") in (0, 1) and str(s.get("api", "")).startswith("http")]
+            SITES_CACHE[0] = mt
+        except Exception as e:
+            print("[web] sites err", repr(e), flush=True)
+    return SITES_CACHE[2]
+
+def xml_vod(text):
+    root = ET.fromstring(text.strip().encode("utf-8") if isinstance(text, str) else text)
+    lst = root.find("list")
+    out = {"class": [], "list": [], "page": 1, "pagecount": 1}
+    if lst is not None:
+        out["page"] = int(lst.get("page") or 1)
+        out["pagecount"] = int(lst.get("pagecount") or 1)
+        for v in lst.findall("video"):
+            g = lambda k: (v.findtext(k) or "").strip()
+            dds = v.findall("./dl/dd")
+            out["list"].append({"vod_id": g("id"), "vod_name": g("name"), "vod_pic": g("pic"), "vod_remarks": g("note"),
+                                "type_name": g("type"), "vod_year": g("year"), "vod_content": g("des"),
+                                "vod_play_from": "$$$".join(d.get("flag") or "播放" for d in dds),
+                                "vod_play_url": "$$$".join((d.text or "").strip() for d in dds)})
+    cl = root.find("class")
+    if cl is not None:
+        out["class"] = [{"type_id": t.get("id"), "type_name": (t.text or "").strip()} for t in cl.findall("ty")]
+    return out
+
+def vod_call(site, **params):
+    sp = urllib.parse.urlsplit(site["api"])
+    q = dict(urllib.parse.parse_qsl(sp.query))
+    q.update({k: v for k, v in params.items() if v not in (None, "")})
+    r = get(urllib.parse.urlunsplit(sp._replace(query="")), params=q, timeout=10, verify=False)
+    r.encoding = r.encoding if r.encoding and r.encoding.lower() != "iso-8859-1" else "utf-8"
+    t = r.text
+    if site["type"] == 0 or t.lstrip().startswith("<"):
+        return xml_vod(t)
+    try:
+        j = json.loads(t)
+    except Exception:
+        raise ValueError(re.sub(r"<[^>]+>", "", t)[:60].strip() or "接口返回异常")
+    return {"class": j.get("class") or [], "list": j.get("list") or [],
+            "page": int(j.get("page") or 1), "pagecount": int(j.get("pagecount") or 1)}
+
+@app.route("/api/sites")
+def api_sites():
+    return jsonify([{"key": s["key"], "name": s["name"]} for s in web_sites()])
+
+@app.route("/api/vod")
+def api_vod():
+    key = arg("key")
+    site = next((s for s in web_sites() if s["key"] == key), None)
+    if not site:
+        return jsonify({"error": "no site"}), 404
+    ac, t, pg, wd, ids = arg("ac") or "detail", arg("t"), arg("pg") or "1", arg("wd"), arg("ids")
+    try:
+        if ac == "class":
+            d = vod_call(site, ac="list")
+            return jsonify({"class": d["class"]})
+        try:
+            d = vod_call(site, ac="detail", t=t, pg=pg, wd=wd, ids=ids)
+        except Exception:
+            if ids:
+                raise
+            d = {"list": []}
+        if not d["list"] and not ids:  # 有的站 detail 不支持分类/搜索，退回 list
+            d = vod_call(site, ac="list", t=t, pg=pg, wd=wd)
+        keep = ("vod_id", "vod_name", "vod_pic", "vod_remarks", "type_name", "vod_year", "vod_area", "vod_actor", "vod_content", "vod_play_from", "vod_play_url")
+        d["list"] = [{k: v.get(k) for k in keep if v.get(k) not in (None, "")} for v in d["list"]]
+        if not ids:
+            for v in d["list"]:
+                v.pop("vod_play_url", None); v.pop("vod_content", None)
+        return jsonify(d)
+    except Exception as e:
+        print("[web] vod err", key, ac, repr(e), flush=True)
+        return jsonify({"error": str(e)[:200], "list": [], "class": []}), 502
+
+@app.route("/api/dm")
+def api_dm():
+    """网页播放器弹幕：[[秒, 模式, 颜色, 文本], ...]"""
+    name, ep = arg("name"), arg("ep")
+    if not name:
+        return jsonify([])
+    try:
+        items = resolve(name, ep)
+    except Exception:
+        items = []
+    for label, site, url in items:
+        try:
+            x = xml_for(site, url)
+        except Exception as e:
+            print("[web] dm err", label, repr(e), flush=True)
+            continue
+        if x != EMPTY:
+            out = []
+            for p, txt in re.findall(r'<d p="([^"]+)">(.*?)</d>', x, re.S):
+                f = p.split(",")
+                out.append([round(float(f[0]), 1), int(f[1]), int(f[3]), html.unescape(txt)])
+            print("[web] dm", name, ep, "->", label, len(out), flush=True)
+            return jsonify(out)
+    return jsonify([])
+
+@app.route("/px")
+def px():
+    """播放代理：直连失败（跨域/防盗链）时网页自动改走这里"""
+    u = arg("u")
+    if not re.match(r"https?://", u):
+        return "bad url", 400
+    h = {"User-Agent": UA}
+    if request.headers.get("Range"):
+        h["Range"] = request.headers["Range"]
+    try:
+        r = S.get(u, headers=h, stream=True, timeout=15, verify=False, allow_redirects=True)
+    except Exception as e:
+        return f"proxy err {e}", 502
+    ct = r.headers.get("Content-Type", "")
+    if r.status_code >= 400:
+        return Response(f"upstream {r.status_code}", status=r.status_code, headers={"Access-Control-Allow-Origin": "*"})
+    if ".m3u8" in u.split("?")[0] or "mpegurl" in ct.lower():
+        body = r.content.decode("utf-8", "ignore")
+        if not body.lstrip().startswith("#EXTM3U"):
+            return Response(body, status=502)
+        base = r.url
+        def fix(m):
+            return "/px?u=" + quote(urllib.parse.urljoin(base, m), safe="")
+        lines = []
+        for ln in body.splitlines():
+            s = ln.strip()
+            if s and not s.startswith("#"):
+                lines.append(fix(s))
+            else:
+                lines.append(re.sub(r'URI="([^"]+)"', lambda m: 'URI="' + fix(m.group(1)) + '"', ln))
+        return Response("\n".join(lines), mimetype="application/vnd.apple.mpegurl", headers={"Access-Control-Allow-Origin": "*"})
+    hd = {"Access-Control-Allow-Origin": "*"}
+    for k in ("Content-Length", "Content-Range", "Accept-Ranges"):
+        if k in r.headers:
+            hd[k] = r.headers[k]
+    return Response(r.iter_content(64 * 1024), status=r.status_code, mimetype=ct or "video/mp2t", headers=hd)
+
+@app.route("/hls.js")
+def hls_js():
+    from flask import send_file
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hls.min.js")
+    if os.path.exists(p):
+        return send_file(p, mimetype="application/javascript", max_age=86400)
+    from flask import redirect
+    return redirect("https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js")
+
+@app.route("/web")
+def web_page():
+    try:
+        return Response(open(WEB_HTML, encoding="utf-8").read(), mimetype="text/html")
+    except Exception:
+        return "web.html 不存在，请重新执行 deploy.sh", 404
+
 @app.route("/")
 def root():
+    if request.environ.get("SERVER_PORT") == str(WEB_PORT):
+        return web_page()
     return f"danmu ok v{VERSION}"
 
 @app.route("/version")
@@ -683,4 +853,14 @@ def version():
     return VERSION
 
 if __name__ == "__main__":
+    import urllib3
+    urllib3.disable_warnings()
+    if WEB_PORT and os.environ.get("WEB", "1") != "0":
+        from werkzeug.serving import make_server
+        try:
+            ws = make_server("0.0.0.0", WEB_PORT, app, threaded=True)
+            threading.Thread(target=ws.serve_forever, daemon=True).start()
+            print("web player on", WEB_PORT, flush=True)
+        except OSError as e:
+            print("web port busy", WEB_PORT, repr(e), flush=True)
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "2525")), threaded=True)

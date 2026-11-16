@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# 免 key 弹幕服务 + 采集站自动维护 + MoonTVPlus 网页播放器 一键部署
-#   弹幕：端口 2525（OK影视 / MoonTVPlus 共用）
-#   采集站：每 2 天自动搜索/测试/去重，生成 http://IP:2525/sub/jjoo.json（OK影视）和 moontv.txt（网页版订阅）
-#   网页播放器：MoonTVPlus，端口 3003（Docker）
-# 一键安装 / 更新：
+# 免 key 弹幕服务一键部署（三种模式，见仓库 README）
+#   MODE=danmu  （默认）只装弹幕：端口 2525 + 采集站每 2 天自动维护（http://IP:2525/sub/jjoo.json 给 OK影视）
+#   MODE=web    弹幕 + 精简网页播放器：端口 3003（选采集站/分类/站内搜索/播放+弹幕，无需登录、无需 Docker）
+#   MODE=moontv 弹幕 + MoonTVPlus 网页播放器：端口 3003（Docker）
 #   bash <(curl -Ls https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/deploy.sh)
-# 只装弹幕、不装网页版：  WEB=0 bash <(curl -Ls ...)
+#   或 deploy_web.sh / deploy_moontv.sh
 # 可选：/etc/danmu.env 里写 GITHUB_TOKEN=xxx（无权限的 token 即可），采集站能搜到更多新站
 set -e
 [ "$(id -u)" = 0 ] || { echo "请用 root 运行（sudo -i 后再执行）"; exit 1; }
@@ -14,8 +13,11 @@ APP_DIR=/opt/danmu
 PORT=${PORT:-2525}
 RAW=https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer
 SRC=$RAW/danmu/danmu_server.py
-WEB=${WEB:-1}
+MODE=${MODE:-danmu}
+case "$MODE" in danmu|web|moontv) ;; *) echo "MODE 只能是 danmu / web / moontv"; exit 1;; esac
 WEB_PORT=${WEB_PORT:-3003}
+[ "$MODE" = web ] && SVC_WEB=1 || SVC_WEB=0
+echo "== 安装模式：$MODE"
 
 echo "[1/6] 安装 Python"
 if command -v apt >/dev/null; then
@@ -30,6 +32,10 @@ OLD_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" 2>/dev/null 
 echo "[2/6] 下载弹幕服务 + 依赖"
 mkdir -p "$APP_DIR"
 curl -fsSL "$SRC" -o "$APP_DIR/danmu_server.py"
+if [ "$MODE" = web ]; then
+  curl -fsSL "$RAW/danmu/web.html" -o "$APP_DIR/web.html"
+  curl -fsSL https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js -o "$APP_DIR/hls.min.js" || rm -f "$APP_DIR/hls.min.js"
+fi
 python3 -m venv "$APP_DIR/venv"
 NEW_VER=$(grep -oP '^VERSION = "\K[^"]+' "$APP_DIR/danmu_server.py" || echo "未知")
 echo "    版本：$OLD_VER -> $NEW_VER"
@@ -42,6 +48,8 @@ Description=Danmu server (no key)
 After=network-online.target
 [Service]
 Environment=PORT=$PORT
+Environment=WEB=$SVC_WEB
+Environment=WEB_PORT=$WEB_PORT
 Environment=WWW_DIR=$APP_DIR/www
 Environment=IDS_FILE=$APP_DIR/anime_ids.json
 ExecStart=$APP_DIR/venv/bin/python $APP_DIR/danmu_server.py
@@ -52,6 +60,10 @@ WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
 systemctl enable danmu >/dev/null 2>&1
+# 3003 只能给一个网页版用：装精简版时停掉 MoonTVPlus（数据保留）
+if [ "$MODE" = web ] && [ -f /opt/moontv/docker-compose.yml ] && command -v docker >/dev/null; then
+  (cd /opt/moontv && docker compose stop >/dev/null 2>&1) || true
+fi
 systemctl restart danmu
 
 echo "[4/6] 采集站自动维护（每 2 天 北京时间 04:00）"
@@ -91,13 +103,14 @@ command -v ufw >/dev/null && ufw allow $PORT/tcp >/dev/null 2>&1 || true
 command -v firewall-cmd >/dev/null && { firewall-cmd --permanent --add-port=$PORT/tcp >/dev/null 2>&1; firewall-cmd --reload >/dev/null 2>&1; } || true
 
 for P in $WEB_PORT; do
-  [ "$WEB" = 1 ] || break
+  [ "$MODE" = danmu ] && break
   command -v ufw >/dev/null && ufw allow $P/tcp >/dev/null 2>&1 || true
   command -v firewall-cmd >/dev/null && { firewall-cmd --permanent --add-port=$P/tcp >/dev/null 2>&1; firewall-cmd --reload >/dev/null 2>&1; } || true
 done
 
-if [ "$WEB" = 1 ]; then
+if [ "$MODE" = moontv ]; then
   echo "[6/6] 网页播放器 MoonTVPlus（端口 $WEB_PORT）"
+  # 之前装过精简版时，弹幕服务已不占 3003（WEB=0）
   MEM=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
   if [ "$MEM" -lt 1500 ] && ! swapon --show | grep -q .; then
     echo "    内存 ${MEM}MB，加 2G swap 防止卡死"
@@ -159,8 +172,12 @@ fi
 IP=$(curl -s4 ifconfig.me 2>/dev/null || echo 你的IP)
 echo "📺 OK影视 配置地址：http://$IP:$PORT/sub/jjoo.json"
 echo "🔄 采集站下次更新：$(systemctl list-timers danmu-sites.timer --no-pager 2>/dev/null | awk 'NR==2{print $1,$2,$3}')  手动更新：systemctl start danmu-sites  日志：journalctl -u danmu-sites -n 50"
-if [ "$WEB" = 1 ]; then
+if [ "$MODE" = web ]; then
+  echo "🌐 网页播放器：http://$IP:$WEB_PORT   （无需登录，弹幕/采集站自动同步）"
+fi
+if [ "$MODE" = moontv ]; then
   echo "🌐 网页播放器：http://$IP:$WEB_PORT   账号 $MT_USER  密码 $MT_PASS （存在 /opt/moontv/.env）"
   echo "   首次进后台 → 配置文件 → 订阅地址填 http://host.docker.internal:$PORT/sub/moontv.txt 并打开「自动更新」，采集站更新后网页版每小时自动同步"
 fi
-echo "提示：云厂商安全组也要放行 $PORT 和 $WEB_PORT 端口。更新：重新执行本命令即可。"
+[ "$MODE" = danmu ] && echo "提示：云厂商安全组要放行 $PORT 端口。" || echo "提示：云厂商安全组要放行 $PORT 和 $WEB_PORT 端口。"
+echo "更新：重新执行本命令即可。"
