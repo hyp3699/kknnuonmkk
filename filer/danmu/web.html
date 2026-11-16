@@ -53,6 +53,7 @@ button.on{background:#e50914;border-color:#e50914}
 .info .meta{color:#999;font-size:12px}
 .info .desc{color:#aaa;font-size:13px;max-height:5.6em;overflow:hidden;margin:6px 0}
 #alt{padding:4px 10px;display:none}#alt .si{cursor:pointer}#alt .si.cur b{color:#e50914}
+#dmset .srow label{width:76px;color:#aaa;font-size:13px}#dmset input[type=range]{flex:1}#dmset .v{width:52px;text-align:right;font-size:12px;color:#ccc}
 #src{color:#e6a23c;font-size:12px;margin-left:6px}
 #froms{display:flex;gap:6px;overflow-x:auto;padding:6px 10px}
 #froms button{white-space:nowrap}
@@ -104,6 +105,7 @@ button.on{background:#e50914;border-color:#e50914}
   <div id="box"><video id="v" playsinline webkit-playsinline controls preload="auto"></video><div id="dm"></div></div>
   <div id="bar">
     <button id="bdm" class="on">弹幕</button>
+    <button id="bdms">弹幕设置</button>
     <button id="bpx">代理</button>
     <button id="bfs">全屏</button>
     <button id="bnext">下一集</button>
@@ -112,6 +114,7 @@ button.on{background:#e50914;border-color:#e50914}
     <span class="st" id="st"></span>
   </div>
   <div id="alt"></div>
+  <div id="dmset" class="sbox" style="display:none"></div>
   <div class="info" id="info"></div>
   <div id="froms"></div>
   <div id="eps"></div>
@@ -120,7 +123,22 @@ button.on{background:#e50914;border-color:#e50914}
 <script>
 const $=s=>document.querySelector(s), LS=localStorage;
 const st={site:LS.site||'',cat:'',kw:'',pg:1,pc:1,loading:false,vod:null,from:0,ep:0,px:LS.px==='1',dmOn:LS.dm!=='0'};
-const api=(p,o)=>fetch(p,o).then(r=>{if(r.status===401){location.reload();throw new Error('login')}return r.json()});
+// 网络断一下（手机切网络/锁屏/服务重启）自动重试 2 次；GET 默认 25 秒超时
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function api(p,o={}){
+  const get=!o.method||o.method==='GET';let last;
+  for(let i=0;i<(get?3:1);i++){
+    if(o.signal&&o.signal.aborted)throw new Error('已取消');
+    let ctl=null,tm=0;const opt=Object.assign({},o);
+    if(!o.signal){ctl=new AbortController();opt.signal=ctl.signal;tm=setTimeout(()=>ctl.abort(),25000)}
+    try{const r=await fetch(p,opt);clearTimeout(tm);
+      if(r.status===401){location.reload();throw new Error('login')}
+      const tx=await r.text();try{return JSON.parse(tx)}catch(e){throw new Error(r.status>=500?`服务器忙（HTTP ${r.status}）`:'返回内容不对')}}
+    catch(e){clearTimeout(tm);last=e;
+      if(e.message==='login'||(o.signal&&o.signal.aborted)||!(e instanceof TypeError||e.name==='AbortError'))throw e;
+      if(i<2&&get)await sleep(i?2000:800)}}
+  throw new Error(last&&last.name==='AbortError'?'连接超时':'网络连接中断');
+}
 const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -168,7 +186,8 @@ async function more(){
     st.pc=d.pagecount||1; st.pg++;
     $('#grid').insertAdjacentHTML('beforeend',d.list.map(v=>`<div class="card" data-id="${esc(String(v.vod_id))}"><div class="pic" style="background-image:url('${esc(v.vod_pic||'')}')"></div><div class="rm">${esc(v.vod_remarks||'')}</div><div class="nm">${esc(v.vod_name)}</div></div>`).join(''));
     $('#more').textContent=st.pg>st.pc?($('#grid').children.length?'没有更多了':'没有内容，换个分类或站点'):'';
-  }catch(e){$('#more').textContent=(st.kw?'搜索失败：':'加载失败：')+(e.message||'')+'，换个站试试'}
+  }catch(e){$('#more').innerHTML=esc((st.kw?'搜索失败：':'加载失败：')+(e.message||''))+' <button id="retry">重试</button> 或换个站';
+    const b=$('#retry');if(b)b.onclick=()=>more()}
   st.loading=false;
 }
 $('#site').onchange=()=>{st.site=LS.site=$('#site').value;loadCats()};
@@ -434,34 +453,50 @@ const box=$('#dm');
 box.classList.toggle('off',!st.dmOn);$('#bdm').classList.toggle('on',st.dmOn);
 $('#bdm').onclick=()=>{st.dmOn=!st.dmOn;LS.dm=st.dmOn?'1':'0';box.classList.toggle('off',!st.dmOn);$('#bdm').classList.toggle('on',st.dmOn)};
 function dmReset(list){DM=list;dmi=0;box.innerHTML='';lanes=[]}
+// 弹幕设置（存在本机）
+const DMC=Object.assign({area:75,op:100,fs:100,sp:100,max:80,off:0,top:1,bot:1,color:1},JSON.parse(LS.dmc||'{}'));
+const DMF=[['area','显示区域',10,100,5,v=>v===100?'全屏':v+'%'],['op','不透明度',10,100,5,v=>v+'%'],['fs','字号',50,200,10,v=>v+'%'],
+  ['sp','速度',50,200,10,v=>v+'%'],['max','同屏数量',10,200,10,v=>v+'条'],['off','时间偏移',-30,30,0.5,v=>(v>0?'+':'')+v+'秒']];
+function dmApply(){box.style.opacity=DMC.op/100;LS.dmc=JSON.stringify(DMC)}
+function dmPanel(){
+  $('#dmset').innerHTML=DMF.map(([k,n,a,b,stp,f])=>`<div class="srow"><label>${n}</label><input type="range" data-k="${k}" min="${a}" max="${b}" step="${stp}" value="${DMC[k]}"><span class="v" id="v_${k}">${f(+DMC[k])}</span></div>`).join('')+
+    `<div class="srow"><label>显示</label><button data-b="top" class="${DMC.top?'on':''}">顶部弹幕</button><button data-b="bot" class="${DMC.bot?'on':''}">底部弹幕</button><button data-b="color" class="${DMC.color?'on':''}">彩色</button><button id="dmrst" style="margin-left:auto">恢复默认</button></div>`;
+}
+$('#bdms').onclick=()=>{const p=$('#dmset');if(p.style.display==='none'){dmPanel();p.style.display='block'}else p.style.display='none'};
+$('#dmset').oninput=e=>{const k=e.target.dataset.k;if(!k)return;DMC[k]=+e.target.value;$('#v_'+k).textContent=DMF.find(x=>x[0]===k)[5](DMC[k]);dmApply();if(k==='area'||k==='fs')lanes=[];if(k==='off')seekDm()};
+$('#dmset').onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.id==='dmrst'){for(const k of Object.keys(DMC))delete DMC[k];Object.assign(DMC,{area:75,op:100,fs:100,sp:100,max:80,off:0,top:1,bot:1,color:1});dmApply();dmPanel();seekDm();return}
+  const k=b.dataset.b;if(k){DMC[k]=DMC[k]?0:1;b.classList.toggle('on',!!DMC[k]);dmApply()}};
+dmApply();
 async function loadDm(name,ep){
   const tok=++dmTok;dmReset([]);$('#bdm').textContent='弹幕…';
   try{const d=await api(`/api/dm?name=${encodeURIComponent(name)}&ep=${encodeURIComponent(ep)}`);
     if(tok!==dmTok)return;d.sort((a,b)=>a[0]-b[0]);dmReset(d);seekDm();$('#bdm').textContent=d.length?`弹幕 ${d.length}`:'无弹幕'}
   catch(e){if(tok===dmTok)$('#bdm').textContent='无弹幕'}
 }
-function seekDm(){box.innerHTML='';lanes=[];const t=V.currentTime;dmi=0;while(dmi<DM.length&&DM[dmi][0]<t)dmi++}
+function seekDm(){box.innerHTML='';lanes=[];const t=V.currentTime+(DMC.off||0);dmi=0;while(dmi<DM.length&&DM[dmi][0]<t)dmi++}
 V.addEventListener('seeked',seekDm);
 V.addEventListener('pause',()=>box.classList.add('paused'));
 V.addEventListener('play',()=>box.classList.remove('paused'));
 function shoot(d){
-  if(box.childElementCount>80)return;
-  const W=box.clientWidth,H=box.clientHeight,fs=Math.max(15,Math.min(24,W/32)),lh=fs+6,n=Math.max(1,Math.floor(H*0.75/lh));
+  if(box.childElementCount>=DMC.max)return;
+  if((d[1]===4&&!DMC.bot)||(d[1]===5&&!DMC.top))return;
+  const W=box.clientWidth,H=box.clientHeight,fs=Math.max(15,Math.min(24,W/32))*DMC.fs/100,lh=fs+6,n=Math.max(1,Math.floor(H*DMC.area/100/lh));
   const el=document.createElement('div');el.textContent=d[3];el.style.fontSize=fs+'px';
-  el.style.color='#'+(d[2]>>>0).toString(16).padStart(6,'0').slice(-6);
+  el.style.color=DMC.color?'#'+(d[2]>>>0).toString(16).padStart(6,'0').slice(-6):'#fff';
   const now=performance.now();
   if(d[1]===4||d[1]===5){ // 顶部/底部固定
     el.style.left='50%';el.style.transform='translateX(-50%)';
     el.style[d[1]===5?'top':'bottom']=(Math.random()*3|0)*lh+4+'px';
     box.appendChild(el);setTimeout(()=>el.remove(),4000);return}
   let li=0,best=Infinity;for(let i=0;i<n;i++){const t=lanes[i]||0;if(t<now){li=i;best=-1;break}if(t<best){best=t;li=i}}
-  box.appendChild(el);const w=el.offsetWidth,dur=8000,sp=(W+w)/dur;
+  box.appendChild(el);const w=el.offsetWidth,dur=8000*100/DMC.sp,sp=(W+w)/dur;
   lanes[li]=now+(w+20)/sp;
   el.style.top=li*lh+4+'px';el.style.setProperty('--d',-(W+w)+'px');
   el.style.animation=`fly ${dur}ms linear forwards`;el.onanimationend=()=>el.remove();
 }
 (function tick(){
-  if(st.dmOn&&!V.paused&&DM.length){const t=V.currentTime;
+  if(st.dmOn&&!V.paused&&DM.length){const t=V.currentTime+(DMC.off||0);
     if(dmi<DM.length&&DM[dmi][0]<t-3)seekDm();
     while(dmi<DM.length&&DM[dmi][0]<=t){shoot(DM[dmi]);dmi++}}
   requestAnimationFrame(tick)})();
