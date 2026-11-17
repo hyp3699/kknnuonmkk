@@ -558,7 +558,7 @@ $('#sell').onclick=e=>{const b=e.target.closest('button');if(!b)return;$('#selp'
   const live=()=>V.duration===Infinity||isNaN(V.duration)||!V.currentSrc;
   D.addEventListener('touchstart',e=>{type='';moved=false;if(e.touches.length>1){skip=true;return}
     const el=e.target;inBox=g.contains(el);
-    skip=!inBox&&!!el.closest('#froms,#selp,input,textarea,select,#eps,#alt,.sbox');  // 能左右滚动的列表和输入框不抢
+    skip=!inBox&&!!el.closest('#froms,#selp,input,textarea,select');  // 能左右滚动的列表和输入框不抢
     const t=e.touches[0];sx=t.clientX;sy=t.clientY;bt=V.currentTime;bv=V.volume},{passive:true});
   D.addEventListener('touchmove',e=>{if(e.touches.length>1){if(type==='seek'||type==='vol')noticeOff();type='x';return}
     if(type==='x')return;
