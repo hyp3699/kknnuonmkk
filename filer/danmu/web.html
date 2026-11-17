@@ -590,12 +590,14 @@ setInterval(()=>{if(st.vod&&!V.paused)saveHist()},10000);
 V.addEventListener('pause',()=>saveHist());
 $('#bpx').classList.toggle('on',st.px);
 $('#bpx').onclick=()=>{st.px=!st.px;LS.px=st.px?'1':'0';$('#bpx').classList.toggle('on',st.px);if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
+function fsOri(){if(!document.fullscreenElement||!screen.orientation||!screen.orientation.lock)return;const w=V.videoWidth,h=V.videoHeight;if(!w||!h)return;screen.orientation.lock(h>w?'portrait':'landscape').catch(()=>{})}
+V.addEventListener('loadedmetadata',fsOri);V.addEventListener('resize',fsOri);
 async function goFs(only){const b=$('#box');
   if(document.fullscreenElement){if(!only)document.exitFullscreen();return}
-  if(b.requestFullscreen){await b.requestFullscreen().catch(()=>{});try{await screen.orientation.lock('landscape')}catch(e){}}
+  if(b.requestFullscreen){await b.requestFullscreen().catch(()=>{});fsOri()}
   else if(V.webkitEnterFullscreen){try{V.webkitEnterFullscreen()}catch(e){}}}
 $('#bfs').onclick=()=>goFs(false);
-document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)$('#selp').classList.remove('on');showOv()});
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement){$('#selp').classList.remove('on');try{screen.orientation.unlock()}catch(e){}}showOv()});
 
 // ---------- 弹幕 ----------
 let DM=[],dmi=0,lanes=[],dmTok=0;
