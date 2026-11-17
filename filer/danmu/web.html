@@ -52,7 +52,9 @@ button.on{background:#e50914;border-color:#e50914}
 #dm.off{display:none}
 @keyframes fly{from{transform:translateX(0)}to{transform:translateX(var(--d))}}
 #box:fullscreen{aspect-ratio:auto;height:100%}
-#bar{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px}
+#bar{display:grid;grid-template-columns:repeat(3,1fr) 78px;grid-template-rows:36px 36px;gap:6px;padding:8px}
+#bar #bfs{grid-column:4;grid-row:1/3;width:78px;height:78px;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:12px;border:0;border-radius:14px;color:#fff;background:linear-gradient(145deg,#ff3b47,#b0060f);box-shadow:0 3px 10px #e5091455}
+#bar #bfs:active{transform:scale(.95)}
 #bar button{height:36px;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
 #st{color:#888;font-size:12px;min-height:16px}
 #gest{position:absolute;left:0;right:0;top:0;bottom:56px;z-index:2;touch-action:none}
@@ -141,7 +143,7 @@ button.on{background:#e50914;border-color:#e50914}
     <button id="bdm" class="on">弹幕</button>
     <button id="bdms">弹幕设置</button>
     <button id="bpx">代理</button>
-    <button id="bfs">全屏</button>
+    <button id="bfs" title="全屏"><svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>全屏</span></button>
     <button id="balt">换源</button>
     <button id="bauto">自动换源</button>
     <button id="bbuf">缓冲</button>
