@@ -552,7 +552,10 @@ function load(u,t0,px,kind){
   if(!kind){  // 地址看不出类型：让服务器看一眼内容（m3u8 / mp4）
     api(`/api/probe?u=${encodeURIComponent(u)}`+(HDR?'&h='+encodeURIComponent(HDR):'')).then(r=>{if(lg===LG)load(u,t0,px,(r&&r.kind)||'try')}).catch(()=>{if(lg===LG)load(u,t0,px,'try')});
     return}
-  const toPx=(t,m)=>{if(!px&&!triedPx){triedPx=true;setSt(m);load(u,t,true,kind==='try'?'':kind);return true}return false};
+  const toPx=(t,m)=>{if(triedPx)return false;
+    if(!px){triedPx=true;setSt(m);load(u,t,true,kind==='try'?'':kind);return true}
+    if(st.px&&!HDR){triedPx=true;setSt('代理放不了（视频服务器拒绝了 VPS），改直连…');load(u,t,false,kind==='try'?'':kind);return true}  // 手动开了代理也不行：退回直连试一次
+    return false};
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
     if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
   const start=()=>{if(lg!==LG)return;clearTimeout(WDT);setSt(px?why+'播放':'');if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
