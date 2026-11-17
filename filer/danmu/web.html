@@ -240,7 +240,7 @@ $('#cats').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   $('#cats').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));st.cat=b.dataset.t;st.kw='';reload()};
 // ---------- 聚合搜索：当前配置的全部采集站 ----------
 let QGEN=0;
-const qg=()=>CUR.map(s=>s.key).join('|'),qck=kw=>qg()+'#'+kw.toLowerCase().replace(/\s+/g,'');
+const qg=()=>'cfg:'+(LS.cfg||'jjoo'),qck=kw=>qg()+'#'+kw.toLowerCase().replace(/\s+/g,'');
 async function qSaved(){let L=[];try{L=await api('/api/qcache?list='+encodeURIComponent(qg()))||[]}catch(e){}
   $('#qsv').innerHTML=L.length?'<span class="st" style="align-self:center">已保存：</span>'+L.map(k=>`<span class="qsk" data-k="${esc(k)}" style="flex:none;background:#222;border-radius:14px;padding:4px 4px 4px 10px;font-size:13px;cursor:pointer">${esc(k)}<b data-x="1" style="padding:0 6px;color:#888">✕</b></span>`).join(''):''}
 $('#qsv').onclick=async e=>{const c=e.target.closest('.qsk');if(!c)return;const k=c.dataset.k;
@@ -464,7 +464,7 @@ let KEEPALT=false,ALT=null, ALTS=new Map(), AUTO={name:'',keys:new Set()};
 $('#bauto').classList.toggle('on',LS.auto!=='0');
 $('#bauto').onclick=()=>{LS.auto=LS.auto==='0'?'1':'0';$('#bauto').classList.toggle('on',LS.auto!=='0');setSt(LS.auto==='0'?'已关闭自动换源':'已开启：播放失败会自动换线路/采集站')};
 function altFind(name){  // 结果按 配置+片名 保留（内存 + 服务器 /api/altcache），边搜边出
-  const k=nm(name),ck=CUR.map(s=>s.key).join('|')+'#'+k;
+  const k=nm(name),ck='cfg:'+(LS.cfg||'jjoo')+'#'+k;
   if(ALT&&ALT.ck===ck)return ALT;
   let c=ALTS.get(ck);if(c){ALT=c;return c}
   const a=ALT={name,list:[],done:false,n:CUR.length,cnt:0,subs:[],ck,load:true};ALTS.set(ck,a);
