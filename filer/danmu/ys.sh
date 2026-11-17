@@ -274,7 +274,7 @@ write_80() {  # 只写 80 端口（证书验证 + 跳转/直接反代）
   if [ "$mode" = redirect ]; then
     loc="return 301 https://\$host$( [ "$hp" = 443 ] || echo ":$hp")\$request_uri;"
   else
-    loc="proxy_pass http://127.0.0.1:$up; proxy_set_header Host \$http_host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 300s;"
+    loc="proxy_pass http://127.0.0.1:$up; proxy_set_header Host \$http_host; proxy_set_header X-Real-IP \$remote_addr; proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 300s; client_max_body_size 10m;"
   fi
   cat > "/etc/nginx/conf.d/$name.conf" <<EOF
 # 由 ys 生成，勿手改（ys 菜单可删除）

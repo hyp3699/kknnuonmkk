@@ -240,7 +240,9 @@ $('#site').onchange=()=>{st.site=LS.site=$('#site').value;loadCats()};
 $('#cats').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   $('#cats').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));st.cat=b.dataset.t;st.kw='';reload()};
 // ---------- 聚合搜索：当前配置的全部采集站 ----------
-let QGEN=0;
+let QGEN=0,PENDQ=null;
+addEventListener('pagehide',()=>{if(!navigator.sendBeacon)return;  // 没搜完就刷新/关掉：把已搜到的存上
+  [PENDQ&&PENDQ(),ALT&&ALT.pend&&ALT.pend()].forEach(x=>{if(x)navigator.sendBeacon(x[0],new Blob([JSON.stringify(x[1])],{type:'application/json'}))})});
 const qg=()=>'cfg:'+(LS.cfg||'jjoo'),qck=kw=>qg()+'#'+kw.toLowerCase().replace(/\s+/g,'');
 async function qSaved(){let L=[];try{L=await api('/api/qcache?list='+encodeURIComponent(qg()))||[]}catch(e){}
   $('#qsv').innerHTML=L.length?'<span class="st" style="align-self:center">已保存：</span>'+L.map(k=>`<span class="qsk" data-k="${esc(k)}" style="flex:none;background:#222;border-radius:14px;padding:4px 4px 4px 10px;font-size:13px;cursor:pointer">${esc(k)}<b data-x="1" style="padding:0 6px;color:#888">✕</b></span>`).join(''):''}
@@ -260,21 +262,23 @@ async function search(force){
     if(gen!==QGEN)return;
     if(r&&Array.isArray(r.list)){$('#qres').innerHTML=r.list.map(qGroup).join('');
       const d=new Date(r.t*1000),tt=`${d.getMonth()+1}-${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-      $('#qst').innerHTML=`已保存的结果（${tt}）：${r.n||n} 个站，${r.list.length} 个有结果`+qRe;return}
+      const part=r.cnt!=null&&r.cnt<r.n;
+      $('#qst').innerHTML=`已保存的结果（${tt}）：${part?`搜了 ${r.cnt}/${r.n} 个站`:`${r.n||n} 个站`}，${r.list.length} 个有结果`+qRe;return}
     if(force==='saved'){$('#qst').textContent='';return}}
   $('#qst').textContent=n?`搜索中 0/${n}`:'当前配置没有可用站';
   $('#qstop').style.display=n?'':'none';
-  $('#qstop').onclick=()=>{if(gen!==QGEN)return;QGEN++;$('#qstop').style.display='none';$('#qst').innerHTML=`已停止：搜了 ${done}/${n} 个站，${hit} 个站有结果`+qRe};
+  $('#qstop').onclick=()=>{if(gen!==QGEN)return;QGEN++;$('#qstop').style.display='none';$('#qst').innerHTML=`已停止：搜了 ${done}/${n} 个站，${hit} 个站有结果`+qRe;if(G.length)save(true)};
+  let svT=0;PENDQ=()=>done<n&&G.length?['/api/qcache',{ck,g:qg(),name:kw,n,cnt:done,list:G}]:null;const save=now=>{if(!now&&svT)return;clearTimeout(svT);svT=0;const f=()=>post('/api/qcache',{ck,g:qg(),name:kw,n,cnt:done,list:G}).then(r=>{if(r&&r.ok)qSaved();else $('#qst').append('（保存失败）')}).catch(e=>$('#qst').append('（保存失败：'+e.message+'）'));if(now)f();else svT=setTimeout(()=>{svT=0;f()},800)};
   const worker=async()=>{while(q.length&&gen===QGEN){const s=q.shift();let d=null;
     try{const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),15000);
       d=await api(`/api/vod?key=${encodeURIComponent(s.key)}&wd=${encodeURIComponent(kw)}&pg=1`,{signal:ctl.signal});clearTimeout(tm)}catch(e){}
     if(gen!==QGEN)return;done++;
     const nk=kw.toLowerCase().replace(/\s+/g,''),L=(d&&d.list||[]).filter(v=>v.vod_name&&v.vod_name.toLowerCase().replace(/\s+/g,'').includes(nk));
     if(L.length){hit++;const g={key:s.key,name:s.name,more:d.pagecount>1,items:L.map(v=>({id:String(v.vod_id),name:v.vod_name,pic:v.vod_pic||'',rm:v.vod_remarks||''}))};G.push(g);
-      $('#qres').insertAdjacentHTML('beforeend',qGroup(g))}
+      $('#qres').insertAdjacentHTML('beforeend',qGroup(g));if(done<n)save()}
     if(done<n)$('#qst').textContent=`搜索中 ${done}/${n}，${hit} 个站有结果`;
     else{$('#qst').innerHTML=`搜完 ${n} 个站，${hit} 个站有结果`+(hit?'':'，换个关键词试试')+qRe;$('#qstop').style.display='none';
-      post('/api/qcache',{ck,g:qg(),name:kw,n,list:G}).then(qSaved).catch(()=>{})}}};
+      save(true)}}};
   await Promise.all(Array.from({length:8},worker));
 }
 $('#qst').onclick=e=>{if(e.target.id==='qre')search(true)};
@@ -470,18 +474,20 @@ function altFind(name){  // 结果按 配置+片名 保留（内存 + 服务器 
   let c=ALTS.get(ck);if(c){ALT=c;return c}
   const a=ALT={name,list:[],done:false,n:CUR.length,cnt:0,subs:[],ck,load:true};ALTS.set(ck,a);
   const tell=()=>a.subs.forEach(f=>f());
+  let svT=0;const save=now=>{if(!now&&svT)return;clearTimeout(svT);svT=0;const f=()=>post('/api/altcache',{ck,name,n:a.n,cnt:a.cnt,list:a.list}).catch(()=>{});if(now)f();else svT=setTimeout(()=>{svT=0;f()},800)};
+  a.save=save;a.pend=()=>!a.done&&!a.stop&&a.list.length?['/api/altcache',{ck,name,n:a.n,cnt:a.cnt,list:a.list}]:null;
   const search=()=>{const q=CUR.slice();
     const worker=async()=>{while(q.length&&ALTS.get(ck)===a&&!a.stop){const s=q.shift();
       try{const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),10000);
         const d=await api(`/api/vod?key=${encodeURIComponent(s.key)}&wd=${encodeURIComponent(name)}&pg=1`,{signal:ctl.signal});clearTimeout(tm);
         const v=(d&&d.list||[]).find(x=>nm(x.vod_name)===k);
         if(a.stop)return;
-        if(v&&ALTS.get(ck)===a)a.list.push({key:s.key,id:String(v.vod_id),rm:v.vod_remarks||''})}catch(e){}
+        if(v&&ALTS.get(ck)===a){a.list.push({key:s.key,id:String(v.vod_id),rm:v.vod_remarks||''});save()}}catch(e){}
       a.cnt++;tell()}};
     Promise.all(Array.from({length:8},worker)).then(()=>{if(ALTS.get(ck)!==a||a.stop)return;a.done=true;tell();
-      post('/api/altcache',{ck,name,n:a.n,list:a.list}).catch(()=>{})})};
+      save(true)})};
   api('/api/altcache?ck='+encodeURIComponent(ck)).then(r=>{if(ALTS.get(ck)!==a)return;a.load=false;
-    if(r&&Array.isArray(r.list)){a.list=r.list;a.n=r.n||a.n;a.cnt=a.n;a.done=true;tell()}else search()}).catch(()=>{a.load=false;search()});
+    if(r&&Array.isArray(r.list)){a.list=r.list;a.n=r.n||a.n;a.cnt=r.cnt!=null?r.cnt:a.n;a.done=true;if(a.cnt<a.n)a.stop=true;tell()}else search()}).catch(()=>{a.load=false;search()});
   return a;
 }
 function goSrc(k,id){if(!onVod())return;location.replace(`#/v/${encodeURIComponent(k)}/${encodeURIComponent(id)}`)}
@@ -490,7 +496,7 @@ function renderAlt(){const a=ALT,b=$('#alt');if(!a||b.style.display==='none')ret
     a.list.map(x=>`<div class="si${x.key===st.vod.key?' cur':''}" data-k="${esc(x.key)}" data-id="${esc(x.id)}"><div class="n"><b>${esc(siteName(x.key))}</b><small>${esc(x.rm)}</small></div><div class="r">${x.key===st.vod.key?'当前':(AUTO.keys.has(x.key)?'<span class="bad">已试过</span>':'')}</div></div>`).join('')}
 $('#balt').onclick=()=>{const b=$('#alt');if(b.style.display!=='none'){b.style.display='none';return}
   if(!st.vod)return;b.style.display='block';const a=altFind(st.vod.vod_name);if(!a.subs.includes(renderAlt))a.subs.push(renderAlt);renderAlt()};
-$('#alt').onclick=e=>{if(e.target.id==='altstop'){const a=ALT;if(a&&!a.done){a.stop=true;a.done=true;renderAlt()}return}
+$('#alt').onclick=e=>{if(e.target.id==='altstop'){const a=ALT;if(a&&!a.done){a.stop=true;a.done=true;renderAlt();if(a.save)a.save(true)}return}
   if(e.target.id==='altre'){const a=ALT;ALTS.delete(a.ck);ALT=null;api('/api/altcache?ck='+encodeURIComponent(a.ck),{method:'DELETE'}).catch(()=>{}).then(()=>{const b=altFind(st.vod.vod_name);b.subs.push(renderAlt);renderAlt()});return}
   const r=e.target.closest('.si');if(!r||r.dataset.k===st.vod.key)return;saveHist();KEEPALT=true;goSrc(r.dataset.k,r.dataset.id)};
 function fail(msg){
