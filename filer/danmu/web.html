@@ -45,7 +45,7 @@ button.on{background:#e50914;border-color:#e50914}
 #raw{width:100%;height:70vh;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}
 #more,.msg{text-align:center;padding:14px;color:#888}
 #detail{display:none;padding-bottom:30px}
-#box{position:relative;background:#000;width:100%;aspect-ratio:16/9;overflow:hidden}
+#box{position:sticky;top:51px;z-index:9;background:#000;width:100%;aspect-ratio:16/9;overflow:hidden}
 #box video{width:100%;height:100%;display:block;background:#000}
 #dm{position:absolute;inset:0;pointer-events:none;overflow:hidden}
 #dm div{position:absolute;white-space:nowrap;font-size:20px;font-weight:600;text-shadow:1px 1px 2px #000,0 0 1px #000;will-change:transform;left:100%}
@@ -108,7 +108,7 @@ button.on{background:#e50914;border-color:#e50914}
 <div id="npop" class="sbox" style="display:none"></div>
 <div id="srch" style="display:none">
   <header><button class="back">‹ 返回</button><input id="kw" placeholder="搜索当前配置的全部采集站" enterkeyhint="search"><button id="go">搜索</button></header>
-  <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 0"><div class="st" id="qst"></div><button id="qstop" style="display:none;margin-left:auto">停止搜索</button></div>
+  <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 0"><b id="qkwl" style="font-size:13px;flex:none"></b><div class="st" id="qst"></div><button id="qstop" style="display:none;margin-left:auto">停止搜索</button></div>
   <div id="qsv" style="display:flex;gap:6px;overflow-x:auto;padding:8px 10px 0;white-space:nowrap"></div>
   <div id="qres"></div>
 </div>
@@ -248,12 +248,12 @@ async function qSaved(){let L=[];try{L=await api('/api/qcache?list='+encodeURICo
   $('#qsv').innerHTML=L.length?'<span class="st" style="align-self:center">已保存：</span>'+L.map(k=>`<span class="qsk" data-k="${esc(k)}" style="flex:none;background:#222;border-radius:14px;padding:4px 4px 4px 10px;font-size:13px;cursor:pointer">${esc(k)}<b data-x="1" style="padding:0 6px;color:#888">✕</b></span>`).join(''):''}
 $('#qsv').onclick=async e=>{const c=e.target.closest('.qsk');if(!c)return;const k=c.dataset.k;
   if(e.target.dataset.x){await api('/api/qcache?ck='+encodeURIComponent(qck(k)),{method:'DELETE'}).catch(()=>{});c.remove();if(!$('#qsv .qsk'))$('#qsv').innerHTML='';return}
-  $('#kw').value=k;search()};
+  search(false,k)};
 function qGroup(g){return `<div class="qh"><span>${esc(g.name)}</span><span>${g.items.length}${g.more?'+':''}</span></div><div class="grid2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;padding:8px 10px">`+
   g.items.map(v=>`<div class="card" data-k="${esc(g.key)}" data-id="${esc(v.id)}"><div class="pic" style="background-image:url('${esc(v.pic)}')"></div><div class="rm">${esc(v.rm)}</div><div class="nm">${esc(v.name)}</div></div>`).join('')+'</div>'}
 const qRe=' <a id="qre" style="color:#e50914;margin-left:8px;cursor:pointer">重新搜索</a>';
-async function search(force){
-  const kw=$('#kw').value.trim();if(!kw)return;$('#kw').blur();LS.qkw=kw;
+async function search(force,kw0){
+  const kw=(kw0||$('#kw').value).trim();if(!kw)return;$('#kw').blur();LS.qkw=kw;$('#kw').value='';$('#qkwl').textContent='「'+kw+'」';
   const gen=++QGEN, q=CUR.map(s=>s), ck=qck(kw);let done=0,hit=0,n=q.length;const G=[];
   $('#qres').innerHTML='';$('#qstop').style.display='none';
   if(force===true)await api('/api/qcache?ck='+encodeURIComponent(ck),{method:'DELETE'}).catch(()=>{});
@@ -281,7 +281,7 @@ async function search(force){
       save(true)}}};
   await Promise.all(Array.from({length:8},worker));
 }
-$('#qst').onclick=e=>{if(e.target.id==='qre')search(true)};
+$('#qst').onclick=e=>{if(e.target.id==='qre')search(true,LS.qkw)};
 $('#go').onclick=()=>search(); $('#kw').onkeydown=e=>{if(e.key==='Enter')search()};
 $('#bq').onclick=()=>location.hash='#/q';$('#srch .back').onclick=()=>goBack();
 $('#qres').onclick=e=>{const c=e.target.closest('.card');if(c)location.hash=`#/v/${encodeURIComponent(c.dataset.k)}/${encodeURIComponent(c.dataset.id)}`};
@@ -296,8 +296,8 @@ function route(){
   const m=location.hash.match(/^#\/v\/([^/]+)\/(.+)$/);
   if($('#list').style.display!=='none')listScroll=scrollY;
   ['#list','#hist','#detail','#set','#srch'].forEach(x=>$(x).style.display='none');
-  if(m){saveHist();stopPlay();$('#detail').style.display='block';scrollTo(0,0);openVod(decodeURIComponent(m[1]),decodeURIComponent(m[2]))}
-  else if(location.hash==='#/q'){saveHist();stopPlay();st.vod=null;ALT=null;$('#srch').style.display='block';qSaved();if(!$('#qres').children.length){if(LS.qkw){$('#kw').value=LS.qkw;search('saved')}else setTimeout(()=>$('#kw').focus(),50)}}
+  if(m){saveHist();stopPlay();$('#detail').style.display='block';$('#box').style.top=$('#detail header').offsetHeight+'px';scrollTo(0,0);openVod(decodeURIComponent(m[1]),decodeURIComponent(m[2]))}
+  else if(location.hash==='#/q'){saveHist();stopPlay();st.vod=null;ALT=null;$('#srch').style.display='block';$('#kw').value='';qSaved();if(!$('#qres').children.length){if(LS.qkw)search('saved',LS.qkw);else setTimeout(()=>$('#kw').focus(),50)}}
   else if(location.hash==='#/s'){saveHist();stopPlay();st.vod=null;ALT=null;$('#set').style.display='block';scrollTo(0,0);loadSet()}
   else if(location.hash==='#/h'){saveHist();stopPlay();st.vod=null;ALT=null;$('#hist').style.display='block';scrollTo(0,0);loadHist()}
   else{saveHist();stopPlay();st.vod=null;ALT=null;$('#list').style.display='block';scrollTo(0,listScroll)}
