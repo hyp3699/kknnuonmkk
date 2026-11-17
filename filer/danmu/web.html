@@ -57,8 +57,13 @@ button.on{background:#e50914;border-color:#e50914}
 #bar #bfs:active{transform:scale(.95)}
 #bar button{height:36px;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
 #st{color:#888;font-size:12px;min-height:16px}
-#gest{position:absolute;left:0;right:0;top:0;bottom:56px;z-index:2;touch-action:none}
+#gest{position:absolute;left:0;right:0;top:0;bottom:0;z-index:2;touch-action:none}
 #ov{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;display:flex;gap:12px;align-items:center;pointer-events:none;opacity:0;transition:opacity .2s}
+#cb{position:absolute;left:0;right:0;bottom:0;z-index:4;display:flex;align-items:center;gap:8px;padding:14px 10px 8px;background:linear-gradient(transparent,#000c);opacity:0;pointer-events:none;transition:opacity .2s;color:#fff;font-size:12px}
+#box.ui #cb{opacity:1;pointer-events:auto}
+#cb button{background:none;border:0;color:#fff;font-size:20px;width:36px;height:36px;padding:0;flex:none}
+#cb span{flex:none;font-variant-numeric:tabular-nums;min-width:38px;text-align:center}
+#cr{flex:1;min-width:0;height:28px;accent-color:#e50914;margin:0}
 #box:not(:fullscreen) #ov,#box:not(:fullscreen) #selp{display:none!important}
 #box.ui #ov{opacity:1}#box.ui #ov button{pointer-events:auto}
 #ov button{background:#0009;border:0;border-radius:50%;width:42px;height:42px;font-size:18px;padding:0}
@@ -134,9 +139,10 @@ button.on{background:#e50914;border-color:#e50914}
 </div>
 <div id="detail">
   <header><button id="back">‹ 返回</button><span id="dtitle" style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis"></span></header>
-  <div id="box"><video id="v" playsinline webkit-playsinline controls controlslist="nofullscreen" disablepictureinpicture preload="auto"></video><div id="dm"></div>
+  <div id="box"><video id="v" playsinline webkit-playsinline controlslist="nofullscreen" disablepictureinpicture preload="auto"></video><div id="dm"></div>
     <div id="gest"></div>
     <div id="ov"><button id="oprev" title="上一集">⏮</button><button id="osel">选集</button><button id="onext" title="下一集">⏭</button></div>
+    <div id="cb"><button id="cpp">▶</button><span id="ct">0:00</span><input id="cr" type="range" min="0" max="1000" step="1" value="0"><span id="cd">0:00</span></div>
     <div id="toast"></div>
     <div id="selp"><div class="sh"><b>选集</b><button id="selx">✕</button></div><div id="sell"></div></div>
   </div>
@@ -409,7 +415,7 @@ async function openVod(key,id){
   v.key=key; v.t4=!!d.t4; st.vod=v;
   $('#dtitle').innerHTML=esc(v.vod_name)+`<span id="src">${esc(siteName(key))}</span>`;
   if(!AUTO.name||nm(AUTO.name)!==nm(v.vod_name))AUTO={name:v.vod_name,keys:new Set()};AUTO.keys.add(key);st.triedF=new Set();
-  $('#alt').style.display='none';
+  if(KEEPALT){KEEPALT=false;$('#alt').style.display='block';const a=altFind(v.vod_name);if(!a.subs.includes(renderAlt))a.subs.push(renderAlt);renderAlt()}else $('#alt').style.display='none';
   $('#info').innerHTML=`<h2>${esc(v.vod_name)}</h2><div class="meta">${esc([v.vod_year,v.vod_area,v.type_name,v.vod_remarks].filter(Boolean).join(' · '))}</div>${v.vod_actor?`<div class="meta">${esc(v.vod_actor)}</div>`:''}<div class="desc">${esc((v.vod_content||'').replace(/<[^>]+>/g,''))}</div>`;
   if(!v.groups.length){$('#eps').innerHTML='<div class="msg">没有可播放的地址</div>';fail('这个站没有可播放的地址');return}
   // 优先 m3u8 线路；恢复上次进度
@@ -433,29 +439,36 @@ function renderFroms(fi){
 // ---------- 换源：同名视频在当前配置其它采集站 ----------
 const nm=t=>String(t||'').toLowerCase().replace(/[\s\p{P}\p{S}]/gu,'');
 const siteName=k=>NAMES[k]||String(k).replace(/^c\d+:/,'');
-let ALT=null, AUTO={name:'',keys:new Set()};
+let KEEPALT=false,ALT=null, ALTS=new Map(), AUTO={name:'',keys:new Set()};
 $('#bauto').classList.toggle('on',LS.auto!=='0');
 $('#bauto').onclick=()=>{LS.auto=LS.auto==='0'?'1':'0';$('#bauto').classList.toggle('on',LS.auto!=='0');setSt(LS.auto==='0'?'已关闭自动换源':'已开启：播放失败会自动换线路/采集站')};
-function altFind(name){  // 结果缓存，边搜边出
-  if(ALT&&nm(ALT.name)===nm(name))return ALT;
-  const a=ALT={name,list:[],done:false,n:CUR.length,cnt:0,subs:[]},q=CUR.slice(),k=nm(name);
+function altFind(name){  // 结果按 配置+片名 保留（内存 + 服务器 /api/altcache），边搜边出
+  const k=nm(name),ck=CUR.map(s=>s.key).join('|')+'#'+k;
+  if(ALT&&ALT.ck===ck)return ALT;
+  let c=ALTS.get(ck);if(c){ALT=c;return c}
+  const a=ALT={name,list:[],done:false,n:CUR.length,cnt:0,subs:[],ck,load:true};ALTS.set(ck,a);
   const tell=()=>a.subs.forEach(f=>f());
-  const worker=async()=>{while(q.length&&ALT===a){const s=q.shift();
-    try{const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),10000);
-      const d=await api(`/api/vod?key=${encodeURIComponent(s.key)}&wd=${encodeURIComponent(name)}&pg=1`,{signal:ctl.signal});clearTimeout(tm);
-      const v=(d&&d.list||[]).find(x=>nm(x.vod_name)===k);
-      if(v&&ALT===a)a.list.push({key:s.key,id:String(v.vod_id),rm:v.vod_remarks||''})}catch(e){}
-    a.cnt++;tell()}};
-  Promise.all(Array.from({length:8},worker)).then(()=>{a.done=true;tell()});
+  const search=()=>{const q=CUR.slice();
+    const worker=async()=>{while(q.length&&ALTS.get(ck)===a){const s=q.shift();
+      try{const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),10000);
+        const d=await api(`/api/vod?key=${encodeURIComponent(s.key)}&wd=${encodeURIComponent(name)}&pg=1`,{signal:ctl.signal});clearTimeout(tm);
+        const v=(d&&d.list||[]).find(x=>nm(x.vod_name)===k);
+        if(v&&ALTS.get(ck)===a)a.list.push({key:s.key,id:String(v.vod_id),rm:v.vod_remarks||''})}catch(e){}
+      a.cnt++;tell()}};
+    Promise.all(Array.from({length:8},worker)).then(()=>{if(ALTS.get(ck)!==a)return;a.done=true;tell();
+      post('/api/altcache',{ck,name,n:a.n,list:a.list}).catch(()=>{})})};
+  api('/api/altcache?ck='+encodeURIComponent(ck)).then(r=>{if(ALTS.get(ck)!==a)return;a.load=false;
+    if(r&&Array.isArray(r.list)){a.list=r.list;a.n=r.n||a.n;a.cnt=a.n;a.done=true;tell()}else search()}).catch(()=>{a.load=false;search()});
   return a;
 }
 function goSrc(k,id){if(!onVod())return;location.replace(`#/v/${encodeURIComponent(k)}/${encodeURIComponent(id)}`)}
 function renderAlt(){const a=ALT,b=$('#alt');if(!a||b.style.display==='none')return;
-  b.innerHTML=`<div class="st" style="padding:4px 0">${a.done?`${a.n} 个站里 ${a.list.length} 个有这部`:`查找中 ${a.cnt}/${a.n}，找到 ${a.list.length} 个`}</div>`+
+  b.innerHTML=`<div class="st" style="padding:4px 0">${a.load?'读取保存的结果…':a.done?`${a.n} 个站里 ${a.list.length} 个有这部 <a id="altre" style="color:#e50914;margin-left:8px;cursor:pointer">重新搜索</a>`:`查找中 ${a.cnt}/${a.n}，找到 ${a.list.length} 个`}</div>`+
     a.list.map(x=>`<div class="si${x.key===st.vod.key?' cur':''}" data-k="${esc(x.key)}" data-id="${esc(x.id)}"><div class="n"><b>${esc(siteName(x.key))}</b><small>${esc(x.rm)}</small></div><div class="r">${x.key===st.vod.key?'当前':(AUTO.keys.has(x.key)?'<span class="bad">已试过</span>':'')}</div></div>`).join('')}
 $('#balt').onclick=()=>{const b=$('#alt');if(b.style.display!=='none'){b.style.display='none';return}
   if(!st.vod)return;b.style.display='block';const a=altFind(st.vod.vod_name);if(!a.subs.includes(renderAlt))a.subs.push(renderAlt);renderAlt()};
-$('#alt').onclick=e=>{const r=e.target.closest('.si');if(!r||r.dataset.k===st.vod.key)return;saveHist();goSrc(r.dataset.k,r.dataset.id)};
+$('#alt').onclick=e=>{if(e.target.id==='altre'){const a=ALT;ALTS.delete(a.ck);ALT=null;api('/api/altcache?ck='+encodeURIComponent(a.ck),{method:'DELETE'}).catch(()=>{}).then(()=>{const b=altFind(st.vod.vod_name);b.subs.push(renderAlt);renderAlt()});return}
+  const r=e.target.closest('.si');if(!r||r.dataset.k===st.vod.key)return;saveHist();KEEPALT=true;goSrc(r.dataset.k,r.dataset.id)};
 function fail(msg){
   const vod=st.vod;if(!vod||!onVod())return;
   if(LS.auto==='0'){setSt(msg+'，换个线路或点「换源」试试');return}
@@ -534,8 +547,9 @@ function next(){const g=st.vod&&st.vod.groups[st.from];if(g&&st.ep+1<g.eps.lengt
 function prev(){if(st.vod&&st.ep>0)play(st.from,st.ep-1,0)}
 let OVT=0,TT=0;
 // 点画面显示：右上角全屏按钮（一直可用）+ 全屏时底部的 ⏮ 选集 ⏭
-const hideOv=()=>$('#box').classList.remove('ui');
-function showOv(){$('#box').classList.add('ui');clearTimeout(OVT);OVT=setTimeout(hideOv,3500)}
+const hideOv=()=>{clearTimeout(OVT);$('#box').classList.remove('ui')};
+let CRD=false;  // 正在拖进度条
+function showOv(){$('#box').classList.add('ui');clearTimeout(OVT);OVT=setTimeout(()=>{if(!V.paused&&!CRD)hideOv()},4000)}
 
 function notice(big,small){const e=$('#toast');e.textContent='';const a=document.createElement('div');a.className='a';a.textContent=big;e.append(a);
   if(small!=null){const b=document.createElement('div');b.className='b';b.textContent=small;e.append(b)}clearTimeout(TT);e.style.display='block';e.style.opacity='1'}
@@ -543,6 +557,19 @@ function noticeOff(){const e=$('#toast');e.style.opacity='0';clearTimeout(TT);TT
 function toast(t){notice(t);TT=setTimeout(noticeOff,900)}
 const fmtT=x=>{if(isNaN(x)||x===Infinity)return'LIVE';const h=Math.floor(x/3600),m=Math.floor(x%3600/60),s=Math.floor(x%60);return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}`};
 $('#ov').onclick=e=>e.stopPropagation();
+// 自己的控制条：点画面就出来，暂停时一直显示，拖动时不隐藏
+(()=>{const cr=$('#cr'),liveV=()=>V.duration===Infinity||isNaN(V.duration);
+  const upd=()=>{$('#cpp').textContent=V.paused?'▶':'⏸';$('#cd').textContent=liveV()?'LIVE':fmtT(V.duration);cr.disabled=liveV();
+    if(!CRD){$('#ct').textContent=fmtT(V.currentTime||0);cr.value=liveV()||!V.duration?0:Math.round(V.currentTime/V.duration*1000)}};
+  ['timeupdate','durationchange','loadedmetadata','play','pause','emptied'].forEach(x=>V.addEventListener(x,upd));
+  V.addEventListener('pause',()=>{if(V.currentSrc)showOv()});
+  $('#cpp').onclick=e=>{e.stopPropagation();if(V.paused)V.play().catch(()=>{});else V.pause();showOv()};
+  $('#cb').onclick=e=>e.stopPropagation();
+  const st0=()=>{CRD=true;clearTimeout(OVT)},end=()=>{if(!CRD)return;CRD=false;if(!liveV()&&V.duration)V.currentTime=cr.value/1000*V.duration;showOv()};
+  cr.addEventListener('touchstart',st0,{passive:true});cr.addEventListener('mousedown',st0);
+  cr.addEventListener('input',()=>{CRD=true;clearTimeout(OVT);if(V.duration&&!liveV())$('#ct').textContent=fmtT(cr.value/1000*V.duration)});
+  cr.addEventListener('change',end);cr.addEventListener('touchend',end);cr.addEventListener('mouseup',end);
+})();
 $('#oprev').onclick=e=>{e.stopPropagation();showOv();if(st.ep>0)prev();else toast('已经是第一集')};
 $('#onext').onclick=e=>{e.stopPropagation();showOv();const g=st.vod&&st.vod.groups[st.from];if(g&&st.ep+1<g.eps.length)next();else toast('已经是最后一集')};
 function renderSel(){const g=st.vod&&st.vod.groups[st.from];if(!g)return;
@@ -556,7 +583,7 @@ $('#sell').onclick=e=>{const b=e.target.closest('button');if(!b)return;$('#selp'
   const live=()=>V.duration===Infinity||isNaN(V.duration)||!V.currentSrc;
   D.addEventListener('touchstart',e=>{type='';moved=false;if(e.touches.length>1||!onVod()){skip=true;inBox=false;type='x';return}
     const el=e.target;inBox=g.contains(el);
-    skip=!inBox&&!!el.closest('#froms,#selp,input,textarea,select');  // 能左右滚动的列表和输入框不抢
+    skip=!inBox&&!!el.closest('#froms,#selp,#cb,input,textarea,select');  // 能左右滚动的列表和输入框不抢
     const t=e.touches[0];sx=t.clientX;sy=t.clientY;bt=V.currentTime;bv=V.volume},{passive:true});
   D.addEventListener('touchmove',e=>{if(e.touches.length>1){if(type==='seek'||type==='vol')noticeOff();type='x';return}
     if(type==='x')return;
@@ -568,7 +595,7 @@ $('#sell').onclick=e=>{const b=e.target.closest('button');if(!b)return;$('#selp'
       notice(`${d>=0?'⏩':'⏪'} ${Math.abs(d)}s`,`${fmtT(tgt)} / ${fmtT(V.duration)}`)}
     else if(type==='vol'){e.preventDefault();const v=Math.max(0,Math.min(1,bv-my/(g.clientHeight*0.8)));V.volume=v;if(v>0&&V.muted)V.muted=false;
       const p=Math.round(v*100);notice(`${p===0?'🔇':p<50?'🔉':'🔊'} 音量`,p+'%')}},{passive:false});
-  const tap=()=>{if($('#box').classList.contains('ui')){hideOv();return}showOv();V.controls=false;V.controls=true};  // 重设 controls 让浏览器底部控制条重新显示
+  const tap=()=>{if($('#box').classList.contains('ui')){hideOv();return}showOv()};  // 点一下出控制条，再点收起
   D.addEventListener('touchend',e=>{if(type==='seek'&&!live())V.currentTime=Math.max(0,Math.min(tgt,V.duration));
     if(type==='seek'||type==='vol'){noticeOff();if(e.cancelable)e.preventDefault()}
     else if(!moved&&inBox){e.preventDefault();tap()}type='';moved=false});
