@@ -239,24 +239,38 @@ $('#cats').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   $('#cats').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));st.cat=b.dataset.t;st.kw='';reload()};
 // ---------- 聚合搜索：当前配置的全部采集站 ----------
 let QGEN=0;
-async function search(){
+const qck=kw=>CUR.map(s=>s.key).join('|')+'#'+kw.toLowerCase().replace(/\s+/g,'');
+function qGroup(g){return `<div class="qh"><span>${esc(g.name)}</span><span>${g.items.length}${g.more?'+':''}</span></div><div class="grid2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;padding:8px 10px">`+
+  g.items.map(v=>`<div class="card" data-k="${esc(g.key)}" data-id="${esc(v.id)}"><div class="pic" style="background-image:url('${esc(v.pic)}')"></div><div class="rm">${esc(v.rm)}</div><div class="nm">${esc(v.name)}</div></div>`).join('')+'</div>'}
+const qRe=' <a id="qre" style="color:#e50914;margin-left:8px;cursor:pointer">重新搜索</a>';
+async function search(force){
   const kw=$('#kw').value.trim();if(!kw)return;$('#kw').blur();
-  const gen=++QGEN, q=CUR.map(s=>s);let done=0,hit=0,n=q.length;
-  $('#qres').innerHTML='';$('#qst').textContent=n?`搜索中 0/${n}`:'当前配置没有可用站';
+  const gen=++QGEN, q=CUR.map(s=>s), ck=qck(kw);let done=0,hit=0,n=q.length;const G=[];
+  $('#qres').innerHTML='';$('#qstop').style.display='none';
+  if(force===true)await api('/api/qcache?ck='+encodeURIComponent(ck),{method:'DELETE'}).catch(()=>{});
+  else{$('#qst').textContent='读取保存的结果…';
+    let r=null;try{r=await api('/api/qcache?ck='+encodeURIComponent(ck))}catch(e){}
+    if(gen!==QGEN)return;
+    if(r&&Array.isArray(r.list)){$('#qres').innerHTML=r.list.map(qGroup).join('');
+      const d=new Date(r.t*1000),tt=`${d.getMonth()+1}-${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      $('#qst').innerHTML=`已保存的结果（${tt}）：${r.n||n} 个站，${r.list.length} 个有结果`+qRe;return}}
+  $('#qst').textContent=n?`搜索中 0/${n}`:'当前配置没有可用站';
   $('#qstop').style.display=n?'':'none';
-  $('#qstop').onclick=()=>{if(gen!==QGEN)return;QGEN++;$('#qstop').style.display='none';$('#qst').textContent=`已停止：搜了 ${done}/${n} 个站，${hit} 个站有结果`};
+  $('#qstop').onclick=()=>{if(gen!==QGEN)return;QGEN++;$('#qstop').style.display='none';$('#qst').innerHTML=`已停止：搜了 ${done}/${n} 个站，${hit} 个站有结果`+qRe};
   const worker=async()=>{while(q.length&&gen===QGEN){const s=q.shift();let d=null;
     try{const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),15000);
       d=await api(`/api/vod?key=${encodeURIComponent(s.key)}&wd=${encodeURIComponent(kw)}&pg=1`,{signal:ctl.signal});clearTimeout(tm)}catch(e){}
     if(gen!==QGEN)return;done++;
     const nk=kw.toLowerCase().replace(/\s+/g,''),L=(d&&d.list||[]).filter(v=>v.vod_name&&v.vod_name.toLowerCase().replace(/\s+/g,'').includes(nk));
-    if(L.length){hit++;
-      $('#qres').insertAdjacentHTML('beforeend',`<div class="qh"><span>${esc(s.name)}</span><span>${L.length}${d.pagecount>1?'+':''}</span></div><div class="grid2" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;padding:8px 10px">`+
-        L.map(v=>`<div class="card" data-k="${esc(s.key)}" data-id="${esc(String(v.vod_id))}"><div class="pic" style="background-image:url('${esc(v.vod_pic||'')}')"></div><div class="rm">${esc(v.vod_remarks||'')}</div><div class="nm">${esc(v.vod_name)}</div></div>`).join('')+'</div>')}
-    $('#qst').textContent=done<n?`搜索中 ${done}/${n}，${hit} 个站有结果`:`搜完 ${n} 个站，${hit} 个站有结果`+(hit?'':'，换个关键词试试');if(done>=n)$('#qstop').style.display='none'}};
+    if(L.length){hit++;const g={key:s.key,name:s.name,more:d.pagecount>1,items:L.map(v=>({id:String(v.vod_id),name:v.vod_name,pic:v.vod_pic||'',rm:v.vod_remarks||''}))};G.push(g);
+      $('#qres').insertAdjacentHTML('beforeend',qGroup(g))}
+    if(done<n)$('#qst').textContent=`搜索中 ${done}/${n}，${hit} 个站有结果`;
+    else{$('#qst').innerHTML=`搜完 ${n} 个站，${hit} 个站有结果`+(hit?'':'，换个关键词试试')+qRe;$('#qstop').style.display='none';
+      post('/api/qcache',{ck,name:kw,n,list:G}).catch(()=>{})}}};
   await Promise.all(Array.from({length:8},worker));
 }
-$('#go').onclick=search; $('#kw').onkeydown=e=>{if(e.key==='Enter')search()};
+$('#qst').onclick=e=>{if(e.target.id==='qre')search(true)};
+$('#go').onclick=()=>search(); $('#kw').onkeydown=e=>{if(e.key==='Enter')search()};
 $('#bq').onclick=()=>location.hash='#/q';$('#srch .back').onclick=()=>goBack();
 $('#qres').onclick=e=>{const c=e.target.closest('.card');if(c)location.hash=`#/v/${encodeURIComponent(c.dataset.k)}/${encodeURIComponent(c.dataset.id)}`};
 $('#grid').onclick=e=>{const c=e.target.closest('.card');if(c)location.hash=`#/v/${encodeURIComponent(st.site)}/${encodeURIComponent(c.dataset.id)}`};
