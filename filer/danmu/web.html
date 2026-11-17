@@ -465,7 +465,8 @@ function fail(msg){
   if(!pick()){const f=()=>{if(pick())a.subs=a.subs.filter(y=>y!==f)};a.subs.push(f)}
 }
 $('#froms').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;renderFroms(i);play(i,Math.min(st.ep,st.vod.groups[i].eps.length-1),$('#v').currentTime)};
-$('#eps').onclick=e=>{const b=e.target.closest('button');if(b)play(st.from,+b.dataset.i,0)};
+// 点正片/第几集：先全屏（要在点击里同步调用），正在播的这集不重新播，别的集切过去
+$('#eps').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;goFs(true);if(i!==st.ep||!V.currentSrc)play(st.from,i,0);else if(V.paused)V.play().catch(()=>{})};
 
 let hls=null, triedPx=false, HDR='';
 const V=$('#v');
@@ -562,10 +563,11 @@ setInterval(()=>{if(st.vod&&!V.paused)saveHist()},10000);
 V.addEventListener('pause',()=>saveHist());
 $('#bpx').classList.toggle('on',st.px);
 $('#bpx').onclick=()=>{st.px=!st.px;LS.px=st.px?'1':'0';$('#bpx').classList.toggle('on',st.px);if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
-$('#bfs').onclick=async()=>{const b=$('#box');
-  if(document.fullscreenElement){document.exitFullscreen();return}
+async function goFs(only){const b=$('#box');
+  if(document.fullscreenElement){if(!only)document.exitFullscreen();return}
   if(b.requestFullscreen){await b.requestFullscreen().catch(()=>{});try{await screen.orientation.lock('landscape')}catch(e){}}
-  else if(V.webkitEnterFullscreen)V.webkitEnterFullscreen()};
+  else if(V.webkitEnterFullscreen){try{V.webkitEnterFullscreen()}catch(e){}}}
+$('#bfs').onclick=()=>goFs(false);
 
 // ---------- 弹幕 ----------
 let DM=[],dmi=0,lanes=[],dmTok=0;
