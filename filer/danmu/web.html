@@ -62,6 +62,10 @@ button.on{background:#e50914;border-color:#e50914}
 #ov{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;display:flex;gap:12px;align-items:center;pointer-events:none;opacity:0;transition:opacity .2s}
 #cb{position:absolute;left:0;right:0;bottom:0;z-index:4;display:flex;align-items:center;gap:8px;padding:14px 10px 8px;background:linear-gradient(transparent,#000c);opacity:0;pointer-events:none;transition:opacity .2s;color:#fff;font-size:12px}
 #box.ui #cb{opacity:1;pointer-events:auto}
+#ftit{position:absolute;left:0;right:0;top:0;z-index:4;padding:10px 14px 18px;background:linear-gradient(#000c,transparent);font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;pointer-events:none;transition:opacity .2s}
+#box:not(:fullscreen) #ftit{display:none}#box.ui #ftit{opacity:1}
+#epnow{display:flex;align-items:center;gap:8px;margin:6px 0}#epnow b{flex:1;text-align:center;font-weight:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#epnow button{padding:6px 12px;white-space:nowrap}#epnow button:disabled{opacity:.35}
 #cb button{background:none;border:0;color:#fff;font-size:20px;width:36px;height:36px;padding:0;flex:none}
 #cb span{flex:none;font-variant-numeric:tabular-nums;min-width:38px;text-align:center}
 #cr{flex:1;min-width:0;height:28px;accent-color:#e50914;margin:0}
@@ -146,6 +150,7 @@ button.on{background:#e50914;border-color:#e50914}
     <div id="ov"><button id="oprev" title="上一集">⏮</button><button id="osel">选集</button><button id="onext" title="下一集">⏭</button></div>
     <div id="cb"><button id="cpp">▶</button><span id="ct">0:00</span><input id="cr" type="range" min="0" max="1000" step="1" value="0"><span id="cd">0:00</span></div>
     <div id="toast"></div>
+    <div id="ftit"></div>
     <div id="selp"><div class="sh"><b>选集</b><button id="selx">✕</button></div><div id="sell"></div></div>
   </div>
   <div id="bar">
@@ -158,6 +163,7 @@ button.on{background:#e50914;border-color:#e50914}
     <button id="bbuf">缓冲</button>
   </div>
   <div class="st" id="st" style="padding:0 10px"></div>
+  <div id="epnow" style="display:none;padding:0 10px"><button id="eprev">‹ 上一集</button><b id="epcur"></b><button id="enext">下一集 ›</button></div>
   <div id="bufset" class="sbox" style="display:none"></div>
   <div id="alt"></div>
   <div id="dmset" class="sbox" style="display:none"></div>
@@ -431,7 +437,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)saveHist(tr
 // ---------- 详情 / 播放 ----------
 async function openVod(key,id){
   const nav=NAV;
-  $('#info').innerHTML='<div class="msg">加载中…</div>';$('#froms').innerHTML='';$('#eps').innerHTML='';$('#dtitle').textContent='';
+  $('#info').innerHTML='<div class="msg">加载中…</div>';$('#froms').innerHTML='';$('#eps').innerHTML='';$('#dtitle').textContent='';$('#epnow').style.display='none';$('#ftit').textContent='';
   let d; try{d=await api(`/api/vod?key=${encodeURIComponent(key)}&ids=${encodeURIComponent(id)}`)}catch(e){}
   if(nav!==NAV)return;  // 加载时已经返回/换了页面
   const v=d&&d.list&&d.list[0];
@@ -536,7 +542,7 @@ function play(fi,ei,t0){
       if(!r||!r.url){fail((r&&r.error)||'解析失败');return}
       HDR=r.header&&Object.keys(r.header).length?JSON.stringify(r.header):'';load(r.url,t0||0,st.px||!!HDR)}).catch(()=>{if(st.vod===vod&&st.from===fi&&st.ep===ei)fail('解析失败')});
   }else{HDR='';load(ep.u,t0||0,st.px)}
-  const isMovie=st.vod.groups[fi].eps.length===1;
+  const isMovie=st.vod.groups[fi].eps.length===1;showEp();
   loadDm(st.vod.vod_name,isMovie?'':ep.n);
 }
 const kindOf=u=>/\.m3u8(\?|#|$)/i.test(u)?'hls':(/\.(mp4|mkv|webm|flv|mov|m4v)(\?|#|$)/i.test(u)?'file':'');
@@ -605,6 +611,12 @@ $('#ov').onclick=e=>e.stopPropagation();
   cr.addEventListener('input',()=>{CRD=true;clearTimeout(OVT);if(V.duration&&!liveV())$('#ct').textContent=fmtT(cr.value/1000*V.duration)});
   cr.addEventListener('change',end);cr.addEventListener('touchend',end);cr.addEventListener('mouseup',end);
 })();
+function showEp(){const v=st.vod,g=v&&v.groups[st.from],ep=g&&g.eps[st.ep];if(!ep)return;const multi=g.eps.length>1;
+  $('#ftit').textContent=v.vod_name+(multi?'  '+ep.n:'');
+  $('#epnow').style.display=multi?'flex':'none';$('#epcur').textContent=`正在播：${ep.n}（${st.ep+1}/${g.eps.length}）`;
+  $('#eprev').disabled=st.ep<=0;$('#enext').disabled=st.ep+1>=g.eps.length}
+$('#eprev').onclick=()=>{if(st.ep>0)prev()};
+$('#enext').onclick=()=>{const g=st.vod&&st.vod.groups[st.from];if(g&&st.ep+1<g.eps.length)next()};
 $('#oprev').onclick=e=>{e.stopPropagation();showOv();if(st.ep>0)prev();else toast('已经是第一集')};
 $('#onext').onclick=e=>{e.stopPropagation();showOv();const g=st.vod&&st.vod.groups[st.from];if(g&&st.ep+1<g.eps.length)next();else toast('已经是最后一集')};
 function renderSel(){const g=st.vod&&st.vod.groups[st.from];if(!g)return;
