@@ -448,6 +448,8 @@ async function openVod(key,id){
   // 播放记录按片名合并：别的配置/采集站看过的，换到这里按集名接着播
   let saved=null,same=true;try{const r=await api(`/api/history?key=${encodeURIComponent(key)}&id=${encodeURIComponent(id)}&name=${encodeURIComponent(v.vod_name)}`);if(r){same=r.key===key&&String(r.id)===String(id);saved={f:r.f,e:r.e,t:r.t,en:r.en}}}catch(e){}
   if(nav!==NAV)return;
+  if(CARRY&&nm(CARRY.name)===nm(v.vod_name)){saved={f:CARRY.f,e:CARRY.e,t:CARRY.t,en:CARRY.en};same=false}  // 换源：接着刚才那集和进度
+  CARRY=null;
   if(!saved)saved=JSON.parse(LS['h_'+key+'_'+id]||'null');
   let fi=v.groups.findIndex(g=>/m3u8/i.test(g.f)||/\.m3u8/i.test(g.eps[0].u)); if(fi<0) fi=0;
   if(saved&&same&&v.groups[saved.f]) fi=saved.f;
@@ -465,7 +467,7 @@ function renderFroms(fi){
 // ---------- 换源：同名视频在当前配置其它采集站 ----------
 const nm=t=>String(t||'').toLowerCase().replace(/[\s\p{P}\p{S}]/gu,'');
 const siteName=k=>NAMES[k]||String(k).replace(/^c\d+:/,'');
-let KEEPALT=false,ALT=null, ALTS=new Map(), AUTO={name:'',keys:new Set()};
+let CARRY=null,KEEPALT=false,ALT=null, ALTS=new Map(), AUTO={name:'',keys:new Set()};
 $('#bauto').classList.toggle('on',LS.auto!=='0');
 $('#bauto').onclick=()=>{LS.auto=LS.auto==='0'?'1':'0';$('#bauto').classList.toggle('on',LS.auto!=='0');setSt(LS.auto==='0'?'已关闭自动换源':'已开启：播放失败会自动换线路/采集站')};
 function altFind(name){  // 结果按 配置+片名 保留（内存 + 服务器 /api/altcache），边搜边出
@@ -490,7 +492,7 @@ function altFind(name){  // 结果按 配置+片名 保留（内存 + 服务器 
     if(r&&Array.isArray(r.list)){a.list=r.list;a.n=r.n||a.n;a.cnt=r.cnt!=null?r.cnt:a.n;a.done=true;if(a.cnt<a.n)a.stop=true;tell()}else search()}).catch(()=>{a.load=false;search()});
   return a;
 }
-function goSrc(k,id){if(!onVod())return;location.replace(`#/v/${encodeURIComponent(k)}/${encodeURIComponent(id)}`)}
+function goSrc(k,id){if(!onVod())return;{const v=st.vod,g=v&&v.groups&&v.groups[st.from],ep=g&&g.eps[st.ep];CARRY=ep?{name:v.vod_name,f:st.from,e:st.ep,en:g.eps.length>1?ep.n:'',t:Math.floor(V.currentTime>3?V.currentTime:(lastT||0))}:null}location.replace(`#/v/${encodeURIComponent(k)}/${encodeURIComponent(id)}`)}
 function renderAlt(){const a=ALT,b=$('#alt');if(!a||b.style.display==='none')return;
   b.innerHTML=`<div class="st" style="padding:4px 0">${a.load?'读取保存的结果…':a.stop?`已停止：搜了 ${a.cnt}/${a.n}，找到 ${a.list.length} 个 <a id="altre" style="color:#e50914;margin-left:8px;cursor:pointer">重新搜索</a>`:a.done?`${a.n} 个站里 ${a.list.length} 个有这部 <a id="altre" style="color:#e50914;margin-left:8px;cursor:pointer">重新搜索</a>`:`查找中 ${a.cnt}/${a.n}，找到 ${a.list.length} 个 <a id="altstop" style="color:#e50914;margin-left:8px;cursor:pointer">停止搜索</a>`}</div>`+
     a.list.map(x=>`<div class="si${x.key===st.vod.key?' cur':''}" data-k="${esc(x.key)}" data-id="${esc(x.id)}"><div class="n"><b>${esc(siteName(x.key))}</b><small>${esc(x.rm)}</small></div><div class="r">${x.key===st.vod.key?'当前':(AUTO.keys.has(x.key)?'<span class="bad">已试过</span>':'')}</div></div>`).join('')}
@@ -515,7 +517,7 @@ function fail(msg){
 }
 $('#froms').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;renderFroms(i);play(i,Math.min(st.ep,st.vod.groups[i].eps.length-1),$('#v').currentTime)};
 // 点正片/第几集：先全屏（要在点击里同步调用），正在播的这集不重新播，别的集切过去
-$('#eps').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;goFs(true);if(i!==st.ep||!V.currentSrc)play(st.from,i,0);else if(V.paused)V.play().catch(()=>{})};
+$('#eps').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;if(i!==st.ep||!V.currentSrc)play(st.from,i,0);else if(V.paused)V.play().catch(()=>{})};
 
 let hls=null, triedPx=false, HDR='';
 const V=$('#v');
@@ -677,10 +679,13 @@ $('#dmset').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   if(b.id==='dmrst'){for(const k of Object.keys(DMC))delete DMC[k];Object.assign(DMC,{area:75,op:100,fs:100,sp:100,max:80,off:0,top:1,bot:1,color:1});dmApply();dmPanel();seekDm();return}
   const k=b.dataset.b;if(k){DMC[k]=DMC[k]?0:1;b.classList.toggle('on',!!DMC[k]);dmApply()}};
 dmApply();
+let DMK={k:'',d:null};  // 同一部同一集的弹幕留着，换源/换线路不重新拉
 async function loadDm(name,ep){
-  const tok=++dmTok;dmReset([]);$('#bdm').textContent='弹幕…';
+  const tok=++dmTok,ck=nm(name)+'|'+(String(ep).match(/\d+/)||[ep])[0];dmReset([]);
+  if(DMK.k===ck&&DMK.d){const d=DMK.d.slice();dmReset(d);seekDm();$('#bdm').textContent=d.length?`弹幕 ${d.length}`:'无弹幕';return}
+  $('#bdm').textContent='弹幕…';
   try{const d=await api(`/api/dm?name=${encodeURIComponent(name)}&ep=${encodeURIComponent(ep)}`);
-    if(tok!==dmTok)return;d.sort((a,b)=>a[0]-b[0]);dmReset(d);seekDm();$('#bdm').textContent=d.length?`弹幕 ${d.length}`:'无弹幕'}
+    if(tok!==dmTok)return;d.sort((a,b)=>a[0]-b[0]);DMK={k:ck,d:d.slice()};dmReset(d);seekDm();$('#bdm').textContent=d.length?`弹幕 ${d.length}`:'无弹幕'}
   catch(e){if(tok===dmTok)$('#bdm').textContent='无弹幕'}
 }
 function seekDm(){box.innerHTML='';lanes=[];const t=V.currentTime+(DMC.off||0);dmi=0;while(dmi<DM.length&&DM[dmi][0]<t)dmi++}
