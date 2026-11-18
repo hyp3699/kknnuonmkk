@@ -551,34 +551,45 @@ function play(fi,ei,t0){
 // ---------- 去广告：m3u8 里用 #EXT-X-DISCONTINUITY 隔开插进来的广告段 ----------
 const adOn=()=>LS.noad!=='0';let ADCUT={n:0,s:0};
 function segSig(u){let x=String(u||'');const m=x.match(/^\/px\?u=([^&]+)/);if(m){try{x=decodeURIComponent(m[1])}catch(e){}}
-  try{const p=new URL(x,location.href);x=p.host+p.pathname}catch(e){}
+  try{x=new URL(x,location.href).pathname}catch(e){}  // 只看路径，不看域名（正片常分在几个 CDN 域名上）
   const i=x.lastIndexOf('/'),dir=x.slice(0,i),f=x.slice(i+1);
   const dot=f.lastIndexOf('.'),base=dot>0?f.slice(0,dot):f,ext=dot>0?f.slice(dot+1):'';
-  // 文件名只看“样子”：随机串只记长度，数字序号归一，这样同一部片子的各段签名一样
-  const shape=/^[A-Za-z0-9_-]{6,}$/.test(base)&&/[A-Za-z]/.test(base)&&(/[0-9]/.test(base)||/[a-z]/.test(base)&&/[A-Z]/.test(base))&&!/^[a-z_-]+[0-9]+$/i.test(base)?'R'+base.length:base.replace(/[0-9]+/g,'0');
-  return dir+'|'+shape+'|'+ext}
+  return {sig:dir+'|'+ext.toLowerCase(),len:base.length}}
 function adStrip(txt){
   if(!adOn()||typeof txt!=='string'||txt.indexOf('#EXTINF')<0||txt.indexOf('#EXT-X-DISCONTINUITY')<0||/#EXT-X-PLAYLIST-TYPE:EVENT|#EXT-X-STREAM-INF/i.test(txt))return txt;
   const L=txt.split(/\r?\n/),head=[],blocks=[];let cur=null,tail=[],key='';
   for(const ln of L){const t=ln.trim();
     if(!cur&&!/^#EXTINF|^#EXT-X-DISCONTINUITY$|^#EXT-X-KEY|^#EXT-X-MAP/.test(t)&&!(t&&!t.startsWith('#'))){if(t==='#EXT-X-ENDLIST')tail.push(ln);else head.push(ln);continue}
-    if(t==='#EXT-X-DISCONTINUITY'){if(cur&&cur.segs.length)blocks.push(cur);cur={lines:[],segs:[],dur:0,key};continue}
+    if(t==='#EXT-X-DISCONTINUITY'){if(cur&&cur.segs.length)blocks.push(cur);cur={lines:[],segs:[],dur:0,durs:[],key};continue}
     if(t==='#EXT-X-ENDLIST'){tail.push(ln);continue}
-    if(!cur)cur={lines:[],segs:[],dur:0,key};
+    if(!cur)cur={lines:[],segs:[],dur:0,durs:[],key};
     if(t.startsWith('#EXT-X-KEY'))key=ln;
     cur.lines.push(ln);
-    if(t.startsWith('#EXTINF')){cur.dur+=parseFloat(t.slice(8))||0}
+    if(t.startsWith('#EXTINF')){const d=parseFloat(t.slice(8))||0;cur.dur+=d;cur.durs.push(d)}
     else if(t&&!t.startsWith('#'))cur.segs.push(t)}
   if(cur&&cur.segs.length)blocks.push(cur);
   if(blocks.length<2)return txt;
   const total=blocks.reduce((a,b)=>a+b.dur,0);
-  const sigDur={};blocks.forEach(b=>{b.sig=segSig(b.segs[0]);sigDur[b.sig]=(sigDur[b.sig]||0)+b.dur});
+  const sigDur={};blocks.forEach(b=>{const g=segSig(b.segs[0]);b.sig=g.sig;b.len=g.len;sigDur[b.sig]=(sigDur[b.sig]||0)+b.dur});
   const main=Object.keys(sigDur).sort((a,b)=>sigDur[b]-sigDur[a])[0];
   if(sigDur[main]<total*0.6)return txt;  // 看不出哪个是正片，不动
-  const AD=/\/(adjump|ad|ads|guanggao)\//i;
-  const keep=blocks.filter(b=>!(b.dur<=120&&b.dur<total*0.3&&(b.sig!==main||AD.test(b.segs[0]))));
-  const cut=blocks.length-keep.length;if(!cut||!keep.length)return txt;
-  ADCUT={n:cut,s:Math.round(blocks.filter(b=>!keep.includes(b)).reduce((a,b)=>a+b.dur,0))};
+  const ml=blocks.filter(b=>b.sig===main).sort((a,b)=>b.dur-a.dur)[0].len;  // 正片文件名长度
+  const AD=/\/(adjump|ad|ads|guanggao)\//i,LONG=120;
+  // 同一次转码的片段时长会反复出现；广告是另一次转码，时长几乎对不上正片
+  const MDS=new Set();blocks.forEach(b=>{if(b.sig===main&&b.dur>=LONG)b.durs.forEach(x=>MDS.add(x.toFixed(3)))});
+  const durOv=b=>{const d=b.durs.length>1?b.durs.slice(0,-1):b.durs;return d.filter(x=>MDS.has(x.toFixed(3))).length/d.length};
+  const md=blocks.map(b=>b.dur).sort((a,b)=>a-b)[blocks.length>>1],fewCuts=md>=60;  // 正片本身切成很多小段的站（如意、西瓜）不用“夹在中间”这条
+  blocks.forEach((b,i)=>{
+    if(b.dur>LONG||b.dur>=total*0.45)return;
+    if(b.sig!==main||Math.abs(b.len-ml)>3||AD.test(b.segs[0])){b.ad=1;return}  // 另一目录/文件名长短明显不同：插进来的
+    // 同目录同文件名样子：只有“很短 + 前后都夹着长正片”才算（非凡这类把广告切进同一目录）
+    const p=blocks[i-1],n=blocks[i+1];
+    if(fewCuts&&b.dur<=35&&p&&n&&p.dur>=LONG&&n.dur>=LONG&&p.sig===main&&n.sig===main&&Math.abs(p.len-b.len)<=3&&durOv(b)<0.2)b.ad=1});
+  const keep=blocks.filter(b=>!b.ad),cut=blocks.length-keep.length;
+  if(!cut||!keep.length)return txt;
+  const cs=blocks.filter(b=>b.ad).reduce((a,b)=>a+b.dur,0);
+  if(cs>total*0.5||cs>600)return txt;  // 要删的太多，宁可不删
+  ADCUT={n:cut,s:Math.round(cs)};
   const out=[...head];let lk='';keep.forEach((b,i)=>{if(i)out.push('#EXT-X-DISCONTINUITY');if(b.key&&b.key!==lk&&!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY')))out.push(b.key);out.push(...b.lines);b.lines.forEach(x=>{if(x.trim().startsWith('#EXT-X-KEY'))lk=x});if(!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY'))&&b.key)lk=b.key});out.push(...tail);
   return out.join('\n')}
 function adLoader(){const B=Hls.DefaultConfig.loader;
