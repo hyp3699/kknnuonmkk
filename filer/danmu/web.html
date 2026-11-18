@@ -467,8 +467,11 @@ async function openVod(key,id){
   renderFroms(fi); play(fi,ei,saved&&(same?saved.f===fi:true)?saved.t:0);
 }
 function renderFroms(fi){
-  $('#froms').innerHTML=st.vod.groups.length>1?st.vod.groups.map((g,i)=>`<button data-i="${i}" class="${i===fi?'on':''}">${esc(g.f)}</button>`).join(''):'';
-  $('#eps').innerHTML=st.vod.groups[fi].eps.map((e,i)=>`<button data-i="${i}" title="${esc(e.n)}">${esc(e.n)}</button>`).join('');
+  const eps=st.vod.groups[fi].eps,rev=LS.erev==='1';
+  $('#froms').innerHTML=(st.vod.groups.length>1?st.vod.groups.map((g,i)=>`<button data-i="${i}" class="${i===fi?'on':''}">${esc(g.f)}</button>`).join(''):'')+
+    (eps.length>1?`<button id="erev" style="margin-left:auto">${rev?'正序':'倒序'}</button>`:'');
+  const idx=eps.map((e,i)=>i);if(rev)idx.reverse();  // 倒序只改显示顺序，data-i 还是原来的集号
+  $('#eps').innerHTML=idx.map(i=>`<button data-i="${i}" title="${esc(eps[i].n)}" class="${i===st.ep&&fi===st.from?'on':''}">${esc(eps[i].n)}</button>`).join('');
 }
 // ---------- 换源：同名视频在当前配置其它采集站 ----------
 const nm=t=>String(t||'').toLowerCase().replace(/[\s\p{P}\p{S}]/gu,'');
@@ -521,7 +524,7 @@ function fail(msg){
     setSt(`${msg}，正在找其它站 ${a.cnt}/${a.n}…`);return false};
   if(!pick()){const f=()=>{if(pick())a.subs=a.subs.filter(y=>y!==f)};a.subs.push(f)}
 }
-$('#froms').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;renderFroms(i);play(i,Math.min(st.ep,st.vod.groups[i].eps.length-1),$('#v').currentTime)};
+$('#froms').onclick=e=>{const b=e.target.closest('button');if(!b)return;if(b.id==='erev'){LS.erev=LS.erev==='1'?'0':'1';renderFroms(st.from);return}const i=+b.dataset.i;renderFroms(i);play(i,Math.min(st.ep,st.vod.groups[i].eps.length-1),$('#v').currentTime)};
 // 点正片/第几集：先全屏（要在点击里同步调用），正在播的这集不重新播，别的集切过去
 $('#eps').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;if(i!==st.ep||!V.currentSrc)play(st.from,i,0);else if(V.paused)V.play().catch(()=>{})};
 
@@ -533,7 +536,7 @@ function setSt(t){$('#st').textContent=t}
 function play(fi,ei,t0){
   saveHist();
   st.from=fi;st.ep=ei;triedPx=false;lastT=t0||0;
-  $('#eps').querySelectorAll('button').forEach((b,i)=>b.classList.toggle('on',i===ei));
+  $('#eps').querySelectorAll('button').forEach(b=>b.classList.toggle('on',+b.dataset.i===ei));
   const ep=st.vod.groups[fi].eps[ei]; if(!ep) return;
   if(st.vod.t4){  // T4 接口：先让服务器解析出真实地址
     const vod=st.vod;stopPlay();setSt('解析中…');
@@ -674,11 +677,11 @@ $('#bfs').onclick=()=>goFs(false);
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement){$('#selp').classList.remove('on');try{screen.orientation.unlock()}catch(e){}}showOv()});
 
 // ---------- 弹幕 ----------
-let DM=[],dmi=0,lanes=[],dmTok=0;
+let DM=[],dmi=0,lanes=[],dmTok=0,FIXT=[],FIXB=[];
 const box=$('#dm');
 box.classList.toggle('off',!st.dmOn);$('#bdm').classList.toggle('on',st.dmOn);
 $('#bdm').onclick=()=>{st.dmOn=!st.dmOn;LS.dm=st.dmOn?'1':'0';box.classList.toggle('off',!st.dmOn);$('#bdm').classList.toggle('on',st.dmOn)};
-function dmReset(list){DM=list;dmi=0;box.innerHTML='';lanes=[]}
+function dmReset(list){DM=list;dmi=0;box.innerHTML='';lanes=[];FIXT=[];FIXB=[]}
 // 弹幕设置（存在本机）
 const DMC=Object.assign({area:75,op:100,fs:100,sp:100,max:80,off:0,top:1,bot:1,color:1},JSON.parse(LS.dmc||'{}'));
 const DMF=[['area','显示区域',10,100,5,v=>v===100?'全屏':v+'%'],['op','不透明度',10,100,5,v=>v+'%'],['fs','字号',50,200,10,v=>v+'%'],
@@ -689,7 +692,7 @@ function dmPanel(){
     `<div class="srow"><label>显示</label><button data-b="top" class="${DMC.top?'on':''}">顶部弹幕</button><button data-b="bot" class="${DMC.bot?'on':''}">底部弹幕</button><button data-b="color" class="${DMC.color?'on':''}">彩色</button><button id="dmrst" style="margin-left:auto">恢复默认</button></div>`;
 }
 $('#bdms').onclick=()=>{const p=$('#dmset');if(p.style.display==='none'){dmPanel();p.style.display='block'}else p.style.display='none'};
-$('#dmset').oninput=e=>{const k=e.target.dataset.k;if(!k)return;DMC[k]=+e.target.value;$('#v_'+k).textContent=DMF.find(x=>x[0]===k)[5](DMC[k]);dmApply();if(k==='area'||k==='fs')lanes=[];if(k==='off')seekDm()};
+$('#dmset').oninput=e=>{const k=e.target.dataset.k;if(!k)return;DMC[k]=+e.target.value;$('#v_'+k).textContent=DMF.find(x=>x[0]===k)[5](DMC[k]);dmApply();if(k==='area'||k==='fs')seekDm();if(k==='off')seekDm()};
 $('#dmset').onclick=e=>{const b=e.target.closest('button');if(!b)return;
   if(b.id==='dmrst'){for(const k of Object.keys(DMC))delete DMC[k];Object.assign(DMC,{area:75,op:100,fs:100,sp:100,max:80,off:0,top:1,bot:1,color:1});dmApply();dmPanel();seekDm();return}
   const k=b.dataset.b;if(k){DMC[k]=DMC[k]?0:1;b.classList.toggle('on',!!DMC[k]);dmApply()}};
@@ -703,25 +706,38 @@ async function loadDm(name,ep){
     if(tok!==dmTok)return;d.sort((a,b)=>a[0]-b[0]);DMK={k:ck,d:d.slice()};dmReset(d);seekDm();$('#bdm').textContent=d.length?`弹幕 ${d.length}`:'无弹幕'}
   catch(e){if(tok===dmTok)$('#bdm').textContent='无弹幕'}
 }
-function seekDm(){box.innerHTML='';lanes=[];const t=V.currentTime+(DMC.off||0);dmi=0;while(dmi<DM.length&&DM[dmi][0]<t)dmi++}
+function seekDm(){box.innerHTML='';lanes=[];FIXT=[];FIXB=[];const t=V.currentTime+(DMC.off||0);dmi=0;while(dmi<DM.length&&DM[dmi][0]<t)dmi++}
 V.addEventListener('seeked',seekDm);
-V.addEventListener('ratechange',()=>{lanes=[]});  // 倍速：新弹幕按倍速飞
-V.addEventListener('pause',()=>box.classList.add('paused'));
-V.addEventListener('play',()=>box.classList.remove('paused'));
+V.addEventListener('ratechange',seekDm);  // 倍速：清屏重排，避免新旧速度不同撞在一起
+let PT=0;  // 暂停期间弹幕不动，恢复后把各行的占用时间顺延，避免新弹幕叠到停住的弹幕上
+V.addEventListener('pause',()=>{box.classList.add('paused');PT=performance.now()});
+V.addEventListener('play',()=>{box.classList.remove('paused');if(!PT)return;const dt=performance.now()-PT;PT=0;
+  lanes.forEach(L=>{if(L){L.free+=dt;L.end+=dt}});[FIXT,FIXB].forEach(a=>a.forEach((x,i)=>a[i]=x+dt))});
 function shoot(d){
   if(box.childElementCount>=DMC.max)return;
   if((d[1]===4&&!DMC.bot)||(d[1]===5&&!DMC.top))return;
   const W=box.clientWidth,H=box.clientHeight,fs=Math.max(15,Math.min(24,W/32))*DMC.fs/100,lh=fs+6,n=Math.max(1,Math.floor(H*DMC.area/100/lh));
-  const el=document.createElement('div');el.textContent=d[3];el.style.fontSize=fs+'px';
+  const el=document.createElement('div');el.textContent=d[3];el.style.fontSize=fs+'px';el.style.lineHeight=lh+'px';
   el.style.color=DMC.color?'#'+(d[2]>>>0).toString(16).padStart(6,'0').slice(-6):'#fff';
   const now=performance.now();
   if(d[1]===4||d[1]===5){ // 顶部/底部固定
     el.style.left='50%';el.style.transform='translateX(-50%)';
-    el.style[d[1]===5?'top':'bottom']=(Math.random()*3|0)*lh+4+'px';
-    box.appendChild(el);setTimeout(()=>el.remove(),4000/(V.playbackRate||1));return}
-  let li=0,best=Infinity;for(let i=0;i<n;i++){const t=lanes[i]||0;if(t<now){li=i;best=-1;break}if(t<best){best=t;li=i}}
-  box.appendChild(el);const w=el.offsetWidth,dur=8000*100/DMC.sp/(V.playbackRate||1),sp=(W+w)/dur;
-  lanes[li]=now+(w+20)/sp;
+    const fx=d[1]===5?FIXT:FIXB,life=4000/(V.playbackRate||1);let k=-1;
+    for(let i=0;i<Math.max(1,Math.min(n,6));i++)if((fx[i]||0)<=now){k=i;break}
+    if(k<0)return;  // 固定弹幕位置都占满了：这条不显示，免得叠在一起
+    fx[k]=now+life;el.style[d[1]===5?'top':'bottom']=k*lh+4+'px';
+    box.appendChild(el);setTimeout(()=>el.remove(),life);return}
+  // 滚动弹幕：只放进不会撞上前一条的行；都满了就丢掉这条（不重叠）
+  el.style.visibility='hidden';box.appendChild(el);
+  const w=el.offsetWidth,dur=8000*100/DMC.sp/(V.playbackRate||1),sp=(W+w)/dur;
+  let li=-1;for(let i=0;i<n;i++){const L=lanes[i];
+    if(!L){li=i;break}
+    if(now<L.free)continue;  // 上一条尾巴还没完全进屏
+    if(sp>L.sp&&now+W/sp<L.end)continue;  // 这条更快，会在屏幕里追上上一条
+    li=i;break}
+  if(li<0){el.remove();return}
+  el.style.visibility='';
+  lanes[li]={free:now+(w+24)/sp,end:now+dur,sp};
   el.style.top=li*lh+4+'px';el.style.setProperty('--d',-(W+w)+'px');
   el.style.animation=`fly ${dur}ms linear forwards`;el.onanimationend=()=>el.remove();
 }
