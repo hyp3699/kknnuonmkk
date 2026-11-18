@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>哈哈影视</title>
+<title>哈哈</title>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:#111;color:#eee;font:14px/1.4 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
@@ -20,7 +20,7 @@ input{flex:1;min-width:0}
 button{cursor:pointer}
 button.on{background:#e50914;border-color:#e50914}
 #bpx.auto:not(.on){border:1px dashed #e50914;color:#f88}
-#cats{display:flex;gap:6px;overflow-x:auto;padding:8px;background:#151515;scrollbar-width:none}
+#cats{position:sticky;top:var(--hh,52px);z-index:9;display:flex;gap:6px;overflow-x:auto;padding:8px;background:#151515;scrollbar-width:none}
 #cats::-webkit-scrollbar{display:none}
 #cats button{white-space:nowrap;padding:5px 11px;border-radius:14px}
 #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;padding:10px}
@@ -732,6 +732,7 @@ function shoot(d){
   requestAnimationFrame(tick)})();
 
 init();
+(()=>{const h=document.querySelector('#list header'),f=()=>document.documentElement.style.setProperty('--hh',h.offsetHeight+'px');f();addEventListener('resize',f);if(window.ResizeObserver)new ResizeObserver(f).observe(h)})();  // 分类栏粘在顶栏下面
 </script>
 </body>
 </html>
