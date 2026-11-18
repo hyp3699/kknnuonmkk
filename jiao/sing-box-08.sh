@@ -1437,6 +1437,7 @@ tunnel_name=$(echo "$tunnel_data" |
     new_config=$(jq -n \
         --argjson ingress "$ingress" \
         --arg hostname "$hostname" \
+        --arg scheme "${CF_TUNNEL_ORIGIN_SCHEME:-http}" \
         --argjson ports \
         "$(printf '%s\n' "${route_ports[@]}" |
             jq -Rsc 'split("\n") | map(select(length > 0) | tonumber)')" \
@@ -1454,8 +1455,9 @@ tunnel_name=$(echo "$tunnel_data" |
                         {
                             hostname: $hostname,
                             path: $paths[$i],
-                            service: ("http://127.0.0.1:" + ($ports[$i] | tostring))
+                            service: ($scheme + "://127.0.0.1:" + ($ports[$i] | tostring))
                         }
+                        + (if $scheme == "https" then {originRequest: {noTLSVerify: true}} else {} end)
                     ]
                     +
                     [{service: "http_status:404"}]
@@ -5649,7 +5651,7 @@ enable_ws_cdn() {
     ws_path=$(jq -r '.inbounds[0].transport.path // empty' "$config_file" 2>/dev/null)
     origin_port=$(jq -r '.inbounds[0].listen_port // empty' "$config_file" 2>/dev/null)
     case "$inbound_type" in
-        vless-ws|vmess-ws|vless-xhttp)
+        vless-ws|vmess-ws|vless-xhttp|xhttp-udp-tls)
             if [ -z "$uuid" ]; then
                 red "无法读取 UUID"
                 sleep 1
@@ -5759,7 +5761,7 @@ fi
         trojan-ws)
             cdn_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
             ;;
-		vless-xhttp)
+		vless-xhttp|xhttp-udp-tls)
             cdn_url="vless://${uuid}@${CFIP}:443?encryption=none&security=tls&sni=${domain}&type=xhttp&host=${domain}&path=${ws_path}#${node_remark_enc}"
             ;;
         *)
@@ -5818,7 +5820,10 @@ enable_ws_argo() {
     green "本地端口：${origin_port}"
     green "WS Path：${ws_path}"
     echo
-    if ! cf_add_tunnel_route "$origin_port" "$ws_path"; then
+    # 入站自带 TLS（如 xhttp-udp-tls）时隧道用 https 回源并跳过证书校验
+    local tunnel_scheme="http"
+    jq -e '.inbounds[0].tls.enabled == true' "$config_file" >/dev/null 2>&1 && tunnel_scheme="https"
+    if ! CF_TUNNEL_ORIGIN_SCHEME="$tunnel_scheme" cf_add_tunnel_route "$origin_port" "$ws_path"; then
         red "Cloudflare Tunnel 路由添加失败！"
         read -rp "按回车返回..." _
         return 1
@@ -5860,7 +5865,7 @@ enable_ws_argo() {
             node_remark_enc=$(echo -n "$node_remark" | jq -sRr @uri)
             argo_url="trojan://${password}@${CFIP}:443?ed=2048&eh=Sec-WebSocket-Protocol&security=tls&sni=${domain}&type=ws&host=${domain}&path=${ws_path}?ed=2048#${node_remark_enc}"
             ;;
-	  vless-xhttp)
+	  vless-xhttp|xhttp-udp-tls)
             if [ -z "$uuid" ]; then
                 red "未获取到 UUID！"
                 read -rp "按回车返回..." _
@@ -9066,7 +9071,7 @@ manage_single_inbound() {
                     _mi_add yellow obfs "混淆（未开启）"
                 fi
                 ;;
-            vless-ws|vmess-ws|trojan-ws|vless-xhttp)
+            vless-ws|vmess-ws|trojan-ws|vless-xhttp|xhttp-udp-tls)
                 if [ "$qt_dedicated" = "1" ]; then
                     case "$inbound_type" in
                         vmess-ws) _mi_add green switch "切换 VLESS" ;;
@@ -9076,12 +9081,12 @@ manage_single_inbound() {
                 else
                     _mi_add green cdn "开启CDN"
                     _mi_add green argo "开启隧道"
+                    # 临时隧道是独立节点（添加节点 15），普通节点不再显示；
+                    # 仅当旧版本在此节点上建过临时隧道时保留入口，方便停止/删除
                     if systemctl is-active --quiet "$(qt_name "$inbound_type" "$inbound_number")" 2>/dev/null; then
-                        _mi_add green qt "CF临时隧道（🟢 运行中）"
+                        _mi_add green qt "旧CF临时隧道（🟢 运行中）"
                     elif qt_exists "$inbound_type" "$inbound_number"; then
-                        _mi_add yellow qt "CF临时隧道（⚪ 已停止）"
-                    else
-                        _mi_add green qt "CF临时隧道"
+                        _mi_add yellow qt "旧CF临时隧道（⚪ 已停止）"
                     fi
                 fi
                 ;;
@@ -14521,7 +14526,7 @@ menu() {
    printf "%b%-32s%b%s%b\n" "$green" "6. 配置文件查看" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. Forgejo" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
-   printf "%b%-28s%b%s%b\n" "$green" "9. 添加删除节点" "$red" "18. 影视播放器" "$re"
+   printf "%b%s%b\n" "$green" "9. 添加删除节点" "$re"
    echo
    printf "%b%-32s%b%s%b\n" "$green" "99. 查看错误信息" "$red" "0. 退出脚本" "$re"
    reading "请输入数字选择: " choice || return 1
@@ -14601,16 +14606,6 @@ fi
 		
 		16) forgejo_manage ;;
 		17) token_manage ;;
-		18)
-           clear
-           if [ -x /usr/local/bin/ys ]; then
-               /usr/local/bin/ys
-           else
-               _sb_remote_tmp=$(mktemp /tmp/sb-remote.XXXXXX.sh)
-               if verified_download "https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/danmu/ys.sh?t=$(date +%s)" "$_sb_remote_tmp" ""; then bash "$_sb_remote_tmp"; else red "远程脚本下载失败或校验未通过，已取消执行"; sleep 1; fi
-               rm -f "$_sb_remote_tmp"
-           fi
-           ;;
 	    
 		99) 
            clear
