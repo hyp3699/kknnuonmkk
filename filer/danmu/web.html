@@ -553,7 +553,10 @@ const adOn=()=>LS.noad!=='0';let ADCUT={n:0,s:0};
 function segSig(u){let x=String(u||'');const m=x.match(/^\/px\?u=([^&]+)/);if(m){try{x=decodeURIComponent(m[1])}catch(e){}}
   try{const p=new URL(x,location.href);x=p.host+p.pathname}catch(e){}
   const i=x.lastIndexOf('/'),dir=x.slice(0,i),f=x.slice(i+1);
-  return dir+'|'+f.replace(/[a-f0-9]{8,}/gi,'H').replace(/[0-9]+/g,'0')+'|'+(f.split('.').pop()||'')}
+  const dot=f.lastIndexOf('.'),base=dot>0?f.slice(0,dot):f,ext=dot>0?f.slice(dot+1):'';
+  // 文件名只看“样子”：随机串只记长度，数字序号归一，这样同一部片子的各段签名一样
+  const shape=/^[A-Za-z0-9_-]{6,}$/.test(base)&&/[A-Za-z]/.test(base)&&(/[0-9]/.test(base)||/[a-z]/.test(base)&&/[A-Z]/.test(base))&&!/^[a-z_-]+[0-9]+$/i.test(base)?'R'+base.length:base.replace(/[0-9]+/g,'0');
+  return dir+'|'+shape+'|'+ext}
 function adStrip(txt){
   if(!adOn()||typeof txt!=='string'||txt.indexOf('#EXTINF')<0||txt.indexOf('#EXT-X-DISCONTINUITY')<0||/#EXT-X-PLAYLIST-TYPE:EVENT|#EXT-X-STREAM-INF/i.test(txt))return txt;
   const L=txt.split(/\r?\n/),head=[],blocks=[];let cur=null,tail=[],key='';
@@ -573,7 +576,7 @@ function adStrip(txt){
   const main=Object.keys(sigDur).sort((a,b)=>sigDur[b]-sigDur[a])[0];
   if(sigDur[main]<total*0.6)return txt;  // 看不出哪个是正片，不动
   const AD=/\/(adjump|ad|ads|guanggao)\//i;
-  const keep=blocks.filter(b=>!(b.dur<=120&&(b.sig!==main||AD.test(b.segs[0]))));
+  const keep=blocks.filter(b=>!(b.dur<=120&&b.dur<total*0.3&&(b.sig!==main||AD.test(b.segs[0]))));
   const cut=blocks.length-keep.length;if(!cut||!keep.length)return txt;
   ADCUT={n:cut,s:Math.round(blocks.filter(b=>!keep.includes(b)).reduce((a,b)=>a+b.dur,0))};
   const out=[...head];let lk='';keep.forEach((b,i)=>{if(i)out.push('#EXT-X-DISCONTINUITY');if(b.key&&b.key!==lk&&!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY')))out.push(b.key);out.push(...b.lines);b.lines.forEach(x=>{if(x.trim().startsWith('#EXT-X-KEY'))lk=x});if(!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY'))&&b.key)lk=b.key});out.push(...tail);
