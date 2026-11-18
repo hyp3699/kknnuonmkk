@@ -13026,6 +13026,283 @@ extract_fanout_socks() {
     sleep 1; warp_manage
 }
 
+# ══════════════════ 网页面板（fanout）一键开关 ══════════════════
+# 网页版就是 fanout：它读写同一套 /etc/sing-box 配置，专门管入站、订阅用户、
+# Nginx、证书和分流。这里只做「装没装 / 开 / 关 / 看地址口令」，
+# 具体操作都进网页，命令行不再重复一套菜单。
+FANOUT_WORK_DIR="/var/lib/fanout"
+FANOUT_UNIT="fanout"
+FANOUT_BIN="/usr/local/bin/fanout"
+FANOUT_INSTALL_URL="https://raw.githubusercontent.com/hyp3699/fanout/main/install.sh"
+
+# 装了没：二进制或工作目录有一个就算（工作目录留着数据，卸载时可能只剩它）
+fanout_installed() {
+    [ -x "$FANOUT_BIN" ] || [ -d "$FANOUT_WORK_DIR" ]
+}
+
+# 服务在跑没
+fanout_running() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl is-active --quiet "$FANOUT_UNIT" 2>/dev/null && return 0
+    fi
+    if command -v rc-service >/dev/null 2>&1; then
+        rc-service "$FANOUT_UNIT" status >/dev/null 2>&1 && return 0
+    fi
+    return 1
+}
+
+# 主菜单状态栏用：运行中 / 已关闭 / 未安装
+fanout_status_text() {
+    if ! fanout_installed; then
+        echo "未安装"
+        return
+    fi
+    if fanout_running; then
+        echo "运行中"
+    else
+        echo "已关闭"
+    fi
+}
+
+# 监听端口以 settings.json 为准；老安装没有它时退回服务文件里的 -web
+fanout_port() {
+    local p=""
+    p=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' \
+        "$FANOUT_WORK_DIR/settings.json" 2>/dev/null | head -1)
+    if [ -z "$p" ]; then
+        p=$(grep -oE '\-web [0-9]+' /etc/systemd/system/${FANOUT_UNIT}.service 2>/dev/null |
+            grep -oE '[0-9]+' | head -1)
+    fi
+    [ -n "$p" ] || p=8899
+    echo "$p"
+}
+
+# 访问路径去掉首尾斜杠；没有就返回空
+fanout_basepath() {
+    local b=""
+    b=$(cat "$FANOUT_WORK_DIR/basepath" 2>/dev/null | tr -d '[:space:]')
+    b="${b#/}"
+    b="${b%/}"
+    echo "$b"
+}
+
+fanout_password() {
+    cat "$FANOUT_WORK_DIR/password" 2>/dev/null | tr -d '[:space:]'
+}
+
+fanout_ip() {
+    local ip=""
+    ip=$(curl -4 -s --connect-timeout 5 --max-time 6 https://api.ipify.org 2>/dev/null)
+    if ! [[ "$ip" =~ ^[0-9.]+$ ]]; then
+        ip=$(curl -4 -s --connect-timeout 5 --max-time 6 https://ipv4.icanhazip.com 2>/dev/null | tr -d '[:space:]')
+    fi
+    if ! [[ "$ip" =~ ^[0-9.]+$ ]]; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    echo "${ip:-<本机IP>}"
+}
+
+# 打印完整访问地址与口令（可直接复制）
+fanout_show_addr() {
+    local port bp pw ip url
+    port=$(fanout_port)
+    bp=$(fanout_basepath)
+    pw=$(fanout_password)
+    ip=$(fanout_ip)
+    if [ -n "$bp" ]; then
+        url="http://${ip}:${port}/${bp}/"
+    else
+        url="http://${ip}:${port}/"
+    fi
+    echo
+    echo -e "  ${green}状态${re}    $( [ "$(fanout_status_text)" = "运行中" ] && echo "运行中" || echo "已关闭" )"
+    echo -e "  ${green}管理地址${re}  ${purple}${url}${re}"
+    echo -e "  ${green}访问口令${re}  ${purple}${pw:-<未生成，首次启动会写入 /var/lib/fanout/password>}${re}"
+    if [ -z "$pw" ]; then
+        yellow "  （第一次启动后才有口令，见日志 journalctl -u ${FANOUT_UNIT} -n 30）"
+    fi
+    echo
+}
+
+# 一键开启：没装就先装（沿用脚本的校验下载），装了就直接拉起
+fanout_enable() {
+    local tmp
+    if ! fanout_installed; then
+        yellow "检测到网页面板还没安装，正在自动安装 fanout..."
+        tmp=$(mktemp /tmp/sb-fanout-install.XXXXXX.sh) || return 1
+        if ! verified_download "$FANOUT_INSTALL_URL" "$tmp" "fanout"; then
+            rm -f "$tmp"
+            red "下载安装脚本失败或校验未通过，已取消（不执行不完整的脚本）"
+            return 1
+        fi
+        if ! bash "$tmp"; then
+            rm -f "$tmp"
+            red "安装失败，详情见上面的输出"
+            return 1
+        fi
+        rm -f "$tmp"
+        hash -r 2>/dev/null || true
+        if ! fanout_installed; then
+            red "安装脚本跑完了，但还是没找到 $FANOUT_BIN"
+            return 1
+        fi
+    fi
+
+    green "正在启动网页面板..."
+    if command -v systemctl >/dev/null 2>&1; then
+        if ! systemctl enable --now "$FANOUT_UNIT" >/dev/null 2>&1; then
+            systemctl start "$FANOUT_UNIT" 2>/dev/null
+        fi
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-update add "$FANOUT_UNIT" default >/dev/null 2>&1
+        rc-service "$FANOUT_UNIT" start >/dev/null 2>&1
+    else
+        red "没有 systemd / OpenRC，无法托管网页面板"
+        return 1
+    fi
+
+    local i
+    for i in $(seq 1 10); do
+        fanout_running && break
+        sleep 1
+    done
+    if ! fanout_running; then
+        red "网页面板没起来，最近的日志："
+        if command -v journalctl >/dev/null 2>&1; then
+            journalctl -u "$FANOUT_UNIT" -n 20 --no-pager 2>/dev/null
+        else
+            tail -n 20 /var/log/${FANOUT_UNIT}.log 2>/dev/null
+        fi
+        return 1
+    fi
+    # 端口可能被占用后自动换过，等一秒钟读最终的 settings.json
+    sleep 1
+    green "网页面板已开启。"
+    fanout_show_addr
+    echo -e "  ${yellow}提示：这个地址每次开机都在，加到浏览器书签即可；端口/口令可以在网页「系统与设置」里改。${re}"
+    return 0
+}
+
+# 一键关闭：停服务、取消自启，数据全部保留
+fanout_disable() {
+    if ! fanout_installed; then
+        yellow "网页面板还没安装。"
+        return 0
+    fi
+    local confirm
+    read -rp "确定关闭网页面板？(y/N，数据会保留): " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] || { yellow "已取消"; return 1; }
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable --now "$FANOUT_UNIT" >/dev/null 2>&1
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-service "$FANOUT_UNIT" stop >/dev/null 2>&1
+        rc-update del "$FANOUT_UNIT" default >/dev/null 2>&1
+    fi
+    sleep 1
+    if fanout_running; then
+        red "没能停掉，试试 journalctl -u ${FANOUT_UNIT} -n 30 看原因"
+        return 1
+    fi
+    green "网页面板已关闭（端口已释放，/var/lib/fanout 里的数据、口令、节点配置都保留）"
+    return 0
+}
+
+# 重置访问口令（改完重启服务才生效，与 f 菜单的行为一致）
+fanout_reset_password() {
+    if ! fanout_installed; then
+        red "网页面板还没安装"
+        return 1
+    fi
+    local pw
+    read -rp "新口令（留空随机生成）: " pw
+    if [ -z "$pw" ]; then
+        pw=$(head -c 9 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    fi
+    umask 077
+    echo "$pw" > "$FANOUT_WORK_DIR/password"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl restart "$FANOUT_UNIT" >/dev/null 2>&1
+    else
+        rc-service "$FANOUT_UNIT" restart >/dev/null 2>&1
+    fi
+    sleep 2
+    green "新口令：$pw"
+    fanout_show_addr
+}
+
+# 网页面板菜单：开 / 关 各一键直达
+fanout_menu() {
+    while true; do
+        clear
+        green "================ 网页面板（fanout） ================"
+        echo
+        echo -e "  当前状态：$(fanout_status_text)"
+        if fanout_installed; then
+            echo -e "  端口：$(fanout_port)    访问路径：/$(fanout_basepath)/"
+        fi
+        echo
+        green "1. 一键开启（没装会自动安装）"
+        red   "2. 一键关闭（数据保留）"
+        skyblue "3. 查看访问地址与口令"
+        skyblue "4. 重置访问口令"
+        skyblue "5. 重启面板"
+        skyblue "6. 查看近期日志"
+        purple "7. 卸载面板（保留 /var/lib/fanout 数据）"
+        echo
+        green "0. 返回主菜单"
+        echo
+        read -rp "请选择: " choice
+        case "$choice" in
+            1) fanout_enable; read -rp "按回车返回..." _ ;;
+            2) fanout_disable; read -rp "按回车返回..." _ ;;
+            3) fanout_show_addr; read -rp "按回车返回..." _ ;;
+            4) fanout_reset_password; read -rp "按回车返回..." _ ;;
+            5)
+                if fanout_installed; then
+                    if command -v systemctl >/dev/null 2>&1; then
+                        systemctl restart "$FANOUT_UNIT" >/dev/null 2>&1
+                    else
+                        rc-service "$FANOUT_UNIT" restart >/dev/null 2>&1
+                    fi
+                    sleep 2
+                    green "已重启"; fanout_show_addr
+                else
+                    red "还没安装"
+                fi
+                read -rp "按回车返回..." _
+                ;;
+            6)
+                if command -v journalctl >/dev/null 2>&1; then
+                    journalctl -u "$FANOUT_UNIT" -n 40 --no-pager 2>/dev/null || yellow "没有日志"
+                else
+                    tail -n 40 /var/log/${FANOUT_UNIT}.log 2>/dev/null || yellow "没有日志"
+                fi
+                read -rp "按回车返回..." _
+                ;;
+            7)
+                read -rp "卸载面板程序（保留数据和配置）？(y/N): " _c
+                if [[ "$_c" =~ ^[Yy]$ ]]; then
+                    if command -v systemctl >/dev/null 2>&1; then
+                        systemctl disable --now "$FANOUT_UNIT" >/dev/null 2>&1
+                        rm -f /etc/systemd/system/${FANOUT_UNIT}.service
+                        systemctl daemon-reload >/dev/null 2>&1
+                    else
+                        rc-service "$FANOUT_UNIT" stop >/dev/null 2>&1
+                        rc-update del "$FANOUT_UNIT" default >/dev/null 2>&1
+                        rm -f /etc/init.d/${FANOUT_UNIT}
+                    fi
+                    rm -f "$FANOUT_BIN"
+                    green "已卸载面板程序；/var/lib/fanout 保留，重装后口令和设置还在"
+                fi
+                read -rp "按回车返回..." _
+                ;;
+            0) return ;;
+            '') continue ;;
+            *) red "无效选项"; sleep 1 ;;
+        esac
+    done
+}
+
 # 选择目标出站时的通用函数 (自动测速 5 秒超时 + 实时显示延迟)
 select_outbound_target() {
     echo ""
@@ -14532,7 +14809,8 @@ menu() {
     singbox_uptime_text="未运行"
    fi
    printf "${purple}singbox 状态: %s${re}\n" "$(to_chinese "$singbox_status")"
-   printf "${purple}singbox 运行: %s${re}\n\n" "$singbox_uptime_text"
+   printf "${purple}singbox 运行: %s${re}\n" "$singbox_uptime_text"
+   printf "${purple}网页面板: %s${re}\n\n" "$(fanout_status_text)"
    printf "%b%-28s%b%s%b\n" "$green" "1. 安装sing-box" "$red" "10. 开启BBR" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "2. 卸载sing-box" "$red" "11. 更新脚本" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "3. sing-box管理" "$red" "12. nftables防火墙" "$re"
@@ -14541,7 +14819,7 @@ menu() {
    printf "%b%-32s%b%s%b\n" "$green" "6. 配置文件查看" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. Forgejo" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
-   printf "%b%s%b\n" "$green" "9. 添加删除节点" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点" "$red" "18. 网页面板(开/关)" "$re"
    echo
    printf "%b%-32s%b%s%b\n" "$green" "99. 查看错误信息" "$red" "0. 退出脚本" "$re"
    reading "请输入数字选择: " choice || return 1
@@ -14621,6 +14899,7 @@ fi
 		
 		16) forgejo_manage ;;
 		17) token_manage ;;
+		18) fanout_menu ;;
 	    
 		99) 
            clear
