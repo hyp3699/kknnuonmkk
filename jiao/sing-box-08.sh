@@ -16,6 +16,7 @@ purple="\e[1;35m"
 skyblue="\e[1;36m"
 white="\e[1;37m"
 plain="\033[0m"
+white="\033[1;37m"
 G="\e[1;32m"
 N="\033[0m"
 B="\e[1;34m"
@@ -3176,7 +3177,7 @@ fi
     echo "请选择证书申请方式："
     echo
     echo " 1) 80 端口申请"
-    echo " 2) Cloudflare Global API Key)"
+    echo " 2) Cloudflare Global API Key"
     echo -e " ${red}3) Cloudflare API Token(推荐)${re}"
 	echo " 4) 申请ip证书"
     skyblue "=============================================="
@@ -6381,11 +6382,10 @@ get_inbound_cdn_domain() {
     local _sni=""
     [ -f "$url_file" ] || return 1
     case "$inbound_type" in
-        vless-ws|trojan-ws|vless-xhttp)
-            # 优先取 host 是 Cloudflare IP 的那一行（CDN 链接，后追加）；
-            # 直接链接的 sni 是证书域名，不是 CDN 域名。
-            line=$(grep -F "@${CFIP}:" "$url_file" | head -n 1)
-            [ -z "$line" ] && line=$(grep 'sni=' "$url_file" | tail -n 1)
+        vless-ws|trojan-ws|vless-xhttp|xhttp-udp-tls)
+            # 只认 CDN 链接（备注以 _cdn 结尾）。直接链接的 sni 是证书域名、
+            # Tunnel 链接的 sni 是隧道域名，都不能当 CDN 域名去删 DNS。
+            line=$(grep -E '_cdn$' "$url_file" | tail -n 1)
             if [ -n "$line" ]; then
                 cdn_domain=$(echo "$line" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
             fi
@@ -6394,6 +6394,7 @@ get_inbound_cdn_domain() {
             while IFS= read -r line; do
                 [[ "$line" == vmess://* ]] || continue
                 decoded=$(printf '%s' "${line#vmess://}" | base64 -d 2>/dev/null) || continue
+                [[ "$(echo "$decoded" | jq -r '.ps // empty' 2>/dev/null)" == *_cdn ]] || continue
                 _sni=$(echo "$decoded" | jq -r '.sni // empty' 2>/dev/null)
                 [ -n "$_sni" ] && cdn_domain="$_sni"
             done < "$url_file"
@@ -9081,13 +9082,6 @@ manage_single_inbound() {
                 else
                     _mi_add green cdn "开启CDN"
                     _mi_add green argo "开启隧道"
-                    # 临时隧道是独立节点（添加节点 15），普通节点不再显示；
-                    # 仅当旧版本在此节点上建过临时隧道时保留入口，方便停止/删除
-                    if systemctl is-active --quiet "$(qt_name "$inbound_type" "$inbound_number")" 2>/dev/null; then
-                        _mi_add green qt "旧CF临时隧道（🟢 运行中）"
-                    elif qt_exists "$inbound_type" "$inbound_number"; then
-                        _mi_add yellow qt "旧CF临时隧道（⚪ 已停止）"
-                    fi
                 fi
                 ;;
         esac
@@ -9498,7 +9492,7 @@ delete_inbound() {
         return 1
     fi
 	case "$inbound_type" in
-    vless-ws|vmess-ws|trojan-ws|vless-xhttp)
+    vless-ws|vmess-ws|trojan-ws|vless-xhttp|xhttp-udp-tls)
         cdn_domain=$(get_inbound_cdn_domain "$inbound_type" "$inbound_number")
         if [[ -n "$cdn_domain" ]]; then
             reading "检测到此入站存在 CDN：${cdn_domain}，是否同时删除 CDN 回源规则和 DNS 记录？(y/N): " delete_cdn
