@@ -548,9 +548,43 @@ function play(fi,ei,t0){
   const isMovie=st.vod.groups[fi].eps.length===1;showEp();
   loadDm(st.vod.vod_name,isMovie?'':ep.n);
 }
+// ---------- 去广告：m3u8 里用 #EXT-X-DISCONTINUITY 隔开插进来的广告段 ----------
+const adOn=()=>LS.noad!=='0';let ADCUT={n:0,s:0};
+function segSig(u){let x=String(u||'');const m=x.match(/^\/px\?u=([^&]+)/);if(m){try{x=decodeURIComponent(m[1])}catch(e){}}
+  try{const p=new URL(x,location.href);x=p.host+p.pathname}catch(e){}
+  const i=x.lastIndexOf('/'),dir=x.slice(0,i),f=x.slice(i+1);
+  return dir+'|'+f.replace(/[a-f0-9]{8,}/gi,'H').replace(/[0-9]+/g,'0')+'|'+(f.split('.').pop()||'')}
+function adStrip(txt){
+  if(!adOn()||typeof txt!=='string'||txt.indexOf('#EXTINF')<0||txt.indexOf('#EXT-X-DISCONTINUITY')<0||/#EXT-X-PLAYLIST-TYPE:EVENT|#EXT-X-STREAM-INF/i.test(txt))return txt;
+  const L=txt.split(/\r?\n/),head=[],blocks=[];let cur=null,tail=[],key='';
+  for(const ln of L){const t=ln.trim();
+    if(!cur&&!/^#EXTINF|^#EXT-X-DISCONTINUITY$|^#EXT-X-KEY|^#EXT-X-MAP/.test(t)&&!(t&&!t.startsWith('#'))){if(t==='#EXT-X-ENDLIST')tail.push(ln);else head.push(ln);continue}
+    if(t==='#EXT-X-DISCONTINUITY'){if(cur&&cur.segs.length)blocks.push(cur);cur={lines:[],segs:[],dur:0,key};continue}
+    if(t==='#EXT-X-ENDLIST'){tail.push(ln);continue}
+    if(!cur)cur={lines:[],segs:[],dur:0,key};
+    if(t.startsWith('#EXT-X-KEY'))key=ln;
+    cur.lines.push(ln);
+    if(t.startsWith('#EXTINF')){cur.dur+=parseFloat(t.slice(8))||0}
+    else if(t&&!t.startsWith('#'))cur.segs.push(t)}
+  if(cur&&cur.segs.length)blocks.push(cur);
+  if(blocks.length<2)return txt;
+  const total=blocks.reduce((a,b)=>a+b.dur,0);
+  const sigDur={};blocks.forEach(b=>{b.sig=segSig(b.segs[0]);sigDur[b.sig]=(sigDur[b.sig]||0)+b.dur});
+  const main=Object.keys(sigDur).sort((a,b)=>sigDur[b]-sigDur[a])[0];
+  if(sigDur[main]<total*0.6)return txt;  // 看不出哪个是正片，不动
+  const AD=/\/(adjump|ad|ads|guanggao)\//i;
+  const keep=blocks.filter(b=>!(b.dur<=120&&(b.sig!==main||AD.test(b.segs[0]))));
+  const cut=blocks.length-keep.length;if(!cut||!keep.length)return txt;
+  ADCUT={n:cut,s:Math.round(blocks.filter(b=>!keep.includes(b)).reduce((a,b)=>a+b.dur,0))};
+  const out=[...head];let lk='';keep.forEach((b,i)=>{if(i)out.push('#EXT-X-DISCONTINUITY');if(b.key&&b.key!==lk&&!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY')))out.push(b.key);out.push(...b.lines);b.lines.forEach(x=>{if(x.trim().startsWith('#EXT-X-KEY'))lk=x});if(!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY'))&&b.key)lk=b.key});out.push(...tail);
+  return out.join('\n')}
+function adLoader(){const B=Hls.DefaultConfig.loader;
+  return class extends B{load(ctx,cfg,cb){if(ctx.type==='manifest'||ctx.type==='level'){const ok=cb.onSuccess;
+      cb.onSuccess=(r,stats,c,nd)=>{try{if(typeof r.data==='string')r.data=adStrip(r.data)}catch(e){}ok(r,stats,c,nd)}}
+    super.load(ctx,cfg,cb)}}}
 const kindOf=u=>/\.m3u8(\?|#|$)/i.test(u)?'hls':(/\.(mp4|mkv|webm|flv|mov|m4v)(\?|#|$)/i.test(u)?'file':'');
 function load(u,t0,px,kind){
-  const lg=++LG;clearTimeout(WDT);
+  const lg=++LG;clearTimeout(WDT);ORI=null;clearTimeout(ORIT);
   if(hls){hls.destroy();hls=null}
   V.onerror=null;V.onloadedmetadata=null;V.removeAttribute('src');
   const src=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;
@@ -567,12 +601,12 @@ function load(u,t0,px,kind){
     return false};
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
     if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
-  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);setSt(px?why+'播放':'');if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);setSt((px?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
   const asFile=()=>{V.src=src;V.onloadedmetadata=start;
     V.onerror=()=>{if(lg!==LG)return;if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
   if(kind!=='file'&&window.Hls&&Hls.isSupported()){
     let netTry=0,medTry=0;
-    hls=new Hls({maxBufferLength:bufLen(),maxMaxBufferLength:Math.max(600,bufLen()*2),maxBufferSize:Math.max(60,bufLen())*1e6});const h=hls;
+    ADCUT={n:0,s:0};hls=new Hls({pLoader:adLoader(),maxBufferLength:bufLen(),maxMaxBufferLength:Math.max(600,bufLen()*2),maxBufferSize:Math.max(60,bufLen())*1e6});const h=hls;
     h.loadSource(src);h.attachMedia(V);
     h.on(Hls.Events.MANIFEST_PARSED,start);
     h.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal||lg!==LG)return;
@@ -658,17 +692,24 @@ const bufLen=()=>+LS.buf||30;
 function bufPanel(){const p=$('#bufset'),b=bufLen();
   p.innerHTML='<div class="srow"><b style="flex:1">预先缓冲多长时间</b></div><div class="srow" style="flex-wrap:wrap">'+
     BUFS.map(([v,t])=>`<button data-b="${v}" class="${v===b?'on':''}">${t}</button>`).join('')+
-    '</div><div class="st">缓冲越长越不容易卡，但更费流量和内存。只对 m3u8 有效，mp4 由浏览器自己决定。</div>'}
+    '</div><div class="st">缓冲越长越不容易卡，但更费流量和内存。只对 m3u8 有效，mp4 由浏览器自己决定。</div>'+
+    `<div class="srow" style="margin-top:8px"><b style="flex:1">去广告</b><button id="bnoad" class="${adOn()?'on':''}">${adOn()?'已开启':'已关闭'}</button></div><div class="st">去掉采集站插在视频里的广告段。个别站正片被误删（跳集、少一段）时关掉。烧在画面里的水印去不掉。</div>`}
 $('#bbuf').onclick=()=>{const p=$('#bufset');if(p.style.display==='none'){bufPanel();p.style.display='block'}else p.style.display='none'};
-$('#bufset').onclick=e=>{const b=e.target.closest('button[data-b]');if(!b)return;LS.buf=b.dataset.b;
+$('#bufset').onclick=e=>{if(e.target.id==='bnoad'){LS.noad=adOn()?'0':'1';bufPanel();setSt(adOn()?'去广告已开启，重新加载本集…':'去广告已关闭，重新加载本集…');if(st.vod)play(st.from,st.ep,V.currentTime);return}
+  const b=e.target.closest('button[data-b]');if(!b)return;LS.buf=b.dataset.b;
   if(hls){hls.config.maxBufferLength=bufLen();hls.config.maxMaxBufferLength=Math.max(600,bufLen()*2)}
   bufPanel();setSt('缓冲已设为 '+b.textContent)};
 setInterval(()=>{if(st.vod&&!V.paused)saveHist()},10000);
 V.addEventListener('pause',()=>saveHist());
 $('#bpx').classList.toggle('on',st.px);
 $('#bpx').onclick=()=>{st.px=!st.px;LS.px=st.px?'1':'0';$('#bpx').classList.toggle('on',st.px);if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
-function fsOri(){if(!document.fullscreenElement||!screen.orientation||!screen.orientation.lock)return;const w=V.videoWidth,h=V.videoHeight;if(!w||!h)return;screen.orientation.lock(h>w?'portrait':'landscape').catch(()=>{})}
-V.addEventListener('loadedmetadata',fsOri);V.addEventListener('resize',fsOri);
+// 全屏方向按正片定：中途画面尺寸变了（插播广告）不跟着转，新尺寸持续 20 秒以上才算正片换了方向
+let ORI=null,ORIT=0;
+const curOri=()=>{const w=V.videoWidth,h=V.videoHeight;return w&&h?(h>w?'portrait':'landscape'):null};
+function fsOri(){if(!ORI)ORI=curOri();if(!ORI||!document.fullscreenElement||!screen.orientation||!screen.orientation.lock)return;screen.orientation.lock(ORI).catch(()=>{})}
+V.addEventListener('loadedmetadata',fsOri);
+V.addEventListener('resize',()=>{const o=curOri();if(!o)return;if(!ORI){fsOri();return}clearTimeout(ORIT);if(o===ORI)return;
+  ORIT=setTimeout(()=>{if(curOri()===o&&o!==ORI){ORI=o;fsOri()}},20000)});
 async function goFs(only){const b=$('#box');
   if(document.fullscreenElement){if(!only)document.exitFullscreen();return}
   if(b.requestFullscreen){await b.requestFullscreen().catch(()=>{});fsOri()}
