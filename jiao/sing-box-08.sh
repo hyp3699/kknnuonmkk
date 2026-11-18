@@ -12866,7 +12866,7 @@ warp_manage() {
     skyblue "----------------------"
 	green "6. 优化DNS地址"
 	skyblue "----------------------"
-	green "7. fanout"
+	green "7. 网页面板（fanout）"
     skyblue "----------------------"
 	green "8. 网页版分流"
     skyblue "----------------------"
@@ -13005,50 +13005,87 @@ warp_manage() {
 }
 
 #fanout socks
+# 旧入口保留：WARP 分流菜单第 7 项原来装完 fanout 再调 f 快捷命令，
+# 现在菜单全在网页面板里，直接进来即可（不再检测 command -v f）。
 extract_fanout_socks() {
-    if [ ! -d "/var/lib/fanout" ] || ! command -v f &> /dev/null; then
-        echo "检测到 fanout 尚未安装，正在为您执行安装..."
-        _sb_remote_tmp=$(mktemp /tmp/sb-remote.XXXXXX.sh)
-           if verified_download "https://raw.githubusercontent.com/hyp3699/fanout/main/install.sh" "$_sb_remote_tmp" ""; then bash "$_sb_remote_tmp"; else red "远程脚本下载失败或校验未通过，已取消执行"; sleep 1; fi
-           rm -f "$_sb_remote_tmp"
-        hash -r
-        if ! command -v f &> /dev/null; then
-            echo "fanout 安装失败，请检查网络或日志。"
-            read -p "按回车键返回主菜单..."
-            warp_manage
-            return
-        fi
-        echo ""
-        echo "----------------------------------------"
-        read -p "安装已完成，快捷命令 f 已创建，按回车键进入 fanout 菜单..."
-    fi
-    f
-    sleep 1; warp_manage
+    fanout_menu
 }
 
-# ══════════════════ 网页面板（fanout）一键开关 ══════════════════
+# ══════════════════ 网页面板（fanout） ══════════════════
 # 网页版就是 fanout：它读写同一套 /etc/sing-box 配置，专门管入站、订阅用户、
-# Nginx、证书和分流。这里只做「装没装 / 开 / 关 / 看地址口令」，
-# 具体操作都进网页，命令行不再重复一套菜单。
-FANOUT_WORK_DIR="/var/lib/fanout"
-FANOUT_UNIT="fanout"
-FANOUT_BIN="/usr/local/bin/fanout"
-FANOUT_INSTALL_URL="https://raw.githubusercontent.com/hyp3699/fanout/main/install.sh"
+# Nginx、证书和分流。这里把原来 f 快捷命令的全部管理功能搬进来：
+# 开关、地址口令、端口/路径/口令、开机自启、隧道列表、日志、更新、IPv6、
+# 面板域名反代、彻底卸载（含数据与 Go）。装了 fanout 之后不再需要 /usr/local/bin/f。
+#
+# 路径都用可覆盖的变量：测试里指到临时目录，真机上就是系统路径。
+FANOUT_WORK_DIR="${FANOUT_WORK_DIR:-/var/lib/fanout}"
+FANOUT_UNIT="${FANOUT_UNIT:-fanout}"
+FANOUT_BIN="${FANOUT_BIN:-/usr/local/bin/fanout}"
+FANOUT_NGX="${FANOUT_NGX:-/etc/nginx/conf.d/fanout-panel.conf}"
+FANOUT_SINGBOX_DIR="${FANOUT_SINGBOX_DIR:-/etc/sing-box}"
+FANOUT_SINGBOX_CONF="${FANOUT_SINGBOX_CONF:-${FANOUT_SINGBOX_DIR}/conf}"
+FANOUT_SYSCTL_DIR="${FANOUT_SYSCTL_DIR:-/etc/sysctl.d}"
+FANOUT_NETNS_DIR="${FANOUT_NETNS_DIR:-/var/run/netns}"
+FANOUT_OLD_MENU="${FANOUT_OLD_MENU:-/usr/local/bin/f}"
+FANOUT_UNIT_DIR="${FANOUT_UNIT_DIR:-/etc/systemd/system}"
+FANOUT_INITD_DIR="${FANOUT_INITD_DIR:-/etc/init.d}"
+FANOUT_LOG_FILE="${FANOUT_LOG_FILE:-/var/log/${FANOUT_UNIT}.log}"
+FANOUT_INSTALL_URL="${FANOUT_INSTALL_URL:-https://raw.githubusercontent.com/hyp3699/fanout/main/install.sh}"
+FANOUT_GO_DIR="${FANOUT_GO_DIR:-/usr/local/go}"
+FANOUT_GOPATH="${FANOUT_GOPATH:-$HOME/go}"
+FANOUT_GO_CACHE="${FANOUT_GO_CACHE:-/root/.cache/go-build}"
+FANOUT_GO_CONFIG="${FANOUT_GO_CONFIG:-/root/.config/go}"
+FANOUT_ROOT_GOPATH="${FANOUT_ROOT_GOPATH:-/root/go}"
+# 需要清理 go 环境变量的 shell 配置；单独列成变量，测试里指到临时文件
+FANOUT_PROFILE_FILES="${FANOUT_PROFILE_FILES:-/etc/profile /etc/profile.d/*go* $HOME/.bashrc $HOME/.bash_profile $HOME/.zshrc $HOME/.profile /root/.bashrc /root/.bash_profile /root/.zshrc /root/.profile}"
+# 等就绪的轮询次数（每次 1 秒）；测试里调小
+FANOUT_WAIT_TRIES="${FANOUT_WAIT_TRIES:-15}"
 
 # 装了没：二进制或工作目录有一个就算（工作目录留着数据，卸载时可能只剩它）
 fanout_installed() {
     [ -x "$FANOUT_BIN" ] || [ -d "$FANOUT_WORK_DIR" ]
 }
 
+# systemd 与 OpenRC 两套：能 systemctl 且确实由 systemd 引导才算 systemd
+fanout_is_systemd() {
+    # 测试里强制走某一条分支（容器通常没有 /run/systemd/system）
+    case "${FANOUT_FORCE_INIT:-}" in
+        systemd) return 0 ;;
+        openrc)  return 1 ;;
+    esac
+    command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]
+}
+
+fanout_unit_file() {
+    if fanout_is_systemd; then
+        echo "${FANOUT_UNIT_DIR}/${FANOUT_UNIT}.service"
+    else
+        echo "${FANOUT_INITD_DIR}/${FANOUT_UNIT}"
+    fi
+}
+
 # 服务在跑没
 fanout_running() {
-    if command -v systemctl >/dev/null 2>&1; then
+    if fanout_is_systemd; then
         systemctl is-active --quiet "$FANOUT_UNIT" 2>/dev/null && return 0
     fi
     if command -v rc-service >/dev/null 2>&1; then
         rc-service "$FANOUT_UNIT" status >/dev/null 2>&1 && return 0
     fi
     return 1
+}
+
+# 开机自启开没开
+fanout_autostart_enabled() {
+    if fanout_is_systemd; then
+        systemctl is-enabled --quiet "$FANOUT_UNIT" 2>/dev/null && return 0
+        return 1
+    fi
+    rc-update show default 2>/dev/null | grep -qE "^[[:space:]]*${FANOUT_UNIT}[[:space:]]"
+}
+
+fanout_autostart_text() {
+    fanout_autostart_enabled && echo "enabled" || echo "disabled"
 }
 
 # 主菜单状态栏用：运行中 / 已关闭 / 未安装
@@ -13064,13 +13101,19 @@ fanout_status_text() {
     fi
 }
 
+fanout_version() {
+    local v=""
+    [ -x "$FANOUT_BIN" ] && v=$("$FANOUT_BIN" -version 2>/dev/null | sed -E 's/.*[[:space:]]//')
+    echo "${v:--}"
+}
+
 # 监听端口以 settings.json 为准；老安装没有它时退回服务文件里的 -web
 fanout_port() {
     local p=""
     p=$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' \
         "$FANOUT_WORK_DIR/settings.json" 2>/dev/null | head -1)
     if [ -z "$p" ]; then
-        p=$(grep -oE '\-web [0-9]+' /etc/systemd/system/${FANOUT_UNIT}.service 2>/dev/null |
+        p=$(grep -oE '\-web [0-9]+' "$(fanout_unit_file)" 2>/dev/null |
             grep -oE '[0-9]+' | head -1)
     fi
     [ -n "$p" ] || p=8899
@@ -13097,40 +13140,138 @@ fanout_ip() {
         ip=$(curl -4 -s --connect-timeout 5 --max-time 6 https://ipv4.icanhazip.com 2>/dev/null | tr -d '[:space:]')
     fi
     if ! [[ "$ip" =~ ^[0-9.]+$ ]]; then
-        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+        ip=$(hostname -I 2>/dev/null | cut -d' ' -f1)
     fi
     echo "${ip:-<本机IP>}"
 }
 
-# 打印完整访问地址与口令（可直接复制）
+# 当前绑定的面板域名（从 nginx 反代配置反推，不另存状态文件）
+fanout_domain() {
+    [ -f "$FANOUT_NGX" ] || return 1
+    sed -n 's/^[[:space:]]*server_name[[:space:]]\{1,\}\([^;]*\);.*/\1/p' "$FANOUT_NGX" | head -1
+}
+
+fanout_https_port() {
+    [ -f "$FANOUT_NGX" ] || return 1
+    sed -n 's/^[[:space:]]*listen[[:space:]]\{1,\}\([0-9]\{1,\}\)[[:space:]].*/\1/p' "$FANOUT_NGX" 2>/dev/null | head -1
+}
+
+# 完整访问地址：绑了域名就给 https://域名(:端口)/路径/，否则 http://IP:端口/路径/
+fanout_url() {
+    local d hp bp port
+    bp=$(fanout_basepath)
+    d=$(fanout_domain)
+    if [ -n "$d" ]; then
+        hp=$(fanout_https_port)
+        hp=${hp:-443}
+        if [ "$hp" = "443" ]; then
+            echo "https://${d}/${bp:+$bp/}"
+        else
+            echo "https://${d}:${hp}/${bp:+$bp/}"
+        fi
+        return
+    fi
+    port=$(fanout_port)
+    echo "http://$(fanout_ip):${port}/${bp:+$bp/}"
+}
+
+# 运行中的隧道数（netns 名 fo*）
+fanout_tunnel_count() {
+    local n=0
+    if [ -d "$FANOUT_NETNS_DIR" ]; then
+        n=$(ls -d "$FANOUT_NETNS_DIR"/fo* 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    echo "${n:-0}"
+}
+
+fanout_show_logs() {
+    local n="${1:-25}"
+    if command -v journalctl >/dev/null 2>&1; then
+        journalctl -u "$FANOUT_UNIT" -n "$n" --no-pager 2>/dev/null && return 0
+    fi
+    if [ -f "$FANOUT_LOG_FILE" ]; then
+        tail -n "$n" "$FANOUT_LOG_FILE" 2>/dev/null && return 0
+    fi
+    yellow "  暂无日志"
+}
+
+# 打印完整访问地址与口令（域名优先，可直接复制）
 fanout_show_addr() {
-    local port bp pw ip url
+    local port bp pw
     port=$(fanout_port)
     bp=$(fanout_basepath)
     pw=$(fanout_password)
-    ip=$(fanout_ip)
-    if [ -n "$bp" ]; then
-        url="http://${ip}:${port}/${bp}/"
-    else
-        url="http://${ip}:${port}/"
-    fi
     echo
-    echo -e "  ${green}状态${re}    $( [ "$(fanout_status_text)" = "运行中" ] && echo "运行中" || echo "已关闭" )"
-    echo -e "  ${green}管理地址${re}  ${purple}${url}${re}"
-    echo -e "  ${green}访问口令${re}  ${purple}${pw:-<未生成，首次启动会写入 /var/lib/fanout/password>}${re}"
+    echo -e "  状态    ${green}$(fanout_status_text)${re}    版本 $(fanout_version)"
+    echo -e "  开机自启 $(fanout_autostart_text)"
+    echo -e "  管理地址  ${purple}$(fanout_url)${re}"
+    echo -e "  访问口令  ${purple}${pw:-<未生成，首次启动会写入 ${FANOUT_WORK_DIR}/password>}${re}"
     if [ -z "$pw" ]; then
         yellow "  （第一次启动后才有口令，见日志 journalctl -u ${FANOUT_UNIT} -n 30）"
     fi
+    echo -e "  运行隧道  $(fanout_tunnel_count) 条"
     echo
+}
+
+# 服务控制：systemd / OpenRC 各一套
+fanout_svc_start() {
+    if fanout_is_systemd; then
+        systemctl enable --now "$FANOUT_UNIT" >/dev/null 2>&1 || systemctl start "$FANOUT_UNIT" >/dev/null 2>&1
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-update add "$FANOUT_UNIT" default >/dev/null 2>&1
+        rc-service "$FANOUT_UNIT" start >/dev/null 2>&1
+    else
+        red "没有 systemd / OpenRC，无法托管网页面板"
+        return 1
+    fi
+}
+
+fanout_svc_stop() {
+    if fanout_is_systemd; then
+        systemctl disable --now "$FANOUT_UNIT" >/dev/null 2>&1
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-service "$FANOUT_UNIT" stop >/dev/null 2>&1
+        rc-update del "$FANOUT_UNIT" default >/dev/null 2>&1
+    fi
+}
+
+fanout_svc_restart() {
+    if fanout_is_systemd; then
+        systemctl restart "$FANOUT_UNIT" >/dev/null 2>&1
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-service "$FANOUT_UNIT" restart >/dev/null 2>&1
+    fi
+}
+
+fanout_svc_daemon_reload() {
+    fanout_is_systemd && systemctl daemon-reload >/dev/null 2>&1
+    return 0
+}
+
+# 等面板真的可用：最多 15 秒，直到服务在跑且 password / basepath 都已写出。
+# 这一步是「启动后没有口令、没有路径」的兜底：超时直接把最近日志摊出来。
+fanout_wait_ready() {
+    local i pw bp
+    for i in $(seq 1 "$FANOUT_WAIT_TRIES"); do
+        if fanout_running; then
+            pw=$(fanout_password)
+            bp=$(fanout_basepath)
+            if [ -n "$pw" ] && [ -n "$bp" ]; then
+                return 0
+            fi
+        fi
+        sleep 1
+    done
+    return 1
 }
 
 # 一键开启：没装就先装（沿用脚本的校验下载），装了就直接拉起
 fanout_enable() {
-    local tmp
+    local tmp pw bp
     if ! fanout_installed; then
         yellow "检测到网页面板还没安装，正在自动安装 fanout..."
         tmp=$(mktemp /tmp/sb-fanout-install.XXXXXX.sh) || return 1
-        if ! verified_download "$FANOUT_INSTALL_URL" "$tmp" "fanout"; then
+        if ! verified_download "$FANOUT_INSTALL_URL" "$tmp" "fanout-"; then
             rm -f "$tmp"
             red "下载安装脚本失败或校验未通过，已取消（不执行不完整的脚本）"
             return 1
@@ -13148,38 +13289,29 @@ fanout_enable() {
         fi
     fi
 
+    # 旧版本留下的 f 快捷命令已经没人维护，顺手清掉
+    rm -f "$FANOUT_OLD_MENU"
+
     green "正在启动网页面板..."
-    if command -v systemctl >/dev/null 2>&1; then
-        if ! systemctl enable --now "$FANOUT_UNIT" >/dev/null 2>&1; then
-            systemctl start "$FANOUT_UNIT" 2>/dev/null
-        fi
-    elif command -v rc-service >/dev/null 2>&1; then
-        rc-update add "$FANOUT_UNIT" default >/dev/null 2>&1
-        rc-service "$FANOUT_UNIT" start >/dev/null 2>&1
-    else
-        red "没有 systemd / OpenRC，无法托管网页面板"
+    if ! fanout_svc_start; then
         return 1
     fi
 
-    local i
-    for i in $(seq 1 10); do
-        fanout_running && break
-        sleep 1
-    done
-    if ! fanout_running; then
-        red "网页面板没起来，最近的日志："
-        if command -v journalctl >/dev/null 2>&1; then
-            journalctl -u "$FANOUT_UNIT" -n 20 --no-pager 2>/dev/null
+    if ! fanout_wait_ready; then
+        # 服务在跑但访问路径是空的，多半是用户自己把路径去掉了，不算故障
+        pw=$(fanout_password)
+        bp=$(fanout_basepath)
+        if fanout_running && [ -n "$pw" ] && [ -z "$bp" ]; then
+            yellow "访问路径为空（已被去掉前缀），按无前缀访问"
         else
-            tail -n 20 /var/log/${FANOUT_UNIT}.log 2>/dev/null
+            red "网页面板 15 秒内没准备好（口令/路径未写出），最近的日志："
+            fanout_show_logs 25
+            return 1
         fi
-        return 1
     fi
-    # 端口可能被占用后自动换过，等一秒钟读最终的 settings.json
-    sleep 1
+
     green "网页面板已开启。"
     fanout_show_addr
-    echo -e "  ${yellow}提示：这个地址每次开机都在，加到浏览器书签即可；端口/口令可以在网页「系统与设置」里改。${re}"
     return 0
 }
 
@@ -13192,23 +13324,19 @@ fanout_disable() {
     local confirm
     read -rp "确定关闭网页面板？(y/N，数据会保留): " confirm
     [[ "$confirm" =~ ^[Yy]$ ]] || { yellow "已取消"; return 1; }
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl disable --now "$FANOUT_UNIT" >/dev/null 2>&1
-    elif command -v rc-service >/dev/null 2>&1; then
-        rc-service "$FANOUT_UNIT" stop >/dev/null 2>&1
-        rc-update del "$FANOUT_UNIT" default >/dev/null 2>&1
-    fi
+    fanout_svc_stop
     sleep 1
     if fanout_running; then
-        red "没能停掉，试试 journalctl -u ${FANOUT_UNIT} -n 30 看原因"
+        red "没能停掉，看看日志："
+        fanout_show_logs 25
         return 1
     fi
-    green "网页面板已关闭（端口已释放，/var/lib/fanout 里的数据、口令、节点配置都保留）"
+    green "网页面板已关闭（端口已释放，${FANOUT_WORK_DIR} 里的数据、口令、节点配置都保留）"
     return 0
 }
 
-# 重置访问口令（改完重启服务才生效，与 f 菜单的行为一致）
-fanout_reset_password() {
+# 改口令：留空则随机生成
+fanout_change_password() {
     if ! fanout_installed; then
         red "网页面板还没安装"
         return 1
@@ -13218,36 +13346,603 @@ fanout_reset_password() {
     if [ -z "$pw" ]; then
         pw=$(head -c 9 /dev/urandom | od -An -tx1 | tr -d ' \n')
     fi
+    mkdir -p "$FANOUT_WORK_DIR"
     umask 077
-    echo "$pw" > "$FANOUT_WORK_DIR/password"
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl restart "$FANOUT_UNIT" >/dev/null 2>&1
-    else
-        rc-service "$FANOUT_UNIT" restart >/dev/null 2>&1
-    fi
-    sleep 2
+    printf '%s\n' "$pw" > "$FANOUT_WORK_DIR/password"
+    fanout_svc_restart
+    fanout_wait_ready || { red "重启后 15 秒内没就绪，日志："; fanout_show_logs 25; return 1; }
     green "新口令：$pw"
     fanout_show_addr
 }
 
-# 网页面板菜单：开 / 关 各一键直达
+# 改访问路径：留空则删掉文件让 fanout 重新随机生成
+fanout_change_basepath() {
+    if ! fanout_installed; then
+        red "网页面板还没安装"
+        return 1
+    fi
+    local bp
+    read -rp "新访问路径（留空随机生成）: " bp
+    bp="${bp#/}"
+    bp="${bp%/}"
+    if [ -z "$bp" ]; then
+        rm -f "$FANOUT_WORK_DIR/basepath"
+    else
+        if ! [[ "$bp" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            red "访问路径只能用字母、数字、- 和 _"
+            return 1
+        fi
+        mkdir -p "$FANOUT_WORK_DIR"
+        umask 077
+        printf '%s\n' "$bp" > "$FANOUT_WORK_DIR/basepath"
+    fi
+    fanout_svc_restart
+    fanout_wait_ready || { red "重启后 15 秒内没就绪，日志："; fanout_show_logs 25; return 1; }
+    green "新路径：/$(fanout_basepath)/"
+    fanout_show_addr
+}
+
+# 改端口：settings.json 是权威来源；老 unit 里的 -web 与 nginx 的 proxy_pass 一起同步
+fanout_set_settings_port() {
+    local new="$1"
+    mkdir -p "$FANOUT_WORK_DIR"
+    if [ -f "$FANOUT_WORK_DIR/settings.json" ]; then
+        if grep -q '"port"' "$FANOUT_WORK_DIR/settings.json"; then
+            sed -i -E "s/\"port\"[[:space:]]*:[[:space:]]*[0-9]+/\"port\": ${new}/" \
+                "$FANOUT_WORK_DIR/settings.json"
+        else
+            sed -i -E "1s/\{/\{\n  \"port\": ${new},/" "$FANOUT_WORK_DIR/settings.json"
+        fi
+    else
+        printf '{\n  "port": %s,\n  "listen_addr": ""\n}\n' "$new" > "$FANOUT_WORK_DIR/settings.json"
+        chmod 600 "$FANOUT_WORK_DIR/settings.json"
+    fi
+}
+
+fanout_change_port() {
+    if ! fanout_installed; then
+        red "网页面板还没安装"
+        return 1
+    fi
+    local cur new
+    cur=$(fanout_port)
+    read -rp "新端口 (当前 ${cur}): " new
+    [ -z "$new" ] && { yellow "未修改"; return 0; }
+    if ! [[ "$new" =~ ^[0-9]+$ ]] || [ "$new" -lt 1 ] || [ "$new" -gt 65535 ]; then
+        red "端口不合法"
+        return 1
+    fi
+    if [ "$new" = "$cur" ]; then
+        yellow "端口未变"
+        return 0
+    fi
+    if command -v ss >/dev/null 2>&1 && [ -n "$(ss -tlnH "sport = :${new}" 2>/dev/null)" ]; then
+        red "端口 ${new} 已被占用"
+        return 1
+    fi
+
+    fanout_set_settings_port "$new"
+    # 老安装把端口写死在 unit 里，一并改掉，免得重启后被旧值拽回去
+    local unit
+    unit=$(fanout_unit_file)
+    [ -f "$unit" ] && sed -i "s/-web ${cur}/-web ${new}/" "$unit" 2>/dev/null
+    fanout_svc_daemon_reload
+
+    # 配了域名反代时，后端端口跟着改，否则等于把面板指到空气上
+    if [ -f "$FANOUT_NGX" ]; then
+        sed -i -E "s#proxy_pass http://127\.0\.0\.1:[0-9]+;#proxy_pass http://127.0.0.1:${new};#" "$FANOUT_NGX"
+        if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+            fanout_nginx_reload
+        fi
+    fi
+
+    fanout_svc_restart
+    fanout_wait_ready || { red "改完端口后 15 秒内没就绪，日志："; fanout_show_logs 25; return 1; }
+    green "已改为 ${new} 并重启"
+    fanout_show_addr
+}
+
+fanout_nginx_reload() {
+    if fanout_is_systemd; then
+        if systemctl is-active --quiet nginx 2>/dev/null; then
+            systemctl reload nginx >/dev/null 2>&1
+        else
+            systemctl enable --now nginx >/dev/null 2>&1
+        fi
+    elif command -v rc-service >/dev/null 2>&1; then
+        rc-service nginx reload >/dev/null 2>&1 || rc-service nginx start >/dev/null 2>&1
+    fi
+}
+
+# 开机自启开关
+fanout_toggle_autostart() {
+    if ! fanout_installed; then
+        red "网页面板还没安装"
+        return 1
+    fi
+    if fanout_autostart_enabled; then
+        if fanout_is_systemd; then
+            systemctl disable "$FANOUT_UNIT" >/dev/null 2>&1
+        else
+            rc-update del "$FANOUT_UNIT" default >/dev/null 2>&1
+        fi
+        yellow "已关闭开机自启（当前这次运行不受影响）"
+    else
+        if fanout_is_systemd; then
+            systemctl enable "$FANOUT_UNIT" >/dev/null 2>&1
+        else
+            rc-update add "$FANOUT_UNIT" default >/dev/null 2>&1
+        fi
+        green "已开启开机自启"
+    fi
+    echo "  开机自启：$(fanout_autostart_text)"
+}
+
+# 隧道列表：直连本机接口读 /api/tunnels（f 菜单同款做法）
+fanout_list_tunnels() {
+    if ! fanout_running; then
+        yellow "网页面板没在运行，先开启再看隧道"
+        return 1
+    fi
+    local port bp pw ck
+    port=$(fanout_port)
+    bp=$(fanout_basepath)
+    pw=$(fanout_password)
+    ck=$(mktemp)
+    curl -s --max-time 10 -c "$ck" -X POST -d "password=${pw}" \
+        "http://127.0.0.1:${port}/${bp:+$bp/}login" -o /dev/null 2>/dev/null
+    echo
+    curl -s --max-time 10 -b "$ck" "http://127.0.0.1:${port}/${bp:+$bp/}api/tunnels" \
+        > "${ck}.json" 2>/dev/null
+    rm -f "$ck"
+
+    # 用 sed 解析而不是 python3/jq：Alpine 最小安装两者都没有
+    if [ ! -s "${ck}.json" ] || ! grep -q '"port"' "${ck}.json" 2>/dev/null; then
+        echo "  还没有隧道（入口：网页「出口隧道」页新建）"
+    else
+        printf "  %-10s%-11s%-18s%s\n" "端口" "状态" "出口 IP" "节点"
+        sed 's/{"slot"/\n{"slot"/g' "${ck}.json" | while IFS= read -r line; do
+            case "$line" in *'"slot"'*) ;; *) continue ;; esac
+            local p st ip hn
+            p=$(echo "$line"  | sed -n 's/.*"port":\([0-9]*\).*/\1/p')
+            st=$(echo "$line" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')
+            ip=$(echo "$line" | sed -n 's/.*"exit_ip":"\([^"]*\)".*/\1/p')
+            hn=$(echo "$line" | sed -n 's/.*"hostname":"\([^"]*\)".*/\1/p')
+            [ -z "$p" ] && continue
+            printf "  %-10s%-11s%-18s%s\n" "$p" "${st:--}" "${ip:--}" "${hn:--}"
+        done
+    fi
+    rm -f "${ck}.json"
+    # 顺带报一下 netns 数量，和列表对不上时说明有残留
+    echo "  运行中的隧道网络: $(fanout_tunnel_count) 个"
+}
+
+# IPv6 防漏：母机有全局 IPv6 时，没走隧道的流量可能从 IPv6 出去暴露真实地址
+fanout_ipv6_state() {
+    local a d=""
+    a=$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null || echo 0)
+    d=$(sysctl -n net.ipv6.conf.default.disable_ipv6 2>/dev/null || echo 0)
+    if [ "$a" = "1" ] && [ "$d" = "1" ]; then echo disabled; else echo enabled; fi
+}
+
+fanout_toggle_ipv6() {
+    local conf="${FANOUT_SYSCTL_DIR}/99-fanout-ipv6.conf"
+    echo
+    if [ "$(fanout_ipv6_state)" = "disabled" ]; then
+        read -rp "  当前已禁用 IPv6，要重新启用吗？[y/N]: " yes
+        [[ "${yes,,}" == y ]] || { echo "  已取消"; return 0; }
+        rm -f "$conf"
+        sysctl -qw net.ipv6.conf.all.disable_ipv6=0 2>/dev/null
+        sysctl -qw net.ipv6.conf.default.disable_ipv6=0 2>/dev/null
+        sysctl -qw net.ipv6.conf.lo.disable_ipv6=0 2>/dev/null
+        green "已重新启用 IPv6"
+        return 0
+    fi
+
+    echo -e "  ${yellow}母机有全局 IPv6 时，没走隧道的流量可能从 IPv6 出去，暴露真实地址。${re}"
+    read -rp "  确认禁用整机 IPv6？[y/N]: " yes
+    [[ "${yes,,}" == y ]] || { echo "  已取消"; return 0; }
+
+    mkdir -p "$FANOUT_SYSCTL_DIR"
+    cat > "$conf" <<IPV6EOF
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+IPV6EOF
+    sysctl -qw net.ipv6.conf.all.disable_ipv6=1 2>/dev/null
+    sysctl -qw net.ipv6.conf.default.disable_ipv6=1 2>/dev/null
+    sysctl -qw net.ipv6.conf.lo.disable_ipv6=1 2>/dev/null
+    fanout_svc_restart >/dev/null 2>&1
+    green "已禁用 IPv6（重启后依然生效）"
+}
+
+# 把 settings.json 的 listen_addr 切成指定值（"" = 所有网卡，127.0.0.1 = 只给 nginx 反代）
+fanout_set_listen_addr() {
+    local addr="$1" f="$FANOUT_WORK_DIR/settings.json"
+    mkdir -p "$FANOUT_WORK_DIR"
+    if [ ! -f "$f" ]; then
+        printf '{\n  "port": %s,\n  "listen_addr": "%s"\n}\n' "$(fanout_port)" "$addr" > "$f"
+        chmod 600 "$f"
+        return 0
+    fi
+    if grep -q '"listen_addr"' "$f"; then
+        sed -i -E "s/\"listen_addr\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"listen_addr\": \"${addr}\"/" "$f"
+    else
+        # 没有这个字段就补一个（port 后面插入，JSON 仍合法）
+        sed -i -E "s/\"port\"[[:space:]]*:[[:space:]]*([0-9]+)/\"port\": \1,\n  \"listen_addr\": \"${addr}\"/" "$f"
+    fi
+}
+
+# ── 面板域名设置：添加 / 更换 / 移除 ──────────────────────
+# 证书直接复用本脚本的 check_and_issue_ssl（列出 /root/cert、/etc/nginx/cert 里
+# 已有的证书随便选，也能现场申请），Nginx 反代写 fanout-panel.conf。
+fanout_set_domain() {
+    if ! fanout_installed; then
+        red "网页面板还没安装，先开启一次再配域名"
+        return 1
+    fi
+    local old_domain new_domain hp port sub occ
+    old_domain=$(fanout_domain)
+    [ -n "$old_domain" ] && yellow "当前域名: ${old_domain}"
+
+    # 与 Forgejo / 证书管理同一条路：已有证书直接选，选 1 现场申请
+    if ! check_and_issue_ssl "" || [ -z "${domain:-}" ] || [ -z "${cert_file:-}" ] || [ -z "${key_file:-}" ]; then
+        _reset_int_trap 2>/dev/null
+        red "未选择证书，域名未修改"
+        return 1
+    fi
+    _reset_int_trap 2>/dev/null
+    new_domain="$domain"
+    # 泛域名证书要再问一个前缀，拼成具体子域名
+    if [[ "$new_domain" == \*.* ]]; then
+        reading "这是泛域名证书 ${new_domain}，请输入要用的前缀（如 panel）: " sub
+        sub=$(echo "$sub" | tr -d '[:space:]')
+        [[ "$sub" =~ ^[A-Za-z0-9-]+$ ]] || { red "前缀无效"; return 1; }
+        new_domain="${sub}.${new_domain#\*.}"
+    fi
+    # IPv6 在 nginx / URL 里要带方括号
+    [[ "$new_domain" == *:* && "$new_domain" != \[* ]] && new_domain="[${new_domain}]"
+
+    hp=$(fanout_https_port); hp=${hp:-443}
+    reading "请输入 HTTPS 端口（回车默认 ${hp}）: " port
+    hp=${port:-$hp}
+    if ! [[ "$hp" =~ ^[0-9]+$ ]] || [ "$hp" -lt 1 ] || [ "$hp" -gt 65535 ]; then
+        red "端口无效"
+        return 1
+    fi
+    # 被 nginx 以外的程序占着（比如 sing-box 的 443 入站）就不能用
+    if command -v ss >/dev/null 2>&1; then
+        occ=$(ss -tlnpH "sport = :${hp}" 2>/dev/null)
+        if [ -n "$occ" ] && ! echo "$occ" | grep -q 'nginx'; then
+            red "端口 ${hp} 已被其他程序占用，请换一个端口"
+            return 1
+        fi
+    fi
+
+    if ! command -v nginx >/dev/null 2>&1; then
+        yellow "未安装 nginx，正在尝试安装..."
+        manage_packages install nginx >/dev/null 2>&1 || true
+    fi
+    command -v nginx >/dev/null 2>&1 || { red "nginx 安装失败，无法配置域名"; return 1; }
+
+    port=$(fanout_port)
+    mkdir -p "$(dirname "$FANOUT_NGX")"
+    [ -f "$FANOUT_NGX" ] && cp -f "$FANOUT_NGX" "${FANOUT_NGX}.bak"
+    cat > "$FANOUT_NGX" <<FANOUTNGX
+# fanout 网页面板反向代理（由 sing-box-08.sh 生成）
+server {
+    listen ${hp} ssl;
+    listen [::]:${hp} ssl;
+    http2 on;
+    server_name ${new_domain};
+
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 128M;
+    access_log off;
+
+    location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$http_connection;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+FANOUTNGX
+    # 老版本 nginx 不认 "http2 on;"，改用 listen ... ssl http2
+    if ! nginx -t >/dev/null 2>&1; then
+        sed -i -E '/^[[:space:]]*http2 on;/d; s/^([[:space:]]*listen [^;]*) ssl;/\1 ssl http2;/' "$FANOUT_NGX"
+    fi
+    if ! nginx -t >/dev/null 2>&1; then
+        red "nginx 配置检测失败，已还原："
+        nginx -t 2>&1 | tail -n 3
+        if [ -f "${FANOUT_NGX}.bak" ]; then mv -f "${FANOUT_NGX}.bak" "$FANOUT_NGX"; else rm -f "$FANOUT_NGX"; fi
+        return 1
+    fi
+    rm -f "${FANOUT_NGX}.bak"
+    fanout_nginx_reload
+    type ensure_nginx_autostart >/dev/null 2>&1 && ensure_nginx_autostart >/dev/null 2>&1
+
+    # 只让 nginx 访问后端：外面只能走 HTTPS 域名
+    fanout_set_listen_addr "127.0.0.1"
+    fanout_svc_restart
+    fanout_wait_ready || { red "切换域名后 15 秒内没就绪，日志："; fanout_show_logs 25; return 1; }
+    green "域名已设置：现在只能通过 HTTPS 域名访问（IP:端口 已关闭）"
+    fanout_show_addr
+}
+
+fanout_remove_domain() {
+    if [ ! -f "$FANOUT_NGX" ]; then
+        yellow "未配置域名"
+        return 0
+    fi
+    local yn d
+    d=$(fanout_domain)
+    read -rp "确定移除域名 ${d}，恢复 IP:端口 访问？(y/N): " yn
+    [[ "$yn" =~ ^[Yy]$ ]] || { yellow "已取消"; return 0; }
+    rm -f "$FANOUT_NGX"
+    if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+        fanout_nginx_reload
+    fi
+    fanout_set_listen_addr ""
+    fanout_svc_restart
+    fanout_wait_ready || { red "恢复后 15 秒内没就绪，日志："; fanout_show_logs 25; return 1; }
+    green "已移除面板域名（证书保留在证书管理里），恢复 IP:端口 访问"
+    fanout_show_addr
+}
+
+fanout_domain_menu() {
+    local c d
+    while true; do
+        d=$(fanout_domain 2>/dev/null)
+        echo
+        green "=========== 面板域名设置 ==========="
+        echo -e "  当前域名：${purple}${d:-未配置}${re}"
+        echo "  1. 添加 / 更换域名（选已有证书或现场申请）"
+        echo "  2. 移除域名（恢复 IP:端口 访问）"
+        echo "  0. 返回"
+        read -rp "请选择: " c
+        case "$c" in
+            1) fanout_set_domain; read -rp "按回车返回..." _ ;;
+            2) fanout_remove_domain; read -rp "按回车返回..." _ ;;
+            0) return 0 ;;
+            '') continue ;;
+            *) red "无效选项"; sleep 1 ;;
+        esac
+    done
+}
+
+# ── 更新面板 ──────────────────────────────────────────
+# 沿用 f 菜单的做法：先问 GitHub API 拿 tag，再按 tag 下载对应架构的包，
+# 校验新二进制能跑（-version），停服务替换，数据目录不动，最后清掉旧 f。
+fanout_update() {
+    if ! fanout_installed; then
+        red "网页面板还没安装"
+        return 1
+    fi
+    local arch goarch tmp tag cur url
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64) goarch=amd64 ;;
+        aarch64|arm64) goarch=arm64 ;;
+        *) red "不支持的架构 ${arch}"; return 1 ;;
+    esac
+
+    cur=$(fanout_version)
+    echo -e "\n  当前 ${cur:--}"
+    tag=$(curl -fsSL --max-time 15 -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/hyp3699/fanout/releases/latest" 2>/dev/null |
+          sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+    if [ -n "$tag" ]; then
+        echo "  最新 ${tag}"
+        url="https://github.com/hyp3699/fanout/releases/download/${tag}/fanout-linux-${goarch}.tar.gz"
+    else
+        yellow "获取最新版本号失败，改用 latest 地址"
+        url="https://github.com/hyp3699/fanout/releases/latest/download/fanout-linux-${goarch}.tar.gz"
+    fi
+    tmp=$(mktemp -d)
+    echo "  正在下载..."
+    if ! curl -fsSL --max-time 120 "$url" -o "$tmp/f.tar.gz" || ! tar xzf "$tmp/f.tar.gz" -C "$tmp" \
+       || [ ! -s "$tmp/fanout" ]; then
+        red "下载失败"
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! "$tmp/fanout" -version >/dev/null 2>&1; then
+        red "下载的程序无法运行，已取消"
+        rm -rf "$tmp"
+        return 1
+    fi
+
+    fanout_is_systemd && systemctl stop "$FANOUT_UNIT" >/dev/null 2>&1
+    command -v rc-service >/dev/null 2>&1 && ! fanout_is_systemd && rc-service "$FANOUT_UNIT" stop >/dev/null 2>&1
+    install -m 755 "$tmp/fanout" "$FANOUT_BIN"
+    # 老版本把端口写在 unit 的 -web 里，更新时搬进 settings.json 再摘掉
+    local unit unit_port
+    unit=$(fanout_unit_file)
+    unit_port=$(grep -oE '\-web [0-9]+' "$unit" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    if [ -n "$unit_port" ]; then
+        [ -f "$FANOUT_WORK_DIR/settings.json" ] || fanout_set_settings_port "$unit_port"
+        sed -i "s/-web ${unit_port} //" "$unit" 2>/dev/null
+        fanout_svc_daemon_reload
+        echo "  已把端口 ${unit_port} 迁移到 settings.json"
+    fi
+    rm -f "$FANOUT_OLD_MENU"
+    fanout_svc_start
+    rm -rf "$tmp"
+    fanout_wait_ready || { red "更新后 15 秒内没就绪，日志："; fanout_show_logs 25; return 1; }
+    green "已更新到 $(fanout_version)"
+    fanout_show_addr
+}
+
+# ── 彻底卸载：程序、数据、Go 全删 ──────────────────────
+fanout_clean_netns() {
+    local ns l
+    for ns in $(ip netns list 2>/dev/null | cut -d' ' -f1 | grep '^fo'); do
+        ip netns del "$ns" 2>/dev/null
+    done
+    for l in $(ip -o link show 2>/dev/null | cut -d: -f2 | cut -d@ -f1 | tr -d ' ' | grep '^fov'); do
+        ip link del "$l" 2>/dev/null
+    done
+    rm -f "${FANOUT_SYSCTL_DIR}"/99-fanout*.conf
+}
+
+fanout_clean_singbox_conf() {
+    local removed=0 f sb="${FANOUT_SINGBOX_DIR}/sing-box"
+    for f in "${FANOUT_SINGBOX_CONF}/fanout-outbounds.json" "${FANOUT_SINGBOX_CONF}/fanout-route.json"; do
+        [ -f "$f" ] && { rm -f "$f"; removed=1; }
+    done
+    [ "$removed" = 1 ] || return 0
+    [ -x "$sb" ] || return 0
+    if "$sb" check -C "$FANOUT_SINGBOX_CONF" >/dev/null 2>&1; then
+        if fanout_is_systemd && systemctl is-active --quiet sing-box 2>/dev/null; then
+            systemctl reload sing-box >/dev/null 2>&1
+        elif command -v rc-service >/dev/null 2>&1 && rc-service sing-box status >/dev/null 2>&1; then
+            rc-service sing-box reload >/dev/null 2>&1
+        fi
+    else
+        yellow "  sing-box check 未通过，跳过重载（下次启动会重新读配置）"
+    fi
+}
+
+fanout_clean_nginx() {
+    [ -f "$FANOUT_NGX" ] || return 0
+    rm -f "$FANOUT_NGX"
+    command -v nginx >/dev/null 2>&1 || return 0
+    nginx -t >/dev/null 2>&1 || return 0
+    # 卸载只重载已经在跑的 nginx，不要顺手把用户没开的 nginx 拉起来
+    if fanout_is_systemd; then
+        systemctl is-active --quiet nginx 2>/dev/null && systemctl reload nginx >/dev/null 2>&1
+    elif command -v rc-service >/dev/null 2>&1 && rc-service nginx status >/dev/null 2>&1; then
+        rc-service nginx reload >/dev/null 2>&1
+    fi
+    return 0
+}
+
+# 删掉安装时弄进来的 Go：目录、缓存、shell 配置行，以及包管理器装的 golang
+fanout_clean_go() {
+    local f p
+    for p in "$FANOUT_GO_DIR" "$FANOUT_GOPATH" "$FANOUT_ROOT_GOPATH" "$FANOUT_GO_CACHE" "$FANOUT_GO_CONFIG"; do
+        [ -n "$p" ] && rm -rf "$p"
+    done
+
+    # shell 配置里指到 /usr/local/go/bin 或设了 GOPATH 的行一起清掉
+    for f in $FANOUT_PROFILE_FILES; do
+        [ -f "$f" ] || continue
+        sed -i -E '/\/usr\/local\/go\/bin/d; /^[[:space:]]*(export[[:space:]]+)?GOPATH=/d' "$f" 2>/dev/null || true
+    done
+
+    if command -v dpkg >/dev/null 2>&1; then
+        for p in golang-go golang; do
+            if dpkg -s "$p" >/dev/null 2>&1; then
+                DEBIAN_FRONTEND=noninteractive apt-get purge -y "$p" >/dev/null 2>&1 || true
+            fi
+        done
+    elif command -v rpm >/dev/null 2>&1; then
+        if rpm -q golang >/dev/null 2>&1; then
+            dnf remove -y golang >/dev/null 2>&1 || yum remove -y golang >/dev/null 2>&1 || true
+        fi
+    elif command -v apk >/dev/null 2>&1; then
+        apk info -e go >/dev/null 2>&1 && apk del go >/dev/null 2>&1
+        apk info -e go-tools >/dev/null 2>&1 && apk del go-tools >/dev/null 2>&1
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -Q go >/dev/null 2>&1 && pacman -Rns --noconfirm go >/dev/null 2>&1
+    fi
+    hash -r 2>/dev/null || true
+}
+
+fanout_uninstall() {
+    if ! fanout_installed; then
+        yellow "网页面板还没安装。"
+        return 0
+    fi
+    local yn unit
+    unit=$(fanout_unit_file)
+    echo
+    red "================ 彻底卸载网页面板 ================"
+    echo "  将执行（全部不可恢复）："
+    echo "   1) 停止并禁用 ${FANOUT_UNIT}"
+    echo "   2) 清理残留隧道网络 fo* / fov*，删 ${FANOUT_SYSCTL_DIR}/99-fanout*.conf"
+    echo "   3) 删 ${FANOUT_SINGBOX_CONF}/fanout-outbounds.json、fanout-route.json 并重载 sing-box"
+    echo "   4) 删 ${FANOUT_NGX} 并重载 nginx（/root/cert 证书与其他站点保留）"
+    echo "   5) 删 ${unit}、${FANOUT_BIN}、${FANOUT_OLD_MENU}"
+    echo "   6) 删数据目录 ${FANOUT_WORK_DIR}（口令、路径、配置、规则状态全清）"
+    echo "   7) 删安装的 Go：${FANOUT_GO_DIR}、${FANOUT_GOPATH}、go 缓存、shell 配置里的 go 行、包管理器 golang"
+    echo
+    read -rp "确认全部删除？输入 yes 继续: " yn
+    [ "$yn" = "yes" ] || { yellow "已取消"; return 0; }
+
+    echo
+    yellow "[1/7] 停止并禁用服务..."
+    fanout_svc_stop
+    sleep 1
+    if fanout_running; then
+        systemctl kill "$FANOUT_UNIT" >/dev/null 2>&1
+        sleep 1
+    fi
+
+    yellow "[2/7] 清理隧道网络..."
+    fanout_clean_netns
+
+    yellow "[3/7] 清理 sing-box 里的 fanout 配置..."
+    fanout_clean_singbox_conf
+
+    yellow "[4/7] 清理 nginx 反代配置..."
+    fanout_clean_nginx
+
+    yellow "[5/7] 删除服务与程序..."
+    rm -f "$unit" "$FANOUT_BIN" "$FANOUT_OLD_MENU"
+    rm -f "${FANOUT_UNIT_DIR}/${FANOUT_UNIT}.service" "${FANOUT_INITD_DIR}/${FANOUT_UNIT}"
+    fanout_svc_daemon_reload
+
+    yellow "[6/7] 删除全部数据 ${FANOUT_WORK_DIR}..."
+    rm -rf "$FANOUT_WORK_DIR"
+
+    yellow "[7/7] 删除安装的 Go..."
+    fanout_clean_go
+
+    echo
+    green "网页面板已彻底卸载（程序、数据、Go 都已清理）。"
+    green "sing-box 与 nginx 本身、证书目录都保留。"
+}
+
+# 网页面板菜单：原来 f 快捷命令的全部功能都在这里
 fanout_menu() {
+    local choice
     while true; do
         clear
         green "================ 网页面板（fanout） ================"
         echo
-        echo -e "  当前状态：$(fanout_status_text)"
+        echo -e "  状态：$(fanout_status_text)    版本：$(fanout_version)"
+        echo -e "  开机自启：$(fanout_autostart_text)"
         if fanout_installed; then
-            echo -e "  端口：$(fanout_port)    访问路径：/$(fanout_basepath)/"
+            echo -e "  访问地址：${purple}$(fanout_url)${re}"
+            echo -e "  访问口令：${purple}$(fanout_password)${re}"
+            echo -e "  端口：$(fanout_port)    路径：/$(fanout_basepath)/    运行隧道：$(fanout_tunnel_count) 条"
         fi
         echo
-        green "1. 一键开启（没装会自动安装）"
-        red   "2. 一键关闭（数据保留）"
+        green   "1. 一键开启（没装会自动安装）"
+        red     "2. 一键关闭（数据保留）"
         skyblue "3. 查看访问地址与口令"
-        skyblue "4. 重置访问口令"
-        skyblue "5. 重启面板"
-        skyblue "6. 查看近期日志"
-        purple "7. 卸载面板（保留 /var/lib/fanout 数据）"
+        skyblue "4. 修改监听端口"
+        skyblue "5. 修改/重置访问路径"
+        skyblue "6. 修改/重置访问口令"
+        skyblue "7. 开机自启开关"
+        skyblue "8. 隧道列表"
+        skyblue "9. 重启面板"
+        skyblue "10. 查看近期日志"
+        skyblue "11. 更新面板到最新版"
+        skyblue "12. IPv6 防漏开关"
+        purple  "13. 域名设置（添加/更换/移除）"
+        red     "14. 彻底卸载面板（含数据与 Go）"
         echo
         green "0. 返回主菜单"
         echo
@@ -13256,46 +13951,30 @@ fanout_menu() {
             1) fanout_enable; read -rp "按回车返回..." _ ;;
             2) fanout_disable; read -rp "按回车返回..." _ ;;
             3) fanout_show_addr; read -rp "按回车返回..." _ ;;
-            4) fanout_reset_password; read -rp "按回车返回..." _ ;;
-            5)
+            4) fanout_change_port; read -rp "按回车返回..." _ ;;
+            5) fanout_change_basepath; read -rp "按回车返回..." _ ;;
+            6) fanout_change_password; read -rp "按回车返回..." _ ;;
+            7) fanout_toggle_autostart; read -rp "按回车返回..." _ ;;
+            8) fanout_list_tunnels; read -rp "按回车返回..." _ ;;
+            9)
                 if fanout_installed; then
-                    if command -v systemctl >/dev/null 2>&1; then
-                        systemctl restart "$FANOUT_UNIT" >/dev/null 2>&1
+                    fanout_svc_restart
+                    if fanout_wait_ready; then
+                        green "已重启"
+                        fanout_show_addr
                     else
-                        rc-service "$FANOUT_UNIT" restart >/dev/null 2>&1
+                        red "重启后 15 秒内没就绪，日志："
+                        fanout_show_logs 25
                     fi
-                    sleep 2
-                    green "已重启"; fanout_show_addr
                 else
                     red "还没安装"
                 fi
-                read -rp "按回车返回..." _
-                ;;
-            6)
-                if command -v journalctl >/dev/null 2>&1; then
-                    journalctl -u "$FANOUT_UNIT" -n 40 --no-pager 2>/dev/null || yellow "没有日志"
-                else
-                    tail -n 40 /var/log/${FANOUT_UNIT}.log 2>/dev/null || yellow "没有日志"
-                fi
-                read -rp "按回车返回..." _
-                ;;
-            7)
-                read -rp "卸载面板程序（保留数据和配置）？(y/N): " _c
-                if [[ "$_c" =~ ^[Yy]$ ]]; then
-                    if command -v systemctl >/dev/null 2>&1; then
-                        systemctl disable --now "$FANOUT_UNIT" >/dev/null 2>&1
-                        rm -f /etc/systemd/system/${FANOUT_UNIT}.service
-                        systemctl daemon-reload >/dev/null 2>&1
-                    else
-                        rc-service "$FANOUT_UNIT" stop >/dev/null 2>&1
-                        rc-update del "$FANOUT_UNIT" default >/dev/null 2>&1
-                        rm -f /etc/init.d/${FANOUT_UNIT}
-                    fi
-                    rm -f "$FANOUT_BIN"
-                    green "已卸载面板程序；/var/lib/fanout 保留，重装后口令和设置还在"
-                fi
-                read -rp "按回车返回..." _
-                ;;
+                read -rp "按回车返回..." _ ;;
+            10) fanout_show_logs 40; read -rp "按回车返回..." _ ;;
+            11) fanout_update; read -rp "按回车返回..." _ ;;
+            12) fanout_toggle_ipv6; read -rp "按回车返回..." _ ;;
+            13) fanout_domain_menu ;;
+            14) fanout_uninstall; read -rp "按回车返回..." _ ;;
             0) return ;;
             '') continue ;;
             *) red "无效选项"; sleep 1 ;;
@@ -14819,7 +15498,7 @@ menu() {
    printf "%b%-32s%b%s%b\n" "$green" "6. 配置文件查看" "$red" "15. WARP分流管理" "$re"
    printf "%b%-32s%b%s%b\n" "$green" "7. 管理节点订阅" "$red" "16. Forgejo" "$re"
    printf "%b%-28s%b%s%b\n" "$green" "8. 更新sing-box" "$red" "17. token" "$re"
-   printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点" "$red" "18. 网页面板(开/关)" "$re"
+   printf "%b%-32s%b%s%b\n" "$green" "9. 添加删除节点" "$red" "18. 网页面板" "$re"
    echo
    printf "%b%-32s%b%s%b\n" "$green" "99. 查看错误信息" "$red" "0. 退出脚本" "$re"
    reading "请输入数字选择: " choice || return 1
