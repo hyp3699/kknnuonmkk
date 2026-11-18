@@ -6255,7 +6255,7 @@ qt_menu() {
         read -rp "按回车返回..." _
     done
 }
-# 临时隧道专用入站：VMess WS / VLESS WS / VLESS XHTTP 互相切换
+# 临时隧道专用入站：VMess WS / VLESS WS 互相切换（旧的 XHTTP 可切回 WS）
 # 保留端口、UUID、路径和入站里所有用户（名字不变，流量统计/限额/限速不受影响），
 # 已添加的用户订阅里的临时隧道节点按备注自动换成新协议。
 qt_switch_protocol() {
@@ -6270,13 +6270,14 @@ qt_switch_protocol() {
     echo
     green "当前协议：${inbound_type}"
     i=0
-    for t in vmess-ws vless-ws vless-xhttp; do
+    # CF 临时隧道(trycloudflare)会缓冲 HTTP 流式响应，XHTTP 下行收不到数据，只能用 WebSocket；
+    # 之前切成 XHTTP 的可以切回 WS
+    for t in vmess-ws vless-ws; do
         [ "$t" = "$inbound_type" ] && continue
         i=$((i + 1)); opts+=("$t")
         case "$t" in
             vmess-ws) green "${i}. 切换为 VMess WS" ;;
             vless-ws) green "${i}. 切换为 VLESS WS" ;;
-            vless-xhttp) green "${i}. 切换为 VLESS XHTTP" ;;
         esac
     done
     green "0. 返回"
@@ -6391,7 +6392,7 @@ EOF2
     systemctl reload sing-box 2>/dev/null || systemctl restart sing-box
     sleep 2
     qt_start "$config_file" "$inbound_type" "$inbound_number"
-    green "之后可在 9.添加删除节点 → 临时隧道 → 7.临时隧道管理 中启停/重置，6 可切换 VMess / VLESS / XHTTP"
+    green "之后可在 9.添加删除节点 → 临时隧道 → 7.临时隧道管理 中启停/重置，6 可切换 VMess / VLESS"
 }
 get_inbound_cdn_domain() {
     local inbound_type="$1"
@@ -9096,7 +9097,7 @@ manage_single_inbound() {
             vless-ws|vmess-ws|trojan-ws|vless-xhttp|xhttp-udp-tls)
                 if [ "$qt_dedicated" = "1" ]; then
                     case "$inbound_type" in
-                        vmess-ws|vless-ws|vless-xhttp) _mi_add green switch "切换协议（VMess / VLESS / XHTTP）" ;;
+                        vmess-ws|vless-ws|vless-xhttp) _mi_add green switch "切换协议（VMess / VLESS）" ;;
                     esac
                     _mi_add green qt "临时隧道管理（$(qt_status_text "$inbound_type" "$inbound_number")）"
                 else
