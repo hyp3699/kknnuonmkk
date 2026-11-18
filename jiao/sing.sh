@@ -46,6 +46,26 @@ get_current_version() {
         echo "未安装"
     fi
 }
+# 识别当前 sing-box 是哪个版本（官方稳定版 / 官方测试版 / V2Ray API 编译版 / xhttp-v2rayapi）
+get_sb_build() {
+    local bin="$1" info ver
+    [ -x "$bin" ] || { echo ""; return; }
+    info=$("$bin" version 2>/dev/null)
+    ver=$(get_current_version "$bin")
+    if grep -aq 'sing-xhttp/xhttp' "$bin" 2>/dev/null; then
+        if grep -aq 'protocol/limiter/bandwidth' "$bin" 2>/dev/null; then
+            echo "xhttp-v2rayapi 限速版（v${ver#v}-xhttp-limiter）"
+        else
+            echo "xhttp-v2rayapi（v${ver#v}-xhttp）"
+        fi
+    elif echo "$info" | grep -q 'with_v2ray_api'; then
+        echo "V2Ray API 编译版"
+    elif echo "$ver" | grep -qiE 'alpha|beta|rc'; then
+        echo "官方测试版"
+    else
+        echo "官方稳定版"
+    fi
+}
 # --- 版本获取 ---
 get_latest_stable() {
     curl -s "https://api.github.com/repos/SagerNet/sing-box/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/'
@@ -262,7 +282,7 @@ update_v2rayapi() {
 update_xhttp_v2rayapi() {
     local tag="$1"
     [ -z "$tag" ] && return
-    local url="https://github.com/hyp3699/sssssssssssiiii/releases/download/${tag}/sing-box-linux-amd64.tar.gz"
+    local url="https://github.com/hyp3699/sssssssssssiiii/releases/download/${tag}/sing-box-linux-${ARCH}.tar.gz"
     local tmp
     local new_sb
 
@@ -406,7 +426,9 @@ while true; do
     echo -e "  argo:      ${RED}${ARGO_BIN:-未找到}${RESET}"
     echo
     echo -e "${BLUE}当前版本信息:${RESET}"
-    echo -e "  sing-box:  ${RED}$(get_current_version "$SB_BIN")${RESET}"
+    sb_ver=$(get_current_version "$SB_BIN")
+    sb_build=$(get_sb_build "$SB_BIN")
+    echo -e "  sing-box:  ${RED}${sb_ver}${RESET}${sb_build:+  ${GREEN}[ ${sb_build} ]${RESET}}"
     echo -e "  argo:      ${RED}$(get_current_version "$ARGO_BIN")${RESET}"
     echo -e "  系统架构:  ${RED}$ARCH${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
@@ -419,7 +441,7 @@ while true; do
     echo -e "1) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方稳定版: ${v_stable:-获取中}${RESET} ]"
     echo -e "2) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}官方测试版: ${v_pre:-获取中}${RESET} ]"
     echo -e "3) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}V2Ray API 编译版: ${v_v2rayapi:-获取中}${RESET} ]"
-    echo -e "4) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}xhttp-v2rayapi: ${v_xhttp_v2rayapi:-获取中}${RESET} ]"
+    echo -e "4) ${GREEN}更新 sing-box${RESET}  [ ${YELLOW}xhttp-v2rayapi 限速版: ${v_xhttp_v2rayapi:-获取中}${RESET} ]"
     echo -e "5) ${GREEN}更新 argo   ${RESET}  [ ${YELLOW}最新版本: ${v_argo:-获取中}${RESET} ]"
     echo -e "0) ${RED}退出程序${RESET}"
     echo -e "${YELLOW}-------------------------------------------------${RESET}"
@@ -432,7 +454,7 @@ while true; do
         4) update_xhttp_v2rayapi "$v_xhttp_v2rayapi" ;;
         5) update_argo ;;
         0) exit 0 ;;
-        *) echo -e "${RED}输入错误，请输入 0-4 之间的数字。${RESET}" ;;
+        *) echo -e "${RED}输入错误，请输入 0-5 之间的数字。${RESET}" ;;
     esac
     echo
     read -p "按回车键继续..."

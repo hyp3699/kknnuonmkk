@@ -6187,7 +6187,7 @@ qt_remove() {
 qt_reset_credentials() {
     local config_file="$1" inbound_type="$2" inbound_number="$3" new_uuid new_path name
     new_uuid=$(cat /proc/sys/kernel/random/uuid)
-    new_path="/$(openssl rand -hex 6)-ws"
+    if [ "$inbound_type" = "vless-xhttp" ]; then new_path="/$(openssl rand -hex 6)-xhttp"; else new_path="/$(openssl rand -hex 6)-ws"; fi
     jq --arg u "$new_uuid" --arg p "$new_path" \
         '.inbounds[0].users[0].uuid = $u | .inbounds[0].transport.path = $p' \
         "$config_file" > "${config_file}.tmp" && mv -f "${config_file}.tmp" "$config_file" || {
@@ -6255,21 +6255,38 @@ qt_menu() {
         read -rp "按回车返回..." _
     done
 }
-# 临时隧道专用入站：VMess WS <-> VLESS WS 互相切换
+# 临时隧道专用入站：VMess WS / VLESS WS / VLESS XHTTP 互相切换
 # 保留端口、UUID、路径和入站里所有用户（名字不变，流量统计/限额/限速不受影响），
 # 已添加的用户订阅里的临时隧道节点按备注自动换成新协议。
 qt_switch_protocol() {
     local config_file="$1" inbound_type="$2" inbound_number="$3"
     local new_type new_proto new_number new_config was_active=0 old_name tmp
+    local opts=() t i sel
     case "$inbound_type" in
-        vmess-ws) new_type="vless-ws"; new_proto="vless" ;;
-        vless-ws) new_type="vmess-ws"; new_proto="vmess" ;;
-        *) red "只有 VMess WS / VLESS WS 临时隧道可以切换"; return 1 ;;
+        vmess-ws|vless-ws|vless-xhttp) ;;
+        *) red "只有 VMess WS / VLESS WS / VLESS XHTTP 临时隧道可以切换"; return 1 ;;
     esac
     qt_is_dedicated "$inbound_type" "$inbound_number" || { red "不是临时隧道专用入站"; return 1; }
-    local _c
-    read -rp "确认把临时隧道从 ${inbound_type} 切换为 ${new_type}？(y/N): " _c
-    [[ "$_c" =~ ^[Yy]$ ]] || return 1
+    echo
+    green "当前协议：${inbound_type}"
+    i=0
+    for t in vmess-ws vless-ws vless-xhttp; do
+        [ "$t" = "$inbound_type" ] && continue
+        i=$((i + 1)); opts+=("$t")
+        case "$t" in
+            vmess-ws) green "${i}. 切换为 VMess WS" ;;
+            vless-ws) green "${i}. 切换为 VLESS WS" ;;
+            vless-xhttp) green "${i}. 切换为 VLESS XHTTP" ;;
+        esac
+    done
+    green "0. 返回"
+    read -rp "请选择: " sel
+    [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "$i" ] || return 1
+    new_type="${opts[$((sel - 1))]}"
+    case "$new_type" in
+        vmess-ws) new_proto="vmess" ;;
+        *) new_proto="vless" ;;
+    esac
     URL_DIR="${URL_DIR:-${work_dir}/url}"
     CONF_DIR="${CONF_DIR:-${work_dir}/conf}"
     new_number=$(get_next_inbound_number "$new_type")
@@ -6277,7 +6294,11 @@ qt_switch_protocol() {
     tmp=$(mktemp /tmp/sb-qtswitch.XXXXXX) || return 1
     if ! jq --arg t "$new_proto" --arg tag "${new_type}-${new_number}" \
         '.inbounds[0].type = $t | .inbounds[0].tag = $tag
-         | .inbounds[0].users = [.inbounds[0].users[]? | {name, uuid}]' \
+         | .inbounds[0].users = [.inbounds[0].users[]? | {name, uuid}]
+         | (.inbounds[0].transport.path // "/") as $p
+         | .inbounds[0].transport = (if ($tag | startswith("vless-xhttp"))
+               then {"type": "xhttp", "path": $p}
+               else {"type": "ws", "path": $p, "max_early_data": 2048, "early_data_header_name": "Sec-WebSocket-Protocol"} end)' \
         "$config_file" > "$tmp" 2>/dev/null; then
         rm -f "$tmp"; red "生成新配置失败"; return 1
     fi
@@ -6370,7 +6391,7 @@ EOF2
     systemctl reload sing-box 2>/dev/null || systemctl restart sing-box
     sleep 2
     qt_start "$config_file" "$inbound_type" "$inbound_number"
-    green "之后可在 9.添加删除节点 → 临时隧道 → 7.临时隧道管理 中启停/重置，6 可切换 VLESS/VMess"
+    green "之后可在 9.添加删除节点 → 临时隧道 → 7.临时隧道管理 中启停/重置，6 可切换 VMess / VLESS / XHTTP"
 }
 get_inbound_cdn_domain() {
     local inbound_type="$1"
@@ -9075,8 +9096,7 @@ manage_single_inbound() {
             vless-ws|vmess-ws|trojan-ws|vless-xhttp|xhttp-udp-tls)
                 if [ "$qt_dedicated" = "1" ]; then
                     case "$inbound_type" in
-                        vmess-ws) _mi_add green switch "切换 VLESS" ;;
-                        vless-ws) _mi_add green switch "切换 VMess" ;;
+                        vmess-ws|vless-ws|vless-xhttp) _mi_add green switch "切换协议（VMess / VLESS / XHTTP）" ;;
                     esac
                     _mi_add green qt "临时隧道管理（$(qt_status_text "$inbound_type" "$inbound_number")）"
                 else
