@@ -13096,6 +13096,9 @@ fanout_status_text() {
     fi
     if fanout_running; then
         echo "运行中"
+    elif fanout_is_systemd && [ "$(systemctl is-active "$FANOUT_UNIT" 2>/dev/null)" = "activating" ]; then
+        # Restart=on-failure 的等待重启期：程序在反复崩溃，不是被关掉
+        echo "启动失败，反复重启中（看日志）"
     else
         echo "已关闭"
     fi
@@ -13248,16 +13251,32 @@ fanout_svc_daemon_reload() {
     return 0
 }
 
-# 等面板真的可用：最多 15 秒，直到服务在跑且 password / basepath 都已写出。
-# 这一步是「启动后没有口令、没有路径」的兜底：超时直接把最近日志摊出来。
+# 端口真的在监听（ss 优先，没有 ss 用 curl 打一下本机）
+fanout_port_listening() {
+    local port
+    port=$(fanout_port)
+    [ -n "$port" ] || return 1
+    if command -v ss >/dev/null 2>&1; then
+        [ -n "$(ss -tlnH "sport = :${port}" 2>/dev/null)" ]
+        return
+    fi
+    local code
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:${port}/" 2>/dev/null)
+    [ -n "$code" ] && [ "$code" != "000" ]
+}
+
+# 等面板真的可用：最多 15 秒，直到服务在跑、password / basepath 已写出、端口在监听，
+# 并且 2 秒后进程还活着。只看 systemd 的 active 不够：Type=simple 一 fork 就算 active，
+# 程序刚写完口令就崩溃（崩溃重启循环）时会被误报成「已开启」。超时由调用方摊日志。
 fanout_wait_ready() {
     local i pw bp
     for i in $(seq 1 "$FANOUT_WAIT_TRIES"); do
         if fanout_running; then
             pw=$(fanout_password)
             bp=$(fanout_basepath)
-            if [ -n "$pw" ] && [ -n "$bp" ]; then
-                return 0
+            if [ -n "$pw" ] && [ -n "$bp" ] && fanout_port_listening; then
+                sleep 2
+                fanout_running && fanout_port_listening && return 0
             fi
         fi
         sleep 1
@@ -13301,10 +13320,10 @@ fanout_enable() {
         # 服务在跑但访问路径是空的，多半是用户自己把路径去掉了，不算故障
         pw=$(fanout_password)
         bp=$(fanout_basepath)
-        if fanout_running && [ -n "$pw" ] && [ -z "$bp" ]; then
+        if fanout_running && fanout_port_listening && [ -n "$pw" ] && [ -z "$bp" ]; then
             yellow "访问路径为空（已被去掉前缀），按无前缀访问"
         else
-            red "网页面板 15 秒内没准备好（口令/路径未写出），最近的日志："
+            red "网页面板 15 秒内没准备好（进程退出、端口没监听或口令/路径未写出），最近的日志："
             fanout_show_logs 25
             return 1
         fi
