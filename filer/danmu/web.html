@@ -572,7 +572,17 @@ function adStrip(txt){
   const total=blocks.reduce((a,b)=>a+b.dur,0);
   const sigDur={};blocks.forEach(b=>{const g=segSig(b.segs[0]);b.sig=g.sig;b.len=g.len;sigDur[b.sig]=(sigDur[b.sig]||0)+b.dur});
   const main=Object.keys(sigDur).sort((a,b)=>sigDur[b]-sigDur[a])[0];
-  if(sigDur[main]<total*0.6)return txt;  // 看不出哪个是正片，不动
+  // 同一段（第一个分片地址一模一样）在一个视频里出现两次以上，又不是正片目录：一定是插播
+  const fc={};blocks.forEach(b=>fc[b.segs[0]]=(fc[b.segs[0]]||0)+1);
+  const rep=b=>fc[b.segs[0]]>=2&&b.dur<=120;
+  if(sigDur[main]<total*0.6){  // 看不出哪个是正片：只删重复插播段，其余不动
+    const rest=blocks.filter(b=>!rep(b));const rd={};rest.forEach(b=>rd[b.sig]=(rd[b.sig]||0)+b.dur);
+    const rm=Object.keys(rd).sort((a,b)=>rd[b]-rd[a])[0];
+    if(!rest.length||!rm||blocks.some(b=>rep(b)&&b.sig===rm))return txt;
+    blocks.forEach(b=>{if(rep(b))b.ad=1});
+    const keep=blocks.filter(b=>!b.ad),cs=total-keep.reduce((a,b)=>a+b.dur,0);
+    if(!keep.length||cs>total*0.7||cs>600)return txt;
+    return adOut(head,keep,tail,blocks.length-keep.length,cs)}
   const ml=blocks.filter(b=>b.sig===main).sort((a,b)=>b.dur-a.dur)[0].len;  // 正片文件名长度
   const AD=/\/(adjump|ad|ads|guanggao)\//i,LONG=120;
   // 同一次转码的片段时长会反复出现；广告是另一次转码，时长几乎对不上正片
@@ -589,6 +599,8 @@ function adStrip(txt){
   if(!cut||!keep.length)return txt;
   const cs=blocks.filter(b=>b.ad).reduce((a,b)=>a+b.dur,0);
   if(cs>total*0.5||cs>600)return txt;  // 要删的太多，宁可不删
+  return adOut(head,keep,tail,cut,cs)}
+function adOut(head,keep,tail,cut,cs){
   ADCUT={n:cut,s:Math.round(cs)};
   const out=[...head];let lk='';keep.forEach((b,i)=>{if(i)out.push('#EXT-X-DISCONTINUITY');if(b.key&&b.key!==lk&&!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY')))out.push(b.key);out.push(...b.lines);b.lines.forEach(x=>{if(x.trim().startsWith('#EXT-X-KEY'))lk=x});if(!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY'))&&b.key)lk=b.key});out.push(...tail);
   return out.join('\n')}
