@@ -13263,11 +13263,15 @@ fanout_show_addr() {
     bp=$(fanout_basepath)
     pw=$(fanout_password)
     echo
-    echo -e "  状态    ${green}$(fanout_status_text)${re}    版本 $(fanout_version)"
-    echo -e "  开机自启 $(fanout_autostart_text)"
-    echo -e "  管理地址  ${purple}$(fanout_url)${re}"
-    echo -e "  用户名    ${purple}$(fanout_username)${re}"
-    echo -e "  访问口令  ${purple}${pw:-<未生成，首次启动会写入 ${FANOUT_WORK_DIR}/password>}${re}"
+    echo -e "  状态      $(fanout_status_text)"
+    echo -e "  版本      $(fanout_version)"
+    echo -e "  开机自启  $(fanout_autostart_text)"
+    echo
+    # 整行同一种样式、值前后不插颜色码：手机 SSH 客户端长按就能选中复制
+    printf '  \033[1m管理地址  %s\033[0m\n' "$(fanout_url)"
+    printf '  \033[1m用户名    %s\033[0m\n' "$(fanout_username)"
+    printf '  \033[1m访问口令  %s\033[0m\n' "${pw:-<未生成，首次启动会写入 ${FANOUT_WORK_DIR}/password>}"
+    echo
     if [ -z "$pw" ]; then
         yellow "  （第一次启动后才有口令，见日志 journalctl -u ${FANOUT_UNIT} -n 30）"
     fi
@@ -14016,14 +14020,12 @@ fanout_menu() {
         echo -e "  状态：$(fanout_status_text)    版本：$(fanout_version)"
         echo -e "  开机自启：$(fanout_autostart_text)"
         if fanout_installed; then
-            echo -e "  访问地址：${purple}$(fanout_url)${re}"
-            echo -e "  用户名：${purple}$(fanout_username)${re}    访问口令：${purple}$(fanout_password)${re}"
-            echo -e "  端口：$(fanout_port)    路径：/$(fanout_basepath)/    运行隧道：$(fanout_tunnel_count) 条"
+            echo -e "  端口：$(fanout_port)    运行隧道：$(fanout_tunnel_count) 条"
         fi
         echo
         green   "1. 一键开启（没装会自动安装）"
         red     "2. 一键关闭（数据保留）"
-        skyblue "3. 查看访问地址与口令"
+        skyblue "3. 查看访问地址和账号密码"
         skyblue "4. 修改监听端口"
         skyblue "5. 修改/重置访问路径"
         skyblue "6. 修改/重置访问口令"
