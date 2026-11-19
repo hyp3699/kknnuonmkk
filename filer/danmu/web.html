@@ -43,7 +43,7 @@ button.on{background:#e50914;border-color:#e50914}
 .si button{padding:5px 8px;font-size:12px}
 #nlink{width:100%;height:64px;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}#nodebox{border-top:1px solid #222}
 #npop,#ppop{position:fixed;top:52px;right:8px;z-index:50;width:min(340px,94vw);max-height:70vh;overflow:auto;background:#181818;border:1px solid #333;border-radius:10px;box-shadow:0 6px 24px #000a}
-#benc.on{border-color:#2ecc71;color:#2ecc71}#npop .si,#ppop .si{cursor:pointer}#npop .si.cur b,#ppop .si.cur b{color:#e50914}#ppop{top:auto;bottom:12px}#bnode.on{border-color:#e50914}
+#benc.on{border-color:#2ecc71;color:#2ecc71}#npop .si,#ppop .si{cursor:pointer}#npop .si.cur b,#ppop .si.cur b{color:#e50914}#ppop{top:12vh;left:12px;right:12px;width:auto;max-height:76vh}#bnode.on{border-color:#e50914}
 #raw{width:100%;height:70vh;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}
 #more,.msg{text-align:center;padding:14px;color:#888}
 #detail{display:none;padding-bottom:30px}
@@ -387,7 +387,7 @@ $('#cadd').onclick=async()=>{const u=$('#curl').value.trim();if(!u){$('#cst').te
   $('#cadd').disabled=false};
 // ---------- 出口节点（服务器上单独的 sing-box）：设置里添加/测试/删除，🌐 里切换 ----------
 let NT={},NBOX=false,ND=null;
-async function getNodes(){try{ND=await api('/api/nodes')}catch(e){ND=null}$('#bnode').classList.toggle('on',!!(ND&&ND.mode!=='off'&&ND.nodes.length));return ND}
+async function getNodes(){try{ND=await api('/api/nodes')}catch(e){ND=null}return ND}
 function nodeStatus(d){const info=[];if(d.nodes.length){if(!d.bin)info.push('<span class="bad">服务器上没有 sing-box，运行 ys 选 1 更新</span>');else if(d.err)info.push(`<span class="bad">${esc(d.err)}</span>`);else info.push(d.running?'<span class="ok">sing-box 运行中</span>':'<span class="warn">sing-box 未运行</span>')}
   if(d.mode==='auto'&&d.hosts&&d.hosts.length)info.push('正在走节点：'+esc(d.hosts.join('、')));return info.join(' · ')}
 async function loadNodes(){
@@ -421,7 +421,8 @@ async function renderPop(){const p=$('#npop');p.innerHTML='<div class="msg">加�
     d.nodes.map(n=>it('fixed',n.id,'指定：'+n.name,n.type+' · '+n.server)).join('')+
     (d.nodes.length?'':'<div class="msg">还没有节点，在 ⚙️ 设置里点“添加节点”</div>')+`<div class="st" style="padding:6px 4px">${nodeStatus(d)}</div>`;
   $('#npx').onclick=()=>p.style.display='none'}
-$('#bnode').onclick=e=>{e.stopPropagation();const p=$('#npop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPop()};
+$('#bnode').onclick=e=>{e.stopPropagation();$('#npop').style.display='none';const p=$('#ppop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPx()};
+const _bnodeOld=e=>{e.stopPropagation();const p=$('#npop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPop()};
 $('#npop').onclick=async e=>{e.stopPropagation();const r=e.target.closest('.si[data-m]');if(!r)return;await post('/api/nodes',{act:'mode',mode:r.dataset.m,id:r.dataset.id});renderPop()};
 document.addEventListener('click',()=>{$('#npop').style.display='none'});
 getNodes();
@@ -670,9 +671,9 @@ function adLoader(){const B=Hls.DefaultConfig.loader;
 let CDNS=[],PXT='',PTT=0,PXB='',PXBAD={};
 const pxSel=()=>LS.pxs||(LS.px==='1'?'auto':'off');
 async function getCdns(){try{const d=await api('/api/cdns');CDNS=d.cdns||[];PXT=d.pt||'';PTT=Date.now()}catch(e){}return CDNS}
-const pxBases=()=>['',...CDNS.map(c=>c.url)];
+const pxBases=()=>{const a=['',...CDNS.map(c=>c.url)],s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);if(c)return [c.url,...a.filter(x=>x!==c.url)]}return a};
 function pxPick(){const s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);PXB=c?c.url:''}else if(s==='auto'){const b=pxBases().find(x=>!(PXBAD[x]>Date.now()));PXB=b===undefined?'':b}else PXB=''}
-const pxAuto=()=>pxSel()==='auto'&&CDNS.length>0;
+const pxAuto=()=>(pxSel()==='auto'||pxSel().startsWith('c:'))&&CDNS.length>0;
 function pxSwitch(from){const bs=pxBases();if(bs.length<2)return false;PXBAD[from]=Date.now()+60000;const nx=bs.find(x=>x!==from&&!(PXBAD[x]>Date.now()));if(nx===undefined)return false;PXB=nx;pxShow();return true}
 function pxRel(u){try{const x=new URL(u,location.href);if(x.pathname!=='/px')return '';if(x.origin!==location.origin&&!CDNS.some(c=>c.url===x.origin))return '';const q=new URLSearchParams(x.search);q.delete('pt');return '/px?'+q.toString()}catch(e){return ''}}
 function pxu(r){if(!PXB||!r.startsWith('/px?'))return r;return PXB+r+'&pt='+encodeURIComponent(PXT)}
@@ -816,10 +817,10 @@ async function renderPx(){const p=$('#ppop');p.innerHTML='<div class="msg">加�
     CDNS.map(c=>it('c:'+c.id,'CDN：'+c.name,c.url.replace(/^https?:\/\//,''))).join('')+
     (ns.length||CDNS.length?'':'<div class="msg">还没有节点或 CDN，在 ⚙️ 设置里点“添加节点”</div>');
   $('#ppx').onclick=()=>p.style.display='none'}
-function pxBtn(){const v=pxSel();$('#bpx').classList.toggle('on',v!=='off');const n=v.startsWith('c:')?(CDNS.find(c=>'c:'+c.id===v)||{}).name:v.startsWith('n:')?((ND&&ND.nodes||[]).find(x=>'n:'+x.id===v)||{}).name:'';$('#bpx').dataset.n=n||''}
+function pxBtn(){const v=pxSel();$('#bpx').classList.toggle('on',v!=='off');$('#bnode').classList.toggle('on',v!=='off');const n=v.startsWith('c:')?(CDNS.find(c=>'c:'+c.id===v)||{}).name:v.startsWith('n:')?((ND&&ND.nodes||[]).find(x=>'n:'+x.id===v)||{}).name:'';$('#bpx').dataset.n=n||''}
 $('#bpx').onclick=e=>{e.stopPropagation();const p=$('#ppop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPx()};
 $('#ppop').onclick=async e=>{e.stopPropagation();const r=e.target.closest('.si[data-v]');if(!r)return;const v=r.dataset.v;
-  LS.pxs=v;LS.px=v==='off'?'0':'1';st.px=v!=='off';PXBAD={};
+  $('#ppop').style.display='none';LS.pxs=v;LS.px=v==='off'?'0':'1';st.px=v!=='off';PXBAD={};
   if(v==='auto')await post('/api/nodes',{act:'mode',mode:'auto'}).catch(()=>{});else if(v.startsWith('n:'))await post('/api/nodes',{act:'mode',mode:'fixed',id:v.slice(2)}).catch(()=>{});
   pxBtn();$('#ppop').style.display='none';
   if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
