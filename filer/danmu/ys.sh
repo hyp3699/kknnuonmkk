@@ -430,7 +430,12 @@ EOF
   setenv $envk "$url"
   if [ "$kind" = web ]; then
     reading "只允许用域名访问网页（关闭 IP:$(web_port) 直连）？(y/N): " yn
-    if [ "$yn" = y ] || [ "$yn" = Y ]; then setenv WEB_BIND 127.0.0.1; else setenv WEB_BIND ""; fi
+    if [ "$yn" = y ] || [ "$yn" = Y ]; then
+      setenv WEB_BIND 127.0.0.1
+      # 只在哈哈自己的站块里拒绝非本域名（IP）请求，不加全局默认站，服务器 IP 给别的项目用不受影响
+      sed -i "s#^    server_name $d;#    server_name $d;\n    if (\$host != \"$d\") { return 444; }#" "/etc/nginx/conf.d/$name.conf"
+      nginx -t >/dev/null 2>&1 && systemctl reload nginx || { sed -i '/return 444; }/d' "/etc/nginx/conf.d/$name.conf"; systemctl reload nginx; }
+    else setenv WEB_BIND ""; fi
   fi
   ensure_envfile; systemctl restart danmu
   green "✅ $label 域名已设置：$url"
