@@ -6409,6 +6409,10 @@ add_quick_tunnel_inbound() {
         {
           "name": "vmess-ws-user${inbound_number}",
           "uuid": "${qt_uuid}"
+        },
+        {
+          "name": "tttttt",
+          "uuid": "$(cat /proc/sys/kernel/random/uuid)"
         }
       ],
       "transport": {
@@ -8030,6 +8034,11 @@ EOF
 		  "name": "socks${inbound_number}",
           "username": "$username",
           "password": "$password"
+        },
+        {
+          "name": "tttttt",
+          "username": "t$(openssl rand -hex 4)",
+          "password": "$(openssl rand -hex 12)"
         }
       ]
     }
@@ -15634,6 +15643,38 @@ ensure_service_guards() {
     if systemctl cat singbox-traffic >/dev/null 2>&1 && ! systemctl is-active --quiet singbox-traffic; then
         systemctl enable --now singbox-traffic >/dev/null 2>&1 || true
     fi
+    ensure_placeholder_users
+    return 0
+}
+# 每个入站都放一个占位用户 tttttt：真实用户到量被停用后入站不会变成空用户，
+# 取消限制时才能原样恢复。老入站缺的在这里补上，校验不过就还原。
+ensure_placeholder_users() {
+    [ -x "${work_dir}/sing-box" ] && command -v jq >/dev/null 2>&1 || return 0
+    local f t changed=0
+    for f in "${conf_dir}"/*.json; do
+        [ -f "$f" ] || continue
+        jq -e '(.inbounds // [])[] | select((.users|type)=="array" and (.users|length)>0 and .type!="shadowsocks" and ([.users[].name]|index("tttttt")|not))' "$f" >/dev/null 2>&1 || continue
+        t="$(mktemp)"
+        if jq --arg u "$(cat /proc/sys/kernel/random/uuid)" --arg p "$(openssl rand -hex 12)" --arg n "t$(openssl rand -hex 4)" '
+            .inbounds |= map(if (.users|type)=="array" and (.users|length)>0 and .type!="shadowsocks" and ([.users[].name]|index("tttttt")|not)
+              then .users += [ .users[0] | with_entries(
+                  if .key=="name" then .value="tttttt"
+                  elif .key=="uuid" then .value=$u
+                  elif .key=="password" then .value=$p
+                  elif .key=="username" then .value=$n
+                  else . end) ]
+              else . end)' "$f" > "$t"; then
+            cp -p "$f" "${f}.phbak"
+            cat "$t" > "$f"
+            if "${work_dir}/sing-box" check -C "${conf_dir}" >/dev/null 2>&1; then
+                changed=1; rm -f "${f}.phbak"
+            else
+                mv -f "${f}.phbak" "$f"
+            fi
+        fi
+        rm -f "$t"
+    done
+    [ "$changed" = 1 ] && systemctl reload sing-box >/dev/null 2>&1
     return 0
 }
 if [[ "${SB_LOAD_ONLY:-0}" != "1" ]]; then
