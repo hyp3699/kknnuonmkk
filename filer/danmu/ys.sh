@@ -210,21 +210,25 @@ acl_menu() {
   done
 }
 
+# 16-24 位，大小写字母+数字+特殊符号各至少一个
+rand_cred() { $PY -c 'import secrets,string as s;S="!@#%^*_-+=";A=[s.ascii_lowercase,s.ascii_uppercase,s.digits,S];n=16+secrets.randbelow(9);c=[secrets.choice(a) for a in A]+[secrets.choice("".join(A)) for _ in range(n-4)];secrets.SystemRandom().shuffle(c);print("".join(c))'; }
+
 reset_auth() {
   installed || { red "未安装"; return; }
   [ -x "$PY" ] || { red "缺少 $PY，请先选 1 安装"; return; }
   local u p p2 cur
   cur=$(AUTH_FILE=$APP_DIR/web_auth.json $PY $APP_DIR/danmu_server.py --auth-user 2>/dev/null)
-  reading "新账号（回车保持 ${cur:-admin}）: " u; u=${u:-${cur:-admin}}
-  read -s -p "$(red "新密码（回车随机生成）: ")" p; echo
+  yellow "当前账号：${cur:-无}"
+  reading "新账号（回车随机生成 16-24 位）: " u; [ -n "$u" ] || u=$(rand_cred)
+  read -s -p "$(red "新密码（回车随机生成 16-24 位）: ")" p; echo
   if [ -z "$p" ]; then
-    p=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 10)
+    p=$(rand_cred)
   else
     read -s -p "$(red "再输一次: ")" p2; echo
     [ "$p" = "$p2" ] || { red "两次不一致"; return; }
   fi
   AUTH_FILE=$APP_DIR/web_auth.json $PY $APP_DIR/danmu_server.py --set-auth "$u" "$p" >/dev/null || { red "设置失败"; return; }
-  green "已重置：账号 $u  密码 $p"
+  green "已重置（请记下来）："; echo "  账号：$u"; echo "  密码：$p"
   yellow "所有已登录的设备需要重新登录（立即生效，无需重启）"
 }
 
@@ -497,6 +501,7 @@ tg_install() {  # 安装/补全 tgweb：跳过 api_id/api_hash；不碰 nginx（
   [ -n "$(tg_envv WEB_USERNAME)" ] || tg_setv WEB_USERNAME "u$(tg_rand 15)"
   [ -n "$(tg_envv WEB_PASSWORD)" ] || tg_setv WEB_PASSWORD "$(tg_rand 32)"
   [ -n "$(tg_envv WEB_PATH)" ] || tg_setv WEB_PATH "$(tg_rand 24)"
+  [ "$(tg_envv TG_STREAM_ENC)" = auto ] || tg_setv TG_STREAM_ENC auto  # 明文/加密都能放，由哈哈设置页的加密开关决定
   cp "$TGD/tg" /usr/local/bin/tg 2>/dev/null && chmod +x /usr/local/bin/tg
   cp "$TGD/tg-domain.sh" /usr/local/bin/tg-domain 2>/dev/null && chmod +x /usr/local/bin/tg-domain
   skyblue "构建并启动 tgweb（第一次要几分钟）..."

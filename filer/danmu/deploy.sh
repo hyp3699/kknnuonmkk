@@ -57,6 +57,7 @@ echo "    版本：$OLD_VER -> $NEW_VER"
 python3 -m venv "$APP_DIR/venv"
 "$APP_DIR/venv/bin/pip" install -q --upgrade pip flask requests zhconv || { echo "❌ 安装依赖失败（pip），已保留旧版"; exit 1; }
 "$APP_DIR/venv/bin/pip" install -q lxml || echo "    ⚠ lxml 没装上，网页里的 XPath 规则站会不可用（其它功能不受影响）"
+"$APP_DIR/venv/bin/pip" install -q cryptography || echo "    ⚠ cryptography 没装上，网页设置里的“加密”对采集站不生效（其它功能不受影响）"
 # 网页"出口节点"要用 sing-box：优先用本机已有的（sing-box 脚本装在 /etc/sing-box/sing-box），没有才下载官方版到 /opt/danmu/sing-box
 if [ "$MODE" = web ] && [ ! -x /etc/sing-box/sing-box ] && ! command -v sing-box >/dev/null 2>&1 && [ ! -x "$APP_DIR/sing-box" ]; then
   case "$(uname -m)" in x86_64|amd64) SBA=amd64 ;; aarch64|arm64) SBA=arm64 ;; armv7l) SBA=armv7 ;; *) SBA="" ;; esac
@@ -117,8 +118,9 @@ NEW_AUTH=""
 AUTHC() { AUTH_FILE="$APP_DIR/web_auth.json" "$APP_DIR/venv/bin/python" "$APP_DIR/danmu_server.py" "$@"; }
 if [ "$MODE" = web ] && ! AUTHC --check-auth >/dev/null 2>&1; then
   [ -s "$APP_DIR/web_auth.json" ] && { echo "    ⚠ 原账号文件损坏，重新生成账号"; mv -f "$APP_DIR/web_auth.json" "$APP_DIR/web_auth.json.bad"; }
-  WEB_USER=${WEB_USER:-admin}
-  WEB_PASS=${WEB_PASS:-$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 10)}
+  RC() { "$APP_DIR/venv/bin/python" -c 'import secrets,string as s;S="!@#%^*_-+=";A=[s.ascii_lowercase,s.ascii_uppercase,s.digits,S];n=16+secrets.randbelow(9);c=[secrets.choice(a) for a in A]+[secrets.choice("".join(A)) for _ in range(n-4)];secrets.SystemRandom().shuffle(c);print("".join(c))'; }  # 16-24 位，大小写+数字+符号
+  WEB_USER=${WEB_USER:-$(RC)}
+  WEB_PASS=${WEB_PASS:-$(RC)}
   if AUTHC --set-auth "$WEB_USER" "$WEB_PASS" >/dev/null && AUTHC --check-auth >/dev/null 2>&1; then
     NEW_AUTH=1
   else
@@ -274,6 +276,14 @@ if [ "$MODE" = web ]; then
 fi
 if [ "$MODE" = moontv ]; then
   wait_up "$WEB_PORT" "" && echo "✅ MoonTVPlus 已启动（端口 $WEB_PORT）" || { OKALL=0; echo "⚠ MoonTVPlus 还没响应（首次拉镜像可能要几分钟）：cd /opt/moontv && docker compose logs --tail 50"; }
+fi
+# 已装 tgweb：改成 auto（明文/加密都能放），由网页设置里的“加密”开关决定走哪种
+TGD=${TGWEB_DIR:-/root/telegram-stream}
+if [ "$MODE" = web ] && [ -f "$TGD/.env" ] && [ -f "$TGD/docker-compose.yml" ] && ! grep -q '^TG_STREAM_ENC=auto$' "$TGD/.env"; then
+  sed -i '/^TG_STREAM_ENC=/d' "$TGD/.env"; echo "TG_STREAM_ENC=auto" >> "$TGD/.env"
+  if command -v docker >/dev/null && [ -n "$(cd "$TGD" && docker compose ps -q --status running 2>/dev/null)" ]; then
+    (cd "$TGD" && docker compose up -d >/dev/null 2>&1) && echo "✅ tgweb 已切到加密开关模式" || true
+  fi  # 没在运行就不启动，下次启动自动生效
 fi
 DD=$(grep -oP '^DANMU_DOMAIN=\K.*' /etc/danmu.env 2>/dev/null | tail -1 || true)
 echo "📺 OK影视 配置地址：${DD:-http://$IP:$PORT}/sub/jjoo.json"

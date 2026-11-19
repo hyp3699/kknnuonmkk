@@ -43,7 +43,7 @@ button.on{background:#e50914;border-color:#e50914}
 .si button{padding:5px 8px;font-size:12px}
 #nlink{width:100%;height:64px;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}#nodebox{border-top:1px solid #222}
 #npop{position:fixed;top:52px;right:8px;z-index:50;width:min(340px,94vw);max-height:70vh;overflow:auto;background:#181818;border:1px solid #333;border-radius:10px;box-shadow:0 6px 24px #000a}
-#npop .si{cursor:pointer}#npop .si.cur b{color:#e50914}#bnode.on{border-color:#e50914}
+#benc.on{border-color:#2ecc71;color:#2ecc71}#npop .si{cursor:pointer}#npop .si.cur b{color:#e50914}#bnode.on{border-color:#e50914}
 #raw{width:100%;height:70vh;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}
 #more,.msg{text-align:center;padding:14px;color:#888}
 #detail{display:none;padding-bottom:30px}
@@ -124,7 +124,7 @@ button.on{background:#e50914;border-color:#e50914}
   <div id="hgrid"></div>
 </div>
 <div id="set" style="display:none">
-  <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="bnadd">添加节点</button><button id="blogout">退出登录</button><button id="sraw">编辑 jjoo</button></header>
+  <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="benc" title="视频加密">加密:关</button><button id="bnadd">添加节点</button><button id="blogout">退出登录</button><button id="sraw">编辑 jjoo</button></header>
   <div class="sbox">
     <div class="srow" style="margin-top:8px"><input id="cname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="curl" placeholder="配置地址 http://xxx/tv"><button id="cadd">添加配置</button></div>
     <div class="st" id="cst"></div>
@@ -195,6 +195,25 @@ async function api(p,o={}){
   throw new Error(last&&last.name==='AbortError'?'连接超时':'网络连接中断');
 }
 const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+// ---------- 视频加密：代理播放时 m3u8/分片都加密（AES-CTR，浏览器 WebCrypto 解密），地址也藏进 token ----------
+let ENC={on:false,ok:false},ENCK=null;
+const b64d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const b64u=b=>{let s='';new Uint8Array(b).forEach(x=>s+=String.fromCharCode(x));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')};
+const encUse=()=>ENC.on&&ENC.ok&&!!ENCK;
+function encBtn(){const b=$('#benc');if(!b)return;b.classList.toggle('on',ENC.on);b.textContent=ENC.on?'加密:开':'加密:关'}
+async function encLoad(){try{const r=await api('/api/enc');ENC={on:!!r.on,ok:!!r.ok};
+  if(r.key&&window.crypto&&crypto.subtle&&!ENCK)ENCK=await crypto.subtle.importKey('raw',b64d(r.key),{name:'AES-CTR'},false,['encrypt','decrypt'])}catch(e){}encBtn()}
+const ctrP=n=>{const c=new Uint8Array(16);c.set(n,0);return {name:'AES-CTR',counter:c,length:64}};
+async function encTok(u,h){const n=crypto.getRandomValues(new Uint8Array(8));
+  const ct=await crypto.subtle.encrypt(ctrP(n),ENCK,new TextEncoder().encode(JSON.stringify({u,h:h||''})));
+  const b=new Uint8Array(8+ct.byteLength);b.set(n,0);b.set(new Uint8Array(ct),8);return b64u(b)}
+async function encDec(d){const txt=typeof d==='string',b=txt?b64d(d.trim()):new Uint8Array(d);
+  const pt=await crypto.subtle.decrypt(ctrP(b.slice(0,8)),ENCK,b.slice(8));return txt?new TextDecoder().decode(pt):pt}
+$('#benc').onclick=async()=>{const on=!ENC.on;
+  if(on&&!(window.crypto&&crypto.subtle)){alert('这个浏览器不支持解密（要 https 打开），开不了加密');return}
+  if(!confirm(on?'开启加密？代理播放的采集站视频和 tgweb 视频都会加密（直连播放不经过服务器，不受影响）':'关闭加密？'))return;
+  try{const r=await post('/api/enc',{on});ENC={on:!!r.on,ok:!!r.ok};if(on&&!r.ok)alert('服务器缺加密组件，采集站加密暂不可用（ys 选 1 更新后就好）；tgweb 已加密')}catch(e){alert('设置失败：'+e.message)}
+  encBtn();if(document.body.classList.contains('tg'))$('#tgf').src='/tg/'};
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 // ---------- 列表 ----------
@@ -227,6 +246,7 @@ async function loadSites(){
   return true;
 }
 async function init(){
+  encLoad();
   await loadCfgs();
   if(await loadSites()) await loadCats();
   route();
@@ -567,7 +587,7 @@ function play(fi,ei,t0){
 }
 // ---------- 去广告：m3u8 里用 #EXT-X-DISCONTINUITY 隔开插进来的广告段 ----------
 const adOn=()=>LS.noad!=='0';let ADCUT={n:0,s:0};
-function segSig(u){let x=String(u||'');const m=x.match(/^\/px\?u=([^&]+)/);if(m){try{x=decodeURIComponent(m[1])}catch(e){}}
+function segSig(u){let x=String(u||'');const m=x.match(/^\/px\?u=([^&#]+)/)||x.match(/^\/px\?x=[^#]*#u=(.+)$/);if(m){try{x=decodeURIComponent(m[1])}catch(e){}}
   try{x=new URL(x,location.href).pathname}catch(e){}  // 只看路径，不看域名（正片常分在几个 CDN 域名上）
   const i=x.lastIndexOf('/'),dir=x.slice(0,i),f=x.slice(i+1);
   const dot=f.lastIndexOf('.'),base=dot>0?f.slice(0,dot):f,ext=dot>0?f.slice(dot+1):'';
@@ -622,15 +642,19 @@ function adOut(head,keep,tail,cut,cs){
   const out=[...head];let lk='';keep.forEach((b,i)=>{if(i)out.push('#EXT-X-DISCONTINUITY');if(b.key&&b.key!==lk&&!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY')))out.push(b.key);out.push(...b.lines);b.lines.forEach(x=>{if(x.trim().startsWith('#EXT-X-KEY'))lk=x});if(!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY'))&&b.key)lk=b.key});out.push(...tail);
   return out.join('\n')}
 function adLoader(){const B=Hls.DefaultConfig.loader;
-  return class extends B{load(ctx,cfg,cb){if(ctx.type==='manifest'||ctx.type==='level'){const ok=cb.onSuccess;
-      cb.onSuccess=(r,stats,c,nd)=>{try{if(typeof r.data==='string')r.data=adStrip(r.data)}catch(e){}ok(r,stats,c,nd)}}
+  return class extends B{load(ctx,cfg,cb){const pl=ctx.type==='manifest'||ctx.type==='level'||ctx.type==='audioTrack'||ctx.type==='subtitleTrack';
+    const enc=!!ENCK&&/^(https?:\/\/[^/]+)?\/px\?x=/.test(ctx.url||'');
+    if(pl||enc){const ok=cb.onSuccess,er=cb.onError;
+      cb.onSuccess=(r,stats,c,nd)=>{const fin=()=>{if(pl){try{if(typeof r.data==='string')r.data=adStrip(r.data)}catch(e){}}ok(r,stats,c,nd)};
+        if(!enc)return fin();
+        encDec(r.data).then(d=>{r.data=d;if(stats&&d&&d.byteLength!=null)stats.loaded=stats.total=d.byteLength;fin()}).catch(()=>er({code:0,text:'解密失败'},c,nd,stats))}}
     super.load(ctx,cfg,cb)}}}
 const kindOf=u=>/\.m3u8(\?|#|$)/i.test(u)?'hls':(/\.(mp4|mkv|webm|flv|mov|m4v)(\?|#|$)/i.test(u)?'file':'');
-function load(u,t0,px,kind){
+function load(u,t0,px,kind,xs){
   const lg=++LG;clearTimeout(WDT);ORI=null;clearTimeout(ORIT);
   if(hls){hls.destroy();hls=null}
   V.onerror=null;V.onloadedmetadata=null;V.removeAttribute('src');
-  const src=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;
+  const srcP=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;let src=srcP;
   const why=px?(st.px?'代理':(HDR?'这个站要求走代理':'直连不行，已自动走代理')):'';
   $('#bpx').classList.toggle('auto',px&&!st.px);$('#bpx').textContent=px&&!st.px?'代理(自动)':'代理';
   setSt(px?why+'，连接中…':'连接中…');
@@ -638,6 +662,9 @@ function load(u,t0,px,kind){
   if(!kind){  // 地址看不出类型：让服务器看一眼内容（m3u8 / mp4）
     api(`/api/probe?u=${encodeURIComponent(u)}`+(HDR?'&h='+encodeURIComponent(HDR):'')).then(r=>{if(lg===LG)load(u,t0,px,(r&&r.kind)||'try')}).catch(()=>{if(lg===LG)load(u,t0,px,'try')});
     return}
+  if(px&&kind!=='file'&&encUse()){  // 加密：m3u8 走 token 地址（mp4 直链要靠浏览器原生播放，不加密）
+    if(!xs){encTok(u,HDR).then(t=>{if(lg===LG)load(u,t0,px,kind,t)}).catch(()=>{if(lg===LG)load(u,t0,px,kind,'-')});return}
+    if(xs!=='-')src='/px?x='+xs}
   const toPx=(t,m)=>{if(triedPx)return false;
     if(!px){triedPx=true;setSt(m);load(u,t,true,kind==='try'?'':kind);return true}
     if(st.px&&!HDR){triedPx=true;setSt('代理放不了（视频服务器拒绝了 VPS），改直连…');load(u,t,false,kind==='try'?'':kind);return true}  // 手动开了代理也不行：退回直连试一次
@@ -645,11 +672,11 @@ function load(u,t0,px,kind){
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
     if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
   const start=()=>{if(lg!==LG)return;clearTimeout(WDT);setSt((px?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
-  const asFile=()=>{V.src=src;V.onloadedmetadata=start;
+  const asFile=()=>{V.src=srcP;V.onloadedmetadata=start;
     V.onerror=()=>{if(lg!==LG)return;if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
   if(kind!=='file'&&window.Hls&&Hls.isSupported()){
     let netTry=0,medTry=0;
-    ADCUT={n:0,s:0};hls=new Hls({pLoader:adLoader(),maxBufferLength:bufLen(),maxMaxBufferLength:Math.max(600,bufLen()*2),maxBufferSize:Math.max(60,bufLen())*1e6});const h=hls;
+    ADCUT={n:0,s:0};const AL=adLoader();hls=new Hls({loader:AL,pLoader:AL,maxBufferLength:bufLen(),maxMaxBufferLength:Math.max(600,bufLen()*2),maxBufferSize:Math.max(60,bufLen())*1e6});const h=hls;
     h.loadSource(src);h.attachMedia(V);
     h.on(Hls.Events.MANIFEST_PARSED,start);
     h.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal||lg!==LG)return;

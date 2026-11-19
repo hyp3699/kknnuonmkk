@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "2.4.1"  # 2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "2.4.2"  # 2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -1318,6 +1318,67 @@ def logout():
     r.delete_cookie("ys_auth")
     return r
 
+# ---------- 视频加密（设置页开关）：代理播放的采集站视频 + tgweb 视频都加密，CF 只看到 octet-stream 乱码 ----------
+ENC_FILE = os.environ.get("ENC_FILE", os.path.join(DATA_DIR, "web_enc.json"))
+ENC, ENC_LOCK = {}, threading.Lock()
+try:
+    from cryptography.hazmat.primitives.ciphers import Cipher as _Ci, algorithms as _Alg, modes as _Mo
+except Exception:
+    _Ci = None  # 没装 cryptography：采集站加密不可用（tgweb 自己加密，不受影响）
+
+def enc_save():
+    tmp = ENC_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(ENC, f)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, ENC_FILE)
+
+def enc_conf():
+    with ENC_LOCK:
+        if not ENC:
+            try:
+                ENC.update(json.load(open(ENC_FILE, encoding="utf-8")))
+            except Exception:
+                pass
+            if not ENC.get("key"):
+                ENC["key"] = base64.b64encode(secrets.token_bytes(16)).decode()
+                ENC.setdefault("on", False)
+                try:
+                    enc_save()
+                except Exception as e:
+                    print("[enc] save err", e, flush=True)
+        return ENC
+
+def enc_on():
+    return bool(enc_conf().get("on"))
+
+def enc_cipher(nonce8):
+    """AES-128-CTR，counter = 8 字节随机 nonce + 8 字节块号（从 0 开始），和浏览器 WebCrypto 一致"""
+    return _Ci(_Alg.AES(base64.b64decode(enc_conf()["key"])), _Mo.CTR(nonce8 + b"\0" * 8)).encryptor()
+
+def enc_bytes(data):
+    n = secrets.token_bytes(8)
+    return n + enc_cipher(n).update(data)
+
+def enc_tok(u, hx=""):
+    return base64.urlsafe_b64encode(enc_bytes(json.dumps({"u": u, "h": hx or ""}, separators=(",", ":")).encode())).decode().rstrip("=")
+
+def enc_untok(x):
+    b = base64.urlsafe_b64decode(x + "=" * (-len(x) % 4))
+    d = json.loads(enc_cipher(b[:8]).update(b[8:]).decode())
+    return str(d.get("u") or ""), str(d.get("h") or "")
+
+@app.route("/api/enc", methods=["GET", "POST"])
+def enc_api():
+    c = enc_conf()
+    if request.method == "POST":
+        on = bool((request.get_json(silent=True) or {}).get("on"))
+        with ENC_LOCK:
+            ENC["on"] = on
+            enc_save()
+        print("[enc]", "on" if on else "off", flush=True)
+    return jsonify({"on": bool(c.get("on")), "ok": bool(_Ci), "key": c["key"]})
+
 # ---------- tgweb（Telegram 频道视频，Docker 只绑 127.0.0.1:9393）：网页 /tg/ 反代，登录用哈哈的 ----------
 # 浏览器只认哈哈的登录；tgweb 自己的网页账号密码（.env 里随机生成）由这里代登录，web_token 只在服务器里用，不发给浏览器。
 TG_DIR = os.environ.get("TGWEB_DIR", "/root/telegram-stream")
@@ -1327,7 +1388,8 @@ TG_TOK, TG_LOCK, TG_ST, TG_FAIL = [None], threading.Lock(), [0.0, False], [0.0]
 TG_DROP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
            "transfer-encoding", "upgrade", "set-cookie", "x-frame-options", "server", "date"}
 
-TG_INJ = (b"<script>(()=>{const f=window.fetch;window.fetch=function(u,o){const p=f.apply(this,arguments);"
+TG_INJ = (b"<style>button[onclick^='webLogout']{display:none!important}</style>"  # 退出用哈哈设置页的，tgweb 里只留退出 TG 账号
+          b"<script>(()=>{const f=window.fetch;window.fetch=function(u,o){const p=f.apply(this,arguments);"
           b"if(String(u&&u.url||u).indexOf('/api/web-logout')>=0)p.finally(()=>{try{top.location.href='/'}catch(e){location.href='/'}});return p}})()</script>")
 
 def tg_env():
@@ -1420,6 +1482,8 @@ def tg_proxy(sub):
     raw = request.environ.get("RAW_URI") or request.environ.get("REQUEST_URI") or request.full_path
     rest = raw.split("?", 1)
     path = rest[0][3:] if rest[0].startswith("/tg") else "/" + sub
+    if enc_on() and path.startswith("/stream/"):  # 开了加密：不许明文流
+        return Response("已开启加密，只能走加密流", status=403, mimetype="text/plain; charset=utf-8")
     base = tg_base()
     url = TG_UP + base + (path or "/") + ("?" + rest[1] if len(rest) > 1 and rest[1] else "")
     h = {k: v for k, v in request.headers.items() if k.lower() in (
@@ -1444,6 +1508,15 @@ def tg_proxy(sub):
     except Exception as e:
         return Response("tgweb 出错：" + repr(e)[:200], status=502, mimetype="text/plain; charset=utf-8")
     inj = None
+    if request.method == "GET" and path == "/api/status" and r.status_code == 200:
+        # tgweb 装成 auto（明文/加密都能放），这里按哈哈的加密开关告诉它的前端走哪种
+        try:
+            j = r.json()
+            if isinstance(j.get("enc"), dict) and j["enc"].get("mode") == "auto":
+                j["enc"]["mode"] = "strict" if enc_on() else "off"
+            inj = json.dumps(j, ensure_ascii=False).encode()
+        except Exception:
+            inj = None
     if request.method == "GET" and path in ("", "/") and r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
         # tgweb 里点“退出网页登录”后整个哈哈回到登录页
         inj = r.content.replace(b"</body>", TG_INJ + b"</body>", 1)
@@ -2588,11 +2661,20 @@ def api_dm():
 @app.route("/px")
 def px():
     """播放代理：直连失败（跨域/防盗链）时网页自动改走这里"""
-    u = arg("u")
+    x, enc = arg("x"), False
+    if x:  # 加密模式：地址也藏在 token 里，CF 看不到 .m3u8/.ts
+        if not _Ci:
+            return "加密不可用（服务器缺 cryptography，ys 选 1 更新）", 501
+        try:
+            u, hx = enc_untok(x)
+        except Exception:
+            return "bad token", 400
+        enc = True
+    else:
+        u, hx = arg("u"), arg("h")
     if not re.match(r"https?://", u):
         return "bad url", 400
     h = {"User-Agent": UA}
-    hx = arg("h")
     if hx:
         try:
             h.update({str(k): str(v) for k, v in json.loads(hx).items() if str(k).lower() not in ("host", "range")})
@@ -2609,12 +2691,12 @@ def px():
             done[0] = True
             px_release(ip)
     try:
-        return px_inner(u, h, hx, rel)
+        return px_inner(u, h, hx, rel, enc)
     except Exception:
         rel()
         raise
 
-def px_inner(u, h, hx, rel):
+def px_inner(u, h, hx, rel, enc=False):
     try:
         r = site_get(u, safe=True, headers=h, timeout=15)
     except ValueError as e:
@@ -2652,7 +2734,10 @@ def px_inner(u, h, hx, rel):
             return Response(body[:500], status=502)
         base = r.url
         def fix(m):
-            return "/px?u=" + quote(urllib.parse.urljoin(base, m), safe="") + ("&h=" + quote(hx, safe="") if hx else "")
+            full = urllib.parse.urljoin(base, m)
+            if enc:  # #u= 只给浏览器去广告认路径用，# 后面不会发给服务器/CF
+                return "/px?x=" + enc_tok(full, hx) + "#u=" + quote(full, safe="")
+            return "/px?u=" + quote(full, safe="") + ("&h=" + quote(hx, safe="") if hx else "")
         lines = []
         for ln in body.splitlines():
             s = ln.strip()
@@ -2660,12 +2745,33 @@ def px_inner(u, h, hx, rel):
                 lines.append(fix(s))
             else:
                 lines.append(re.sub(r'URI="([^"]+)"', lambda m: 'URI="' + fix(m.group(1)) + '"', ln))
-        return Response("\n".join(lines), mimetype="application/vnd.apple.mpegurl", headers={"Access-Control-Allow-Origin": "*"})
+        out = "\n".join(lines)
+        if enc:
+            return Response(base64.b64encode(enc_bytes(out.encode("utf-8"))), mimetype="application/octet-stream",
+                            headers={"Cache-Control": "private, no-store, no-transform"})
+        return Response(out, mimetype="application/vnd.apple.mpegurl", headers={"Access-Control-Allow-Origin": "*"})
     hd = {"Access-Control-Allow-Origin": "*"}
     gz = bool(r.headers.get("Content-Encoding"))  # requests 会自动解压，原长度就不对了
     for k in ("Content-Length", "Content-Range", "Accept-Ranges"):
         if k in r.headers and not (gz and k == "Content-Length"):
             hd[k] = r.headers[k]
+    if enc:  # 分片加密：前 8 字节 nonce，后面 AES-CTR 密文（边下边加密，不占内存）
+        hd = {"Cache-Control": "private, no-store, no-transform"}
+        if r.headers.get("Content-Length") and not gz:
+            hd["Content-Length"] = str(int(r.headers["Content-Length"]) + 8)
+        n = secrets.token_bytes(8); ci = enc_cipher(n)
+        def egen():
+            try:
+                yield n
+                if first:
+                    yield ci.update(first)
+                for c in it:
+                    yield ci.update(c)
+            finally:
+                r.close(); rel()
+        resp = Response(egen(), status=200, mimetype="application/octet-stream", headers=hd)
+        resp.call_on_close(rel)
+        return resp
     def gen():
         try:
             if first:
