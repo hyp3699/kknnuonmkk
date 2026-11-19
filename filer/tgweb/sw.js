@@ -32,6 +32,78 @@ let keyCache = null;      // {at, kid, key, frame, cap}
 let keyPending = null;
 const metaCache = new Map();  // "c:m:u" -> {at, size, mime, frame, cap}
 
+// ---------- CDN 域名：页面（哈哈 🌐 里选的“视频走哪里”）推过来，加密帧流按它挑域名 ----------
+// '' 表示和页面同源的主域名（哈希过的加密帧流本来就走它）。off / 节点 -> 只走主域名；
+// auto -> 先主域名，失败依次换 CDN；c:<id> -> 先用指定 CDN，坏了换回主域名。
+// 一个域名坏过一次就在 cdnBad 里冷却 60 秒，不会被下一集 / 下一段重新选中。
+// 注意：getKeys()/getMeta() 永远走同源主域名——密钥和元数据不能交给外域。
+const CDN_COOLDOWN = 60 * 1000;
+let cdnState = { pxs: 'off', cdns: [], pt: '' };
+const cdnBad = new Map();   // 域名 -> 冷却到期时间
+
+// 候选域名，按优先顺序；'' = 主域名。和哈哈里 pxBases() 的规则一致。
+function cdnList(st) {
+  const s = (st && st.pxs) || 'off';
+  const cdns = ((st && st.cdns) || []).filter(function (c) { return c && c.url; });
+  const urls = cdns.map(function (c) { return c.url; });
+  if (s === 'auto') return [''].concat(urls);
+  if (s.indexOf('c:') === 0) {
+    const hit = cdns.filter(function (c) { return 'c:' + c.id === s; })[0];
+    if (!hit) return [''];
+    return [hit.url].concat([''].concat(urls).filter(function (u) { return u !== hit.url; }));
+  }
+  return [''];
+}
+
+function cdnGood(base, now) {
+  const t = cdnBad.get(base);
+  return !(t && t > (now === undefined ? nowMs() : now));
+}
+
+// 按候选顺序取第一个不在冷却期、也不在 skip 里的；都试过了返回 null
+function cdnPick(st, skip, now) {
+  const bs = cdnList(st);
+  const t = now === undefined ? nowMs() : now;
+  for (let i = 0; i < bs.length; i++) {
+    const b = bs[i];
+    if (skip && skip.indexOf(b) >= 0) continue;
+    if (!cdnGood(b, t)) continue;
+    return b;
+  }
+  return null;
+}
+
+// 走 CDN 的地址：<域名><页面前缀>/api/blob?pt=<票据>；主域名还是原来的同源地址
+function cdnUrl(ctx, base, path) {
+  if (!base) return ctx.base + path;
+  const pt = (cdnState && cdnState.pt) || '';
+  return base + ctx.base + path + (pt ? '?pt=' + encodeURIComponent(pt) : '');
+}
+
+// 跨域请求不带 cookie（CDN 上没有登录 cookie，全靠 ?pt= 票据），CORS 模式才读得到响应头和流
+function cdnInit(ctx, base, body) {
+  const init = blobInit(ctx, body);
+  if (base) {
+    init.credentials = 'omit';
+    init.mode = 'cors';
+  }
+  return init;
+}
+
+// 换了域名就告诉页面，角标上能看出这一段是从哪个域名来的
+function notifyCdn(base) {
+  try {
+    if (typeof self === 'undefined' || !self.clients || typeof self.clients.matchAll !== 'function') return;
+    const p = self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (!p || typeof p.then !== 'function') return;
+    p.then(function (list) {
+      (list || []).forEach(function (c) {
+        try { c.postMessage({ type: 'tgweb-cdn', base: base }); } catch (e) { /* 忽略 */ }
+      });
+    }).catch(function () { /* 忽略 */ });
+  } catch (e) { /* 忽略 */ }
+}
+
 function nowMs() { return Date.now(); }
 
 function defaultFetch(url, init) { return fetch(url, init); }
@@ -243,44 +315,63 @@ function abortError() {
 }
 
 // 一段（不超过 cap）的明文：一次 POST /api/blob，边读边解边 yield。
+// 开了 CDN：按配置挑域名发（跨域，带 ?pt= 票据）；这个域名网络错误 / 非 200 / 被拦成 HTML（没有 X-Blob-S）
+// 就把它拉黑 60 秒，当场换下一个可用域名重试这一段，最后一定回退到主域名。
 async function* segmentPlaintext(ctx, state, start, end) {
   const want = end - start + 1;
   const body = JSON.stringify({ c: ctx.channel, m: ctx.msg, u: ctx.username || null, o: start, e: end });
+  const st = cdnState;
+  const multi = cdnList(st).length > 1;   // 有备选域名才需要换
+  const tried = [];
+  let base = '';
+  if (multi) { const b = cdnPick(st, null); base = b === null ? '' : b; }
   let resp = null;
-  for (let attempt = 0; ; attempt++) {
-    let r;
+  let kidRetried = false;
+  for (;;) {
+    let r = null;
+    let err = null;
     try {
-      r = await ctx.fetchImpl(ctx.base + '/api/blob', blobInit(ctx, body));
+      r = await ctx.fetchImpl(cdnUrl(ctx, base, '/api/blob'), cdnInit(ctx, base, body));
     } catch (e) {
       if (ctx.signal && ctx.signal.aborted) throw abortError();
-      const err = new Error('blob 请求失败：' + String((e && e.message) || e));
+      err = new Error('blob 请求失败：' + String((e && e.message) || e));
       err.code = 'net';
-      throw err;
     }
-    const st = r.headers.get('X-Blob-S');
-    const kid = r.headers.get('X-Blob-Kid');
-    // 服务端重启过（密钥换了）：重新取一次密钥再开一次，不用让用户重进页面
-    if (kid && kid !== state.keys.kid && attempt === 0) {
-      try { await r.body.cancel(); } catch (e) { /* 忽略 */ }
-      state.keys = await getKeys({ base: ctx.base, fetchImpl: ctx.fetchImpl, force: true });
-      continue;
+    if (r) {
+      const hst = r.headers.get('X-Blob-S');
+      const kid = r.headers.get('X-Blob-Kid');
+      // 服务端重启过（密钥换了）：重新取一次密钥再开一次，不用让用户重进页面
+      if (kid && kid !== state.keys.kid && !kidRetried) {
+        kidRetried = true;
+        try { await r.body.cancel(); } catch (e) { /* 忽略 */ }
+        state.keys = await getKeys({ base: ctx.base, fetchImpl: ctx.fetchImpl, force: true });
+        continue;
+      }
+      // 光看 X-Blob-S 不够：被 Cloudflare 拦下时拿到的是 502/524 的 HTML 页或质询页，
+      // 既不是 200 也没有 X-Blob-S。绝不能把那种 HTML 当成 4 字节帧长去解析（会解出天量垃圾）。
+      if (!r.ok || !hst) {
+        try { await r.body.cancel(); } catch (e) { /* 忽略 */ }
+        err = new Error('blob http ' + r.status + (hst ? ' ' + hst : ' 无 X-Blob-S'));
+        err.code = r.status === 401 ? 'auth' : 'http';
+      } else if (hst !== 'ok') {
+        try { await r.body.cancel(); } catch (e) { /* 忽略 */ }
+        err = new Error('blob ' + hst);
+        err.code = hst === 'auth' ? 'auth' : 'nf';
+        // 会话没登录 / 视频不存在：换域名也一样，不用白跑
+        if (hst === 'auth' || hst === 'nf') throw err;
+      } else {
+        resp = r;
+      }
     }
-    // 光看 X-Blob-S 不够：被 Cloudflare 拦下时拿到的是 502/524 的 HTML 页或质询页，
-    // 既不是 200 也没有 X-Blob-S。绝不能把那种 HTML 当成 4 字节帧长去解析（会解出天量垃圾）。
-    if (!r.ok || !st) {
-      try { await r.body.cancel(); } catch (e) { /* 忽略 */ }
-      const err = new Error('blob http ' + r.status + (st ? ' ' + st : ' 无 X-Blob-S'));
-      err.code = r.status === 401 ? 'auth' : 'http';
-      throw err;
-    }
-    if (st !== 'ok') {
-      try { await r.body.cancel(); } catch (e) { /* 忽略 */ }
-      const err = new Error('blob ' + st);
-      err.code = st === 'auth' ? 'auth' : 'nf';
-      throw err;
-    }
-    resp = r;
-    break;
+    if (resp) break;
+    // 这个域名不行：拉黑 60 秒，换下一个（试过的不再试）；实在没得换就拿主域名再试一次，最后才报错。
+    cdnBad.set(base, nowMs() + CDN_COOLDOWN);
+    tried.push(base);
+    let nb = multi ? cdnPick(st, tried) : null;
+    if (nb === null && multi && base) nb = '';   // 候选都试过了：主域名哪怕是刚失败的那个，也再给它一次机会
+    if (nb === null) throw err;
+    base = nb;
+    if (multi) notifyCdn(base);
   }
   if (!resp.body) throw new Error('blob 没有响应体');
   const keys = state.keys;
@@ -414,12 +505,26 @@ function resetCaches() {
   metaCache.clear();
 }
 
-// 页面发来的消息：目前只有“退出网页登录”一条。
+// 页面发来的消息：退出网页登录（清缓存）、以及哈哈 🌐 里选的 CDN 走法（tg_cdn）。
 // 会话密钥只在 SW 里（页面拿不到，也就删不掉），所以退出时只能由页面通知 SW 自己清：
 // 换了账号还留着上一份 keyCache，就会出现“新账号的流拿旧钥匙去解”的情况。
-// 抽成纯函数，Node 测试可以直接喂一个假 event 验缓存是否真的清了。
+// 抽成纯函数，Node 测试可以直接喂一个假 event。
 function handleSwMessage(event) {
-  if (!event || !event.data || event.data.type !== 'tgweb-logout') return false;
+  if (!event || !event.data) return false;
+  const d = event.data;
+  if (d.type === 'tg_cdn') {   // { pxs, cdns, pt }：和哈哈里 pxBases() 同一套规则
+    const prev = cdnState || {};
+    cdnState = {
+      pxs: String(d.pxs || 'off'),
+      cdns: Array.isArray(d.cdns) ? d.cdns.filter(function (c) { return c && c.url; }) : [],
+      pt: String(d.pt || '')
+    };
+    // 换了走法 / 换了票据 / 显式要求：清冷却，新选择要能立刻试（不然刚拉黑的域名 60 秒内不会被选）
+    if (d.badReset || prev.pxs !== cdnState.pxs || prev.pt !== cdnState.pt) cdnBad.clear();
+    return true;
+  }
+  if (d.type === 'badReset') { cdnBad.clear(); return true; }
+  if (d.type !== 'tgweb-logout') return false;
   resetCaches();
   return true;
 }
@@ -503,6 +608,7 @@ if (typeof module !== 'undefined' && module.exports) {
     ENC_VERSION: ENC_VERSION,
     DEFAULT_FRAME: DEFAULT_FRAME,
     DEFAULT_CAP: DEFAULT_CAP,
+    CDN_COOLDOWN: CDN_COOLDOWN,
     b64ToBytes: b64ToBytes,
     readBe32: readBe32,
     counterBlock: counterBlock,
@@ -515,7 +621,13 @@ if (typeof module !== 'undefined' && module.exports) {
     segmentPlaintext: segmentPlaintext,
     handleMedia: handleMedia,
     notifyPage: notifyPage,
+    notifyCdn: notifyCdn,
     resetCaches: resetCaches,
-    handleSwMessage: handleSwMessage
+    handleSwMessage: handleSwMessage,
+    cdnList: cdnList,
+    cdnPick: cdnPick,
+    cdnUrl: cdnUrl,
+    getCdnState: function () { return cdnState; },
+    getCdnBad: function () { return cdnBad; }
   };
 }

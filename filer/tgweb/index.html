@@ -153,6 +153,8 @@ a.kb-btn{display:block}
    top 先写 4px 兜底：极老的 WebView 不认 env()，整条 calc 会被丢掉，没有兜底角标会站错位置。 */
 .enc-badge{position:fixed;top:4px;top:calc(4px + env(safe-area-inset-top, 0px));right:8px;z-index:102;background:transparent;padding:0;border-radius:0;font-size:10px;line-height:1.2;color:#8fe3a2;opacity:.82;letter-spacing:.2px;text-shadow:0 1px 2px rgba(0,0,0,.9);pointer-events:none}
 .enc-badge.plain{color:#ffcf6b}
+/* 嵌在哈哈里时角标可以点：叫出 🌐「视频走哪里」。独立部署不点（保持不挡画面触摸） */
+.enc-badge.tap{pointer-events:auto;cursor:pointer}
 </style></head><body>
 
 <!-- 第一步：网页账号 + 密码，全黑居中登录框 -->
@@ -2038,8 +2040,11 @@ function updateEncBadge(note){
   const b = document.getElementById('encBadge');
   if (!b) return;
   b.classList.remove('hidden');
-  if (encActive) { b.textContent = '🔒 加密传输'; b.classList.remove('plain'); }
-  else { b.textContent = '⚠ 未加密直连' + (note ? '（' + note + '）' : ''); b.classList.add('plain'); }
+  // 经过的 CDN 域名也写在角标上：看得出这一段到底走了哪个域名（主域名就不写）
+  const via = tgCdnName(tgCdnActive);
+  const tail = via ? (note ? '（' + note + '）' : '') + ' · 经 ' + via : (note ? '（' + note + '）' : '');
+  if (encActive) { b.textContent = '🔒 加密传输' + tail; b.classList.remove('plain'); }
+  else { b.textContent = '⚠ 未加密直连' + tail; b.classList.add('plain'); }
 }
 function showEncErr(){
   const b = document.getElementById('encBadge');
@@ -2077,6 +2082,7 @@ function armEncWatch(session){
     if (src.indexOf('/media/') < 0) { updateEncBadge(); return; }
     encFallbackDone = true;
     encActive = false;
+    tgCdnActive = ''; tgCdnPlain = ''; tgCdnPlainTried = null;   // 回落的是主域名的明文流
     p.src = src.replace('/media/', '/stream/');
     p.play().catch(()=>{});
     updateEncBadge('加密超时已回落');
@@ -2148,13 +2154,125 @@ if ('serviceWorker' in navigator) {
   // 手机上看不到 SW 控制台，先把原因存着，strict 模式直接贴到角标上。
   navigator.serviceWorker.addEventListener('message', (ev)=>{
     const d = ev && ev.data;
-    if (!d || d.type !== 'tgweb-enc-error') return;
+    if (!d) return;
+    // SW 换了域名（这一段落从 CDN 下来了）：角标上写出当前域名
+    if (d.type === 'tgweb-cdn') { tgCdnActive = String(d.base || ''); if (encActive) updateEncBadge(); return; }
+    if (d.type !== 'tgweb-enc-error') return;
     // 拖进度条 / 关播放器时 SW 那条流是被浏览器取消的，不是故障：绝不能拿它覆盖角标。
     if (d.code === 'abort') return;
     lastEncErr = (d.code ? '[' + d.code + '] ' : '') + (d.message || '');
     if (STREAM_MODE === 'strict' && encActive) showEncErr();
   });
 }
+// ---------- CDN 域名：哈哈 🌐 里选的“视频走哪里”会同步过来 ----------
+// 和哈哈（采集站播放）同一套规则：off / n:<id> 只走主域名；auto 先主域名、失败依次换 CDN；
+// c:<id> 先用指定 CDN，坏了换回主域名。独立部署时没有这些消息，行为完全不变。
+// 加密流（/media/）由 sw.js 按同一份配置挑域名 + 拉黑冷却；明文流（/stream/）由这里自己换。
+let tgCdn = { pxs: 'off', cdns: [], pt: '' };
+let tgCdnGot = false;          // 父窗口同步过没有（有就不再拿 /api/cdns 兜底）
+let tgCdnActive = '';          // 当前实际走的域名（'' = 主域名），只在角标上显示
+let tgCdnPlain = '';           // 明文流当前用的域名
+let tgCdnPlainTried = null;    // 本次播放已经试过的域名（Set）
+let tgPlaying = null;          // 当前在播的是哪条：{c, m}
+function tgCdnList(){
+  const cdns = (tgCdn.cdns || []), urls = cdns.map(c=>c.url);
+  const s = tgCdn.pxs || 'off';
+  if (s === 'auto') return [''].concat(urls);
+  if (s.indexOf('c:') === 0) {
+    const hit = cdns.filter(c=>'c:'+c.id===s)[0];
+    if (!hit) return [''];
+    return [hit.url].concat([''].concat(urls).filter(u=>u!==hit.url));
+  }
+  return [''];
+}
+function tgCdnPick(skip){
+  const bs = tgCdnList();
+  for (let i = 0; i < bs.length; i++) {
+    if (skip && skip.has && skip.has(bs[i])) continue;
+    return bs[i];
+  }
+  return null;
+}
+function tgCdnName(base){
+  const b = base || '';
+  if (!b) return '';
+  const c = (tgCdn.cdns || []).filter(x=>x.url===b)[0];
+  return c ? (c.name || b.replace(/^https?:\/\//,'')) : b.replace(/^https?:\/\//,'');
+}
+function tgCdnSend(){
+  const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+  if (!sw) return;
+  try { sw.postMessage({ type:'tg_cdn', pxs:tgCdn.pxs, cdns:tgCdn.cdns, pt:tgCdn.pt, basePrefix: WEB_BASE }); } catch(e){}
+}
+function tgCdnApply(d){
+  const key = o=>String(o.pxs||'off')+'|'+String(o.pt||'')+'|'+(o.cdns||[]).map(c=>c.url).join(',');
+  const prev = key(tgCdn);
+  tgCdn = { pxs:String(d.pxs||'off'), cdns:Array.isArray(d.cdns)?d.cdns.filter(c=>c&&c.url):[], pt:String(d.pt||'') };
+  tgCdnGot = true;
+  tgCdnSend();
+  if (key(tgCdn) === prev) return;
+  tgCdnPlainTried = null;
+  // 明文流正在播：从当前进度重连到新域名（加密流的下一段由 SW 自己按新配置走）
+  const p = document.getElementById('player');
+  if (p && !encActive && tgPlaying && (p.getAttribute('src')||'').indexOf('/stream/') >= 0) {
+    const t = p.currentTime || 0, playing = !p.paused;
+    tgCdnPlain = tgCdnPick(null) || '';
+    tgCdnActive = tgCdnPlain;
+    p.src = tgPlainSrc(tgPlaying.c, tgPlaying.m, tgCdnPlain);
+    p.onloadedmetadata = ()=>{ try{ if (t > 1) p.currentTime = t; }catch(e){} if (playing) p.play().catch(()=>{}); };
+    updateEncBadge();
+  } else {
+    if (!encActive) tgCdnActive = tgCdnPlain;
+    updateEncBadge();
+  }
+}
+// 明文 /stream：走 CDN 时带上 ?pt= 票据（CDN 上没有登录 cookie）
+function tgPlainSrc(cid, mid, base){
+  const uq = currentChannelUsername ? 'username=' + encodeURIComponent(currentChannelUsername) : '';
+  if (!base) return `${WEB_BASE}/stream/${cid}/${mid}` + (uq ? '?' + uq : '');
+  return base + `${WEB_BASE}/stream/${cid}/${mid}` + '?' + (uq ? uq + '&' : '') + 'pt=' + encodeURIComponent(tgCdn.pt);
+}
+// 明文 /stream 起播前就失败（域名被拦/回源挂了）：换下一个域名续试，最后回主域名
+function tgPlainFailover(){
+  if (encActive) return false;
+  const p = document.getElementById('player');
+  if (!p || !tgPlaying) return false;
+  if (p.readyState >= 2) return false;          // 已经播起来了，网络抖动交给 <video> 自己重发 Range
+  if ((p.getAttribute('src')||'').indexOf('/stream/') < 0) return false;
+  if (!tgCdnPlainTried) tgCdnPlainTried = new Set();
+  tgCdnPlainTried.add(tgCdnPlain);
+  const nb = tgCdnPick(tgCdnPlainTried);
+  if (nb === null) return false;
+  const t = p.currentTime || 0;
+  tgCdnPlain = nb;
+  tgCdnActive = nb;
+  p.src = tgPlainSrc(tgPlaying.c, tgPlaying.m, nb);
+  p.onloadedmetadata = ()=>{ try{ if (t > 1) p.currentTime = t; }catch(e){} p.play().catch(()=>{}); };
+  updateEncBadge();
+  return true;
+}
+// 角标：显示当前经过的域名；嵌在哈哈里时点它可以叫出 🌐「视频走哪里」
+(function tgCdnWire(){
+  const b = document.getElementById('encBadge');
+  if (b && window.parent && window.parent !== window) {
+    b.classList.add('tap');
+    b.addEventListener('click', (e)=>{ e.stopPropagation(); try{ window.parent.postMessage({ type:'tg_open_px' }, location.origin); }catch(err){} });
+  }
+  window.addEventListener('message', (ev)=>{          // 哈哈发来的 {type:'ha_cdn', pxs, cdns, pt}
+    if (ev.origin !== location.origin) return;
+    const d = ev.data;
+    if (d && d.type === 'ha_cdn') tgCdnApply(d);
+  });
+  if (window.parent && window.parent !== window) {   // 嵌在哈哈里：问父窗口要一次配置
+    try { window.parent.postMessage({ type:'tg_need_cdn' }, location.origin); } catch(e){}
+  }
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', ()=>{ tgCdnSend(); });
+  // 兜底：独立部署时没这个接口，静默忽略（不改变原来的行为）
+  setTimeout(()=>{ if (tgCdnGot) return; api('/api/cdns').then(d=>{
+    if (tgCdnGot || !d || !Array.isArray(d.cdns) || !d.cdns.length) return;
+    tgCdnApply({ pxs:d.pxs || 'auto', cdns:d.cdns, pt:d.pt || '' });
+  }).catch(()=>{}); }, 800);
+})();
 // 加密流在某些内核上可能根本解不了（或 SW 半路被回收）：auto 模式自动退回明文 /stream，
 // 并在播放器角标上标清楚“未加密直连”；strict 模式不回落，宁可播不了也不明文。
 // 只要还没解出可播的视频帧就回落：readyState 0（连头都没拿到）和 1（只拿到元数据、
@@ -2169,9 +2287,16 @@ document.getElementById('player').addEventListener('error', ()=>{
   encFallbackDone = true;
   encActive = false;
   clearEncWatch();
+  tgCdnActive = ''; tgCdnPlain = ''; tgCdnPlainTried = null;   // 回落的是主域名的明文流
   p.src = src.replace('/media/', '/stream/');
   p.play().catch(()=>{});
   updateEncBadge();
+});
+// 明文 /stream 走 CDN 失败（回源挂了 / 被拦）：自动换下一个域名，最后回主域名，从当前进度续上。
+// 已经播起来（readyState >= 2）的网络抖动不换域名，那种交给 <video> 自己重发 Range。
+document.getElementById('player').addEventListener('error', ()=>{
+  if (encActive) return;
+  tgPlainFailover();
 });
 async function playVideo(channelId, msgId){
   // 只弹出播放器，不滚动页面、不移动列表位置
@@ -2198,6 +2323,11 @@ async function playVideo(channelId, msgId){
   clearEncWatch();
   encPlaySession++;
   const session = encPlaySession;
+  tgPlaying = { c: channelId, m: msgId };   // 明文流换域名时要用它重新拼地址
+  tgCdnPlainTried = new Set();
+  tgCdnPlain = tgCdnList().length > 1 ? (tgCdnPick(null) || '') : '';
+  tgCdnActive = encActive ? tgCdnActive : tgCdnPlain;
+  tgCdnSend();   // 每次播放前把最新的 CDN 配置再推一次（SW 闲置重启过也能拿到）
   let useEnc = false;
   let fallbackNote = '';
   if (STREAM_MODE !== 'off') {
@@ -2212,6 +2342,11 @@ async function playVideo(channelId, msgId){
   if (document.getElementById('playerModal').classList.contains('hidden')) return;
   if (useEnc) {
     encActive = true;
+    tgCdnActive = '';
+    tgCdnSend();
+    // 等一拍，让 SW 先收到 CDN 配置：否则第一条 /media/ 请求可能按默认（只走主域名）下去
+    await new Promise(r=>setTimeout(r, 20));
+    if (document.getElementById('playerModal').classList.contains('hidden')) return;
     p.src = `${WEB_BASE}/media/${channelId}/${msgId}` + q;
     armEncWatch(session);
   } else if (STREAM_MODE === 'strict') {
@@ -2224,7 +2359,8 @@ async function playVideo(channelId, msgId){
     // 没走加密就得把原因讲清楚（例：SW初始化超时），不能默默显示成“正常的未加密直连”
     encActive = false;
     fallbackNote = lastEncErr;
-    p.src = `${WEB_BASE}/stream/${channelId}/${msgId}` + q;
+    tgCdnActive = tgCdnPlain;   // 明文流按 🌐 选的域名走（主域名就不写）
+    p.src = tgPlainSrc(channelId, msgId, tgCdnPlain);
   }
   updatePlayerProgress();
   updateEncBadge(fallbackNote);

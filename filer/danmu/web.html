@@ -209,7 +209,8 @@ const pvOk=()=>!!(navigator.serviceWorker&&navigator.serviceWorker.controller); 
 if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('/pvsw.js').catch(()=>{});
 function encBtn(){const b=$('#benc');if(!b)return;b.classList.toggle('on',ENC.on);b.textContent=ENC.on?'加密:开':'加密:关'}
 async function encLoad(){try{const r=await api('/api/enc');ENC={on:!!r.on,ok:!!r.ok};
-  if(r.key&&window.crypto&&crypto.subtle&&!ENCK)ENCK=await crypto.subtle.importKey('raw',b64d(r.key),{name:'AES-CTR'},false,['encrypt','decrypt'])}catch(e){}encBtn()}
+  if(r.key&&window.crypto&&crypto.subtle&&!ENCK)ENCK=await crypto.subtle.importKey('raw',b64d(r.key),{name:'AES-CTR'},false,['encrypt','decrypt'])}catch(e){}encBtn();
+  if(PTT)await refreshCdns()}  // /api/enc 换了加密会话：旧票据里的会话已经对不上，刷新一次
 const ctrP=n=>{const c=new Uint8Array(16);c.set(n,0);return {name:'AES-CTR',counter:c,length:64}};
 async function encTok(u,h){const n=crypto.getRandomValues(new Uint8Array(8));
   const ct=await crypto.subtle.encrypt(ctrP(n),ENCK,new TextEncoder().encode(JSON.stringify({u,h:h||''})));
@@ -220,7 +221,8 @@ $('#benc').onclick=async()=>{const on=!ENC.on;
   if(on&&!(window.crypto&&crypto.subtle)){alert('这个浏览器不支持解密（要 https 打开），开不了加密');return}
   if(!confirm(on?'开启加密？采集站视频（不管开没开代理，全部经服务器加密播放）和 tgweb 视频都会加密':'关闭加密？'))return;
   try{const r=await post('/api/enc',{on});ENC={on:!!r.on,ok:!!r.ok};if(on&&!r.ok)alert('服务器缺加密组件，采集站加密暂不可用（ys 选 1 更新后就好）；tgweb 已加密')}catch(e){alert('设置失败：'+e.message)}
-  encBtn();if(document.body.classList.contains('tg'))$('#tgf').src='/tg/'};
+  encBtn();await refreshCdns();
+  if(document.body.classList.contains('tg'))$('#tgf').src='/tg/'};
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 // ---------- 列表 ----------
@@ -253,9 +255,10 @@ async function loadSites(){
   return true;
 }
 async function init(){
-  encLoad();
+  await encLoad();  // 先拿到加密会话（/api/enc 才下发 ys_sid）：CDN 票据要按这个会话签，不能和 getCdns 并发
   await loadCfgs();
   if(await loadSites()) await loadCats();
+  getCdns().then(()=>{pxBtn();tgSync()});
   route();
 }
 $('#cfg').onchange=async()=>{const v=$('#cfg').value;
@@ -421,7 +424,8 @@ async function renderPop(){const p=$('#npop');p.innerHTML='<div class="msg">加�
     d.nodes.map(n=>it('fixed',n.id,'指定：'+n.name,n.type+' · '+n.server)).join('')+
     (d.nodes.length?'':'<div class="msg">还没有节点，在 ⚙️ 设置里点“添加节点”</div>')+`<div class="st" style="padding:6px 4px">${nodeStatus(d)}</div>`;
   $('#npx').onclick=()=>p.style.display='none'}
-$('#bnode').onclick=e=>{e.stopPropagation();$('#npop').style.display='none';const p=$('#ppop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPx()};
+function pxOpen(){const p=$('#ppop');p.style.display='block';pxPlace();renderPx()}  // 先定位再渲染：播放页落在播放器下方，不遮画面
+$('#bnode').onclick=e=>{e.stopPropagation();$('#npop').style.display='none';const p=$('#ppop');if(p.style.display==='block'){p.style.display='none';return}pxOpen()};
 const _bnodeOld=e=>{e.stopPropagation();const p=$('#npop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPop()};
 $('#npop').onclick=async e=>{e.stopPropagation();const r=e.target.closest('.si[data-m]');if(!r)return;await post('/api/nodes',{act:'mode',mode:r.dataset.m,id:r.dataset.id});renderPop()};
 document.addEventListener('click',()=>{$('#npop').style.display='none'});
@@ -581,7 +585,7 @@ $('#eps').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b
 let hls=null, triedPx=false, HDR='';
 const V=$('#v');
 let LG=0,WDT=0;
-function stopPlay(){LG++;clearTimeout(WDT);V.onerror=null;if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([])}
+function stopPlay(){LG++;clearTimeout(WDT);V.onerror=null;if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([]);try{playUiReset()}catch(e){}}
 function setSt(t){$('#st').textContent=t}
 function play(fi,ei,t0){
   saveHist();
@@ -657,10 +661,16 @@ function adOut(head,keep,tail,cut,cs){
 function adLoader(){const B=Hls.DefaultConfig.loader;
   return class extends B{constructor(c){super(c);this._hc=c}abort(){this._l2&&this._l2.abort();super.abort()}destroy(){this._l2&&this._l2.destroy();super.destroy()}
   load(ctx,cfg,cb){
-    const rel=pxRel(ctx.url);
-    if(rel){ctx.url=pxu(rel);const B0=PXB;  // 视频分片按当前域名（直连/CDN）走，失败或超时自动换另一个域名重来一次
-      if(pxAuto()&&!ctx._sw){const ocb=cb,f=(orig)=>(...a)=>{if(!ctx._sw&&pxSwitch(B0)){ctx._sw=1;const L=new (adLoader())(this._hc);this._l2=L;L.load(ctx,cfg,ocb);return}orig&&orig(...a)};
-        cb={...cb,onError:f(cb.onError),onTimeout:f(cb.onTimeout)}}}const pl=ctx.type==='manifest'||ctx.type==='level'||ctx.type==='audioTrack'||ctx.type==='subtitleTrack';
+    const rel=pxRel(ctx.url),ocb=cb;
+    if(rel){ctx.url=pxu(rel);const B0=PXB;  // 视频分片按当前域名（直连/CDN）走
+      const f=(orig)=>(...a)=>{const code=a[0]&&a[0].response?a[0].response.code:0;
+        const again=()=>{const L=new (adLoader())(this._hc);this._l2=L;L.load(ctx,cfg,ocb)};
+        // 401：加密会话/票据过期（服务器重启、重新登录、换加密开关），先重拉一次票据再原地重来
+        if(code===401&&!ctx._pt){ctx._pt=1;getCdns().then(()=>{ctx.url=pxu(rel);again()}).catch(()=>orig&&orig(...a));return}
+        if(!ctx._sw&&pxAuto()&&pxSwitch(B0)){ctx._sw=1;ctx.url=pxu(rel);again();return}  // 失败或超时自动换另一个域名重来一次
+        orig&&orig(...a)};
+      cb={...cb,onError:f(cb.onError),onTimeout:f(cb.onTimeout)}}
+    const pl=ctx.type==='manifest'||ctx.type==='level'||ctx.type==='audioTrack'||ctx.type==='subtitleTrack';
     const enc=!!ENCK&&/^(https?:\/\/[^/]+)?\/px\?x=/.test(ctx.url||'');
     if(pl||enc){const ok=cb.onSuccess,er=cb.onError;
       cb.onSuccess=(r,stats,c,nd)=>{const fin=()=>{if(pl){try{if(typeof r.data==='string')r.data=adStrip(r.data)}catch(e){}}ok(r,stats,c,nd)};
@@ -670,18 +680,57 @@ function adLoader(){const B=Hls.DefaultConfig.loader;
 // ---------- 代理走哪里：自动选择 / 直连 / 指定节点 / 指定 CDN（LS.pxs = auto|off|n:id|c:id） ----------
 let CDNS=[],PXT='',PTT=0,PXB='',PXBAD={};
 const pxSel=()=>LS.pxs||(LS.px==='1'?'auto':'off');
-async function getCdns(){try{const d=await api('/api/cdns');CDNS=d.cdns||[];PXT=d.pt||'';PTT=Date.now()}catch(e){}return CDNS}
+async function getCdns(){try{const d=await api('/api/cdns');CDNS=d.cdns||[];PXT=d.pt||'';PTT=Date.now()}catch(e){}tgSync();return CDNS}
+const refreshCdns=async()=>{await getCdns();pxBtn()};
 const pxBases=()=>{const a=['',...CDNS.map(c=>c.url)],s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);if(c)return [c.url,...a.filter(x=>x!==c.url)]}return a};
-function pxPick(){const s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);PXB=c?c.url:''}else if(s==='auto'){const b=pxBases().find(x=>!(PXBAD[x]>Date.now()));PXB=b===undefined?'':b}else PXB=''}
+function pxPick(){const s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);
+    // 指定的域名刚刚失败过（60 秒冷却内）：先退回一个还能用的域名，别下一集又撞上同一个坏域名
+    if(c&&!(PXBAD[c.url]>Date.now()))PXB=c.url;else{const b=pxBases().find(x=>!(PXBAD[x]>Date.now()));PXB=b===undefined?'':b}}
+  else if(s==='auto'){const b=pxBases().find(x=>!(PXBAD[x]>Date.now()));PXB=b===undefined?'':b}else PXB=''}
 const pxAuto=()=>(pxSel()==='auto'||pxSel().startsWith('c:'))&&CDNS.length>0;
 function pxSwitch(from){const bs=pxBases();if(bs.length<2)return false;PXBAD[from]=Date.now()+60000;const nx=bs.find(x=>x!==from&&!(PXBAD[x]>Date.now()));if(nx===undefined)return false;PXB=nx;pxShow();return true}
-function pxRel(u){try{const x=new URL(u,location.href);if(x.pathname!=='/px')return '';if(x.origin!==location.origin&&!CDNS.some(c=>c.url===x.origin))return '';const q=new URLSearchParams(x.search);q.delete('pt');return '/px?'+q.toString()}catch(e){return ''}}
-function pxu(r){if(!PXB||!r.startsWith('/px?'))return r;return PXB+r+'&pt='+encodeURIComponent(PXT)}
+function pxRel(u){try{const x=new URL(u,location.href);if(x.pathname!=='/px')return '';if(x.origin!==location.origin&&!CDNS.some(c=>c.url===x.origin))return '';const q=new URLSearchParams(x.search);q.delete('pt');return '/px?'+q.toString()+x.hash}catch(e){return ''}}  // #u= 要留着：加密 m3u8 的分片重连/去广告靠它认路径
+function pxu(r){if(!PXB||!r.startsWith('/px?'))return r;const i=r.indexOf('#'),head=i<0?r:r.slice(0,i),tail=i<0?'':r.slice(i);return PXB+head+'&pt='+encodeURIComponent(PXT)+tail}  // pt 加在 # 前面
 function pxName(){const c=CDNS.find(x=>x.url===PXB);return c?c.name:''}
+// 🌐「视频走哪里」弹窗位置：播放页放到播放器正下方（不遮 #box 画面）；列表页/tgweb 靠上居中
+function pxPlace(){
+  const p=$('#ppop'),box=$('#box');if(!p)return;
+  const onPlay=$('#detail')&&$('#detail').style.display!=='none';
+  let r=null;try{r=onPlay&&box?box.getBoundingClientRect():null}catch(e){}
+  if(r&&r.height>0){
+    const top=Math.min(window.innerHeight-180,Math.max(56,Math.round(r.bottom+8)));
+    p.style.top=top+'px';p.style.bottom='auto';
+    p.style.maxHeight=Math.max(160,window.innerHeight-top-12)+'px';
+  }else{
+    p.style.top='12vh';p.style.bottom='auto';p.style.maxHeight='76vh';
+  }
+}
+addEventListener('resize',()=>{if($('#ppop')&&$('#ppop').style.display==='block')pxPlace()});
+addEventListener('scroll',()=>{if($('#ppop')&&$('#ppop').style.display==='block')pxPlace()},{passive:true});  // 播放器是粘顶的，滚动后位置会变
 function pxShow(){const n=pxName();const t=$('#st')?$('#st').textContent:'';if(n&&!t.includes('经 '+n))setSt(t.replace(/ · 经 .*$/,'')+' · 经 '+n)}
 setInterval(()=>{if(CDNS.length&&Date.now()-PTT>3600e3)getCdns()},600e3);
+// ---------- tgweb 的视频也跟着 🌐 选的“走哪里”走 ----------
+// 把 {pxs, cdns, pt} 推给 /tg/ 里的 iframe：它自己把加密流交给 sw.js、明文流自己换域名。
+// 节点（n:id）对 tgweb 没意义（浏览器↔服务器这一段不走节点），按主域名处理。
+function tgSync(){
+  const f=$('#tgf');if(!f)return;let w=null;
+  try{w=f.contentWindow}catch(e){return}
+  if(!w)return;
+  const s=pxSel(),v=(s==='off'||s.startsWith('n:'))?'off':s;  // n:id -> off（主域名）
+  try{w.postMessage({type:'ha_cdn',pxs:v,cdns:CDNS,pt:PXT},location.origin)}catch(e){}
+}
+$('#tgf').addEventListener('load',()=>tgSync());  // 每次 iframe 重新加载完都补发一次（消息不会等页面加载）
+addEventListener('message',e=>{
+  if(e.origin!==location.origin)return;
+  const f=$('#tgf');let w=null;try{w=f.contentWindow}catch(x){}
+  if(!w||e.source!==w)return;
+  const d=e.data||{};
+  if(d.type==='tg_need_cdn'){tgSync();return}
+  if(d.type==='tg_open_px')pxOpen()  // tgweb 角标点了：打开“视频走哪里”
+});
 const kindOf=u=>/\.m3u8(\?|#|$)/i.test(u)?'hls':(/\.(mp4|mkv|webm|flv|mov|m4v)(\?|#|$)/i.test(u)?'file':'');
 function load(u,t0,px,kind,xs){
+  try{playUiReset()}catch(e){}  // 换集/重载：上一轮的滑动提示和手势状态作废
   const lg=++LG;clearTimeout(WDT);ORI=null;clearTimeout(ORIT);
   if(hls){hls.destroy();hls=null}
   V.onerror=null;V.onloadedmetadata=null;V.removeAttribute('src');
@@ -736,7 +785,8 @@ let CRD=false;  // 正在拖进度条
 function showOv(){$('#box').classList.add('ui');clearTimeout(OVT);OVT=setTimeout(()=>{if(!V.paused&&!CRD)hideOv()},4000)}
 
 function notice(big,small){const e=$('#toast');e.textContent='';const a=document.createElement('div');a.className='a';a.textContent=big;e.append(a);
-  if(small!=null){const b=document.createElement('div');b.className='b';b.textContent=small;e.append(b)}clearTimeout(TT);e.style.display='block';e.style.opacity='1'}
+  if(small!=null){const b=document.createElement('div');b.className='b';b.textContent=small;e.append(b)}clearTimeout(TT);e.style.display='block';e.style.opacity='1';
+  TT=setTimeout(noticeOff,1500)}  // 兜底自动收起：手停了、系统吞了 touchend，最多 1.5 秒也会没
 function noticeOff(){const e=$('#toast');e.style.opacity='0';clearTimeout(TT);TT=setTimeout(()=>e.style.display='none',200)}
 function toast(t){notice(t);TT=setTimeout(noticeOff,900)}
 const fmtT=x=>{if(isNaN(x)||x===Infinity)return'LIVE';const h=Math.floor(x/3600),m=Math.floor(x%3600/60),s=Math.floor(x%60);return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}`};
@@ -769,9 +819,13 @@ $('#osel').onclick=e=>{e.stopPropagation();$('#selp').classList.add('on');render
 $('#selx').onclick=()=>$('#selp').classList.remove('on');
 $('#sell').onclick=e=>{const b=e.target.closest('button');if(!b)return;$('#selp').classList.remove('on');play(st.from,+b.dataset.i,0)};
 // 手势：左右滑快进快退在整个播放页都有效（同油猴 shipin5.0：4px=1 秒，松手才跳）；上下滑调音量只在播放框里，框外上下滑就是滚动页面
+let GESTRESET=()=>{};  // 手势状态清理：换集/退出播放页/切后台时把上一轮的手势作废
+function playUiReset(){try{GESTRESET()}catch(e){}noticeOff()}  // 顺手把滑动提示框收掉，别留在画面上
 (()=>{const D=document,g=$('#gest'),SENS=4,TH=8;let sx=0,sy=0,bt=0,bv=1,type='',tgt=0,moved=false,inBox=false,skip=false;
   const live=()=>V.duration===Infinity||isNaN(V.duration)||!V.currentSrc;
-  D.addEventListener('touchstart',e=>{type='';moved=false;if(e.touches.length>1||!onVod()){skip=true;inBox=false;type='x';return}
+  GESTRESET=()=>{type='';moved=false;skip=false;inBox=false};
+  D.addEventListener('touchstart',e=>{if(type==='seek'||type==='vol')noticeOff();  // 上一轮手势没收尾（切集/系统吞了 touchend）：先把提示框收掉
+    type='';moved=false;if(e.touches.length>1||!onVod()){skip=true;inBox=false;type='x';return}
     const el=e.target;inBox=g.contains(el);
     skip=!inBox&&!!el.closest('#froms,#selp,#cb,input,textarea,select');  // 能左右滚动的列表和输入框不抢
     const t=e.touches[0];sx=t.clientX;sy=t.clientY;bt=V.currentTime;bv=V.volume},{passive:true});
@@ -788,10 +842,13 @@ $('#sell').onclick=e=>{const b=e.target.closest('button');if(!b)return;$('#selp'
   const tap=()=>{if($('#box').classList.contains('ui')){hideOv();return}showOv()};  // 点一下出控制条，再点收起
   D.addEventListener('touchend',e=>{if(type==='seek'&&!live())V.currentTime=Math.max(0,Math.min(tgt,V.duration));
     if(type==='seek'||type==='vol'){noticeOff();if(e.cancelable)e.preventDefault()}
-    else if(!moved&&inBox){e.preventDefault();tap()}type='';moved=false});
-  D.addEventListener('touchcancel',()=>{if(type==='seek'||type==='vol')noticeOff();type='';moved=false});
+    else if(!moved&&inBox){e.preventDefault();tap()}type='';moved=false;
+    if(!e.touches||!e.touches.length)noticeOff()});  // 手全松开了：提示框一定收掉
+  D.addEventListener('touchcancel',()=>{if(type==='seek'||type==='vol')noticeOff();type='';moved=false;noticeOff()});
   g.addEventListener('click',()=>tap());  // 电脑鼠标（触屏的 click 已在 touchend 拦掉）
 })();
+addEventListener('blur',playUiReset);  // 切后台/锁屏：提示框和手势状态一并收掉
+document.addEventListener('visibilitychange',()=>{if(document.hidden)playUiReset()});
 // ---------- 缓冲设置（m3u8 有效；mp4 由浏览器自己缓冲） ----------
 const BUFS=[[30,'30 秒（默认）'],[60,'1 分钟'],[120,'2 分钟'],[300,'5 分钟'],[600,'10 分钟']];
 const bufLen=()=>+LS.buf||30;
@@ -815,17 +872,18 @@ async function renderPx(){const p=$('#ppop');p.innerHTML='<div class="msg">加�
     it('auto','自动选择','经服务器播放，节点自动切换'+(CDNS.length?'，域名卡了/失败自动换 CDN':''))+it('off','直连','浏览器直接连视频，连不上再自动走代理')+
     ns.map(n=>it('n:'+n.id,'节点：'+n.name,n.type+' · '+n.server)).join('')+
     CDNS.map(c=>it('c:'+c.id,'CDN：'+c.name,c.url.replace(/^https?:\/\//,''))).join('')+
-    (ns.length||CDNS.length?'':'<div class="msg">还没有节点或 CDN，在 ⚙️ 设置里点“添加节点”</div>');
+    (ns.length||CDNS.length?'':'<div class="msg">还没有节点或 CDN，在 ⚙️ 设置里点“添加节点”</div>')+
+    (document.body.classList.contains('tg')?'<div class="st" style="padding:6px 4px">tgweb 视频：节点只管采集站，这里这一段只用主域名或 CDN 域名；CDN 卡了/失败了会自动换下一个。</div>':'');
   $('#ppx').onclick=()=>p.style.display='none'}
 function pxBtn(){const v=pxSel();$('#bpx').classList.toggle('on',v!=='off');$('#bnode').classList.toggle('on',v!=='off');const n=v.startsWith('c:')?(CDNS.find(c=>'c:'+c.id===v)||{}).name:v.startsWith('n:')?((ND&&ND.nodes||[]).find(x=>'n:'+x.id===v)||{}).name:'';$('#bpx').dataset.n=n||''}
-$('#bpx').onclick=e=>{e.stopPropagation();const p=$('#ppop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPx()};
+$('#bpx').onclick=e=>{e.stopPropagation();const p=$('#ppop');if(p.style.display==='block'){p.style.display='none';return}pxOpen()};
 $('#ppop').onclick=async e=>{e.stopPropagation();const r=e.target.closest('.si[data-v]');if(!r)return;const v=r.dataset.v;
   $('#ppop').style.display='none';LS.pxs=v;LS.px=v==='off'?'0':'1';st.px=v!=='off';PXBAD={};
   if(v==='auto')await post('/api/nodes',{act:'mode',mode:'auto'}).catch(()=>{});else if(v.startsWith('n:'))await post('/api/nodes',{act:'mode',mode:'fixed',id:v.slice(2)}).catch(()=>{});
-  pxBtn();$('#ppop').style.display='none';
+  pxBtn();$('#ppop').style.display='none';tgSync();  // tgweb 也跟着切
   if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
 document.addEventListener('click',()=>{$('#ppop').style.display='none'});
-getCdns().then(pxBtn);
+// CDN 列表和票据统一在 init() 里等加密会话就绪后再取（之前在这里并发 getCdns，会把票据签成空会话）
 // 全屏方向按正片定：中途画面尺寸变了（插播广告）不跟着转，新尺寸持续 20 秒以上才算正片换了方向
 let ORI=null,ORIT=0;
 const curOri=()=>{const w=V.videoWidth,h=V.videoHeight;return w&&h?(h>w?'portrait':'landscape'):null};
