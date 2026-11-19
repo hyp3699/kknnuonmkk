@@ -13257,7 +13257,7 @@ fanout_https_port() {
     sed -n 's/^[[:space:]]*listen[[:space:]]\{1,\}\([0-9]\{1,\}\)[[:space:]].*/\1/p' "$FANOUT_NGX" 2>/dev/null | head -1
 }
 
-# 完整访问地址：绑了域名就给 https://域名(:端口)/路径/，否则 http://IP:端口/路径/
+# 完整访问地址：https://域名(:端口)/路径/；面板只监听 127.0.0.1，没绑域名就没有外部地址
 fanout_url() {
     local d hp bp port
     bp=$(fanout_basepath)
@@ -13272,8 +13272,7 @@ fanout_url() {
         fi
         return
     fi
-    port=$(fanout_port)
-    echo "http://$(fanout_ip):${port}/${bp:+$bp/}"
+    echo "未绑定域名（面板只走 HTTPS，先用「域名设置」绑定域名或 IP）"
 }
 
 # 运行中的隧道数（netns 名 fo*）
