@@ -9806,6 +9806,9 @@ update_script() {
     ln -sf "$local_file" /usr/bin/sb
     if verified_download "$traffic_url" "${traffic_file}.tmp" ""; then
         mv -f "${traffic_file}.tmp" "$traffic_file"
+        chmod 700 "$traffic_file"
+        # 同步更新流量统计服务本身（singbox_traffic.py），否则修复不会生效
+        bash "$traffic_file" --init >/dev/null 2>&1 || true
     else
         rm -f "${traffic_file}.tmp"
         yellow "流量统计脚本更新失败，保留旧版本"

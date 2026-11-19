@@ -869,18 +869,10 @@ def sync_periods(state):
         start_iso = start.isoformat() if start else None
         end_iso = end.isoformat() if end else None
         if period in ("day", "month") and data.get("period_start") != start_iso:
-            if data.get("disabled_by_limit"):
-                if restore_user(username, do_reload=False):
-                    restored.append((lf, data, start_iso, end_iso))
-                else:
-                    log(f'周期已到但恢复用户失败: {username}')
-                    continue
-            else:
-                data["period_start"] = start_iso
-                data["period_end"] = end_iso
-                data["disabled_by_limit"] = False
-                update_limit_file(lf, data)
-                changed = True
+            data["period_start"] = start_iso
+            data["period_end"] = end_iso
+            update_limit_file(lf, data)
+            changed = True
     if restored:
         def _rollback_sync():
             for _lf, _data, _s, _e in restored:
@@ -907,45 +899,91 @@ def sync_periods(state):
                     pass
             changed = True
     return changed
-def check_limits(state):
+def _pending_reset(username):
+    for d in ("reset_requests", "period_requests"):
+        try:
+            if (TRAFFIC_DIR / d / username).is_file():
+                return True
+        except Exception:
+            pass
+    return False
+def _has_disabled_backup(username):
+    try:
+        return any((DATA_DIR / "disabled_users" / username).glob("*.json"))
+    except Exception:
+        return False
+def _user_present(username):
+    for fn in config_files():
+        cfg = load_json(fn, None)
+        if not isinstance(cfg, dict):
+            continue
+        for inbound in cfg.get("inbounds", []) or []:
+            if not isinstance(inbound, dict):
+                continue
+            for u in inbound.get("users", []) or []:
+                if isinstance(u, dict) and u.get("name") == username:
+                    return True
+    return False
+def _drop_disabled_backup(username):
     import shutil
-    disabled = []
-    restored = []
+    try:
+        root = DATA_DIR / "disabled_users" / username
+        if root.resolve().parent == (DATA_DIR / "disabled_users").resolve():
+            shutil.rmtree(root, ignore_errors=True)
+    except Exception:
+        pass
+def check_limits(state):
+    # 按“应该是什么状态”对齐：超量且在入站里 -> 停用；没超量/没限制/限制已关、
+    # 但用户不在入站里且有停用备份 -> 恢复。不依赖 disabled_by_limit 标记，
+    # 所以取消限制、调大限制、删掉限制文件都能自动恢复。
+    metas = {}
     for lf in limit_files():
         data = load_json(lf, {})
         if not isinstance(data, dict):
             continue
         username = data.get("user")
-        if not username or not validate_username(username):
-            continue
-        if not data.get("enabled"):
-            if data.get("disabled_by_limit"):
-                if restore_user(username, do_reload=False):
-                    restored.append((lf, data))
-            continue
+        if username and validate_username(username):
+            metas[username] = (lf, data)
+    names = set(metas)
+    try:
+        for d in (DATA_DIR / "disabled_users").iterdir():
+            if d.is_dir() and validate_username(d.name):
+                names.add(d.name)
+    except Exception:
+        pass
+    disabled, restored = [], []
+    for username in sorted(names):
+        lf, data = metas.get(username, (None, {}))
         try:
             limit_bytes = int(data.get("limit_bytes", 0) or 0)
         except Exception:
             limit_bytes = 0
-        if limit_bytes <= 0:
-            continue
+        limited = bool(data.get("enabled")) and limit_bytes > 0
         u = state.get("users", {}).get(username, {})
         try:
             used = int(u.get("period_total", 0) or 0)
         except Exception:
             used = 0
-        if data.get("disabled_by_limit"):
-            continue
-        if used >= limit_bytes:
+        over = limited and not _pending_reset(username) and used >= limit_bytes
+        present = _user_present(username)
+        if over and present:
             if disable_user(username, do_reload=False):
-                disabled.append((lf, data))
+                disabled.append((lf, data, username))
+        elif not over and not present and _has_disabled_backup(username):
+            if restore_user(username, do_reload=False):
+                restored.append((lf, data, username))
+        elif lf is not None:
+            blocked = (not present) and _has_disabled_backup(username)
+            if bool(data.get("disabled_by_limit")) != blocked:
+                data["disabled_by_limit"] = blocked
+                update_limit_file(lf, data)
     if not disabled and not restored:
         return
     def _rollback():
-        for _lf, _data in disabled:
-            restore_user(_data.get("user"), do_reload=False)
-        for _lf, _data in restored:
-            disable_user(_data.get("user"), do_reload=False)
+        for _lf, _data, name in disabled:
+            restore_user(name, do_reload=False)
+        for _lf, _data, name in restored:
+            disable_user(name, do_reload=False)
         reload_singbox()
     if not check_config():
         log('批量限流配置检查失败，已回滚')
@@ -955,19 +993,17 @@ def check_limits(state):
         log('批量限流重载失败，已回滚')
         _rollback()
         return
-    for lf, data in disabled:
-        data["disabled_by_limit"] = True
-        update_limit_file(lf, data)
-    for lf, data in restored:
-        data["disabled_by_limit"] = False
-        update_limit_file(lf, data)
-        username = data.get("user")
-        try:
-            root = Path(DATA_DIR) / "disabled_users" / username
-            if root.resolve().parent == (Path(DATA_DIR) / "disabled_users").resolve():
-                shutil.rmtree(root, ignore_errors=True)
-        except Exception:
-            pass
+    for lf, data, name in disabled:
+        log(f'用户超出流量限制，已停用: {name}')
+        if lf is not None:
+            data["disabled_by_limit"] = True
+            update_limit_file(lf, data)
+    for lf, data, name in restored:
+        log(f'用户已恢复到入站: {name}')
+        if lf is not None:
+            data["disabled_by_limit"] = False
+            update_limit_file(lf, data)
+        _drop_disabled_backup(name)
 def get_stats():
     if not os.path.exists(GRPCURL):
         log(f"找不到grpcurl: {GRPCURL}")
@@ -1339,7 +1375,6 @@ def main():
             if _now_mono - last_backup_cleanup >= 86400:
                 last_backup_cleanup = _now_mono
                 cleanup_expired_backups()
-            check_limits(state)
             if process_delete_requests(state):
                 save_state(state)
                 last_save = time.monotonic()
@@ -2247,7 +2282,7 @@ PY
         else
             red "流量限制已关闭，但用户恢复失败"
             echo "请检查停用备份："
-            echo "/etc/sing-box/user_manager/traffic/disabled_users/$user"
+            echo "/etc/sing-box/user_manager/disabled_users/$user"
             pause
             return 1
         fi
