@@ -200,6 +200,8 @@ let ENC={on:false,ok:false},ENCK=null;
 const b64d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 const b64u=b=>{let s='';new Uint8Array(b).forEach(x=>s+=String.fromCharCode(x));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')};
 const encUse=()=>ENC.on&&ENC.ok&&!!ENCK;
+const pvOk=()=>!!(navigator.serviceWorker&&navigator.serviceWorker.controller);  // mp4 解密靠 Service Worker
+if('serviceWorker' in navigator&&window.isSecureContext)navigator.serviceWorker.register('/pvsw.js').catch(()=>{});
 function encBtn(){const b=$('#benc');if(!b)return;b.classList.toggle('on',ENC.on);b.textContent=ENC.on?'加密:开':'加密:关'}
 async function encLoad(){try{const r=await api('/api/enc');ENC={on:!!r.on,ok:!!r.ok};
   if(r.key&&window.crypto&&crypto.subtle&&!ENCK)ENCK=await crypto.subtle.importKey('raw',b64d(r.key),{name:'AES-CTR'},false,['encrypt','decrypt'])}catch(e){}encBtn()}
@@ -211,7 +213,7 @@ async function encDec(d){const txt=typeof d==='string',b=txt?b64d(d.trim()):new 
   const pt=await crypto.subtle.decrypt(ctrP(b.slice(0,8)),ENCK,b.slice(8));return txt?new TextDecoder().decode(pt):pt}
 $('#benc').onclick=async()=>{const on=!ENC.on;
   if(on&&!(window.crypto&&crypto.subtle)){alert('这个浏览器不支持解密（要 https 打开），开不了加密');return}
-  if(!confirm(on?'开启加密？代理播放的采集站视频和 tgweb 视频都会加密（直连播放不经过服务器，不受影响）':'关闭加密？'))return;
+  if(!confirm(on?'开启加密？采集站视频（不管开没开代理，全部经服务器加密播放）和 tgweb 视频都会加密':'关闭加密？'))return;
   try{const r=await post('/api/enc',{on});ENC={on:!!r.on,ok:!!r.ok};if(on&&!r.ok)alert('服务器缺加密组件，采集站加密暂不可用（ys 选 1 更新后就好）；tgweb 已加密')}catch(e){alert('设置失败：'+e.message)}
   encBtn();if(document.body.classList.contains('tg'))$('#tgf').src='/tg/'};
 const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -654,25 +656,27 @@ function load(u,t0,px,kind,xs){
   const lg=++LG;clearTimeout(WDT);ORI=null;clearTimeout(ORIT);
   if(hls){hls.destroy();hls=null}
   V.onerror=null;V.onloadedmetadata=null;V.removeAttribute('src');
-  const srcP=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;let src=srcP;
-  const why=px?(st.px?'代理':(HDR?'这个站要求走代理':'直连不行，已自动走代理')):'';
-  $('#bpx').classList.toggle('auto',px&&!st.px);$('#bpx').textContent=px&&!st.px?'代理(自动)':'代理';
+  const EU=encUse();if(EU)px=true;  // 开着加密：不管代理开关，全部经服务器加密
+  const srcP=px?'/px?u='+encodeURIComponent(u)+(HDR?'&h='+encodeURIComponent(HDR):''):u;let src=srcP,fsrc=srcP,isF=false;
+  const why=px?(EU?'加密':(st.px?'代理':(HDR?'这个站要求走代理':'直连不行，已自动走代理'))):'';
+  $('#bpx').classList.toggle('auto',px&&!st.px&&!EU);$('#bpx').textContent=px&&!st.px&&!EU?'代理(自动)':'代理';
   setSt(px?why+'，连接中…':'连接中…');
   kind=kind||kindOf(u);
   if(!kind){  // 地址看不出类型：让服务器看一眼内容（m3u8 / mp4）
     api(`/api/probe?u=${encodeURIComponent(u)}`+(HDR?'&h='+encodeURIComponent(HDR):'')).then(r=>{if(lg===LG)load(u,t0,px,(r&&r.kind)||'try')}).catch(()=>{if(lg===LG)load(u,t0,px,'try')});
     return}
-  if(px&&kind!=='file'&&encUse()){  // 加密：m3u8 走 token 地址（mp4 直链要靠浏览器原生播放，不加密）
+  if(EU){  // 加密：m3u8 走 /px?x=，mp4 走 /pv/（Service Worker 解密），地址都藏在 token 里
     if(!xs){encTok(u,HDR).then(t=>{if(lg===LG)load(u,t0,px,kind,t)}).catch(()=>{if(lg===LG)load(u,t0,px,kind,'-')});return}
-    if(xs!=='-')src='/px?x='+xs}
-  const toPx=(t,m)=>{if(triedPx)return false;
+    if(xs!=='-'){src='/px?x='+xs;if(pvOk())fsrc='/pv/'+xs}}
+  const toPx=(t,m)=>{if(triedPx||EU)return false;  // 加密时不退回直连
     if(!px){triedPx=true;setSt(m);load(u,t,true,kind==='try'?'':kind);return true}
     if(st.px&&!HDR){triedPx=true;setSt('代理放不了（视频服务器拒绝了 VPS），改直连…');load(u,t,false,kind==='try'?'':kind);return true}  // 手动开了代理也不行：退回直连试一次
     return false};
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
     if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
-  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);const ek=src.startsWith('/px?x=')?'🔒已加密 ':(px&&ENC.on&&kind==='file'?'（mp4 直链不加密）':'');setSt(ek+(px?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
-  const asFile=()=>{V.src=srcP;V.onloadedmetadata=start;
+  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);const ok=isF?fsrc.startsWith('/pv/'):src.startsWith('/px?x=');
+    const ek=ok?'🔒已加密 ':(ENC.on?'⚠️没加密（'+(!ENC.ok?'服务器缺加密组件':!ENCK?'浏览器不支持':isF?'mp4 解密组件没就绪，刷新一下':'出错')+'） ':'');setSt(ek+(px&&!ok?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+  const asFile=()=>{isF=true;V.src=fsrc;V.onloadedmetadata=start;
     V.onerror=()=>{if(lg!==LG)return;if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
   if(kind!=='file'&&window.Hls&&Hls.isSupported()){
     let netTry=0,medTry=0;

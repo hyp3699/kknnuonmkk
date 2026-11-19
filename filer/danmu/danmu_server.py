@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "2.4.3"  # 2.4.3: 加密播放时状态栏显示“🔒已加密”（m3u8 解密成功才显示）；mp4 直链提示不加密；2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "2.4.4"  # 2.4.4: 加密开着时全部视频强制加密播放（不管代理开关），mp4 也加密（Service Worker 解密）；2.4.3: 加密播放时状态栏显示“🔒已加密”；2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -814,7 +814,7 @@ def acl_ok(scope):
     return hit if mode == "allow" else not hit
 
 def is_web_path(p):
-    return p in ("/web", "/px", "/hls.js", "/login", "/logout", "/tg") or p.startswith("/tg/") or (p.startswith("/api/") and not p.startswith("/api/v2/"))
+    return p in ("/web", "/px", "/pvsw.js", "/hls.js", "/login", "/logout", "/tg") or p.startswith("/tg/") or (p.startswith("/api/") and not p.startswith("/api/v2/"))
 
 # 2525 每个 IP 每分钟最多 DANMU_RPM 次（默认 240，0=不限），防止被人拿去刷
 DANMU_RPM = int(os.environ.get("DANMU_RPM", "240") or 0)
@@ -2661,7 +2661,7 @@ def api_dm():
 @app.route("/px")
 def px():
     """播放代理：直连失败（跨域/防盗链）时网页自动改走这里"""
-    x, enc = arg("x"), False
+    x, enc, fm = arg("x"), False, arg("m") == "1"
     if x:  # 加密模式：地址也藏在 token 里，CF 看不到 .m3u8/.ts
         if not _Ci:
             return "加密不可用（服务器缺 cryptography，ys 选 1 更新）", 501
@@ -2682,6 +2682,8 @@ def px():
             pass
     if request.headers.get("Range"):
         h["Range"] = request.headers["Range"]
+    if enc and fm:
+        h["Accept-Encoding"] = "identity"  # 按字节偏移加密，不能被 gzip 打乱
     ip = client_ip()
     if not px_acquire(ip):
         return "代理并发太多，稍后再试", 429
@@ -2691,12 +2693,12 @@ def px():
             done[0] = True
             px_release(ip)
     try:
-        return px_inner(u, h, hx, rel, enc)
+        return px_inner(u, h, hx, rel, enc, fm)
     except Exception:
         rel()
         raise
 
-def px_inner(u, h, hx, rel, enc=False):
+def px_inner(u, h, hx, rel, enc=False, fm=False):
     try:
         r = site_get(u, safe=True, headers=h, timeout=15)
     except ValueError as e:
@@ -2755,6 +2757,28 @@ def px_inner(u, h, hx, rel, enc=False):
     for k in ("Content-Length", "Content-Range", "Accept-Ranges"):
         if k in r.headers and not (gz and k == "Content-Length"):
             hd[k] = r.headers[k]
+    if enc and fm:  # mp4 等整文件加密：按字节位置 AES-CTR（支持拖动/Range），浏览器 Service Worker 解密
+        st0 = 0
+        m = re.match(r"bytes (\d+)-", r.headers.get("Content-Range", "")) if r.status_code == 206 else None
+        if m:
+            st0 = int(m.group(1))
+        n = hashlib.sha256(u.encode()).digest()[:8]
+        ci = _Ci(_Alg.AES(base64.b64decode(enc_conf()["key"])), _Mo.CTR(n + (st0 // 16).to_bytes(8, "big"))).encryptor()
+        ci.update(b"\0" * (st0 % 16))
+        hd = {k: v for k, v in hd.items() if k != "Access-Control-Allow-Origin"}
+        hd.update({"Cache-Control": "private, no-store, no-transform", "X-N": base64.b64encode(n).decode(),
+                   "X-T": ct if ct.lower().startswith(("video/", "audio/")) else "video/mp4"})
+        def fgen():
+            try:
+                if first:
+                    yield ci.update(first)
+                for c in it:
+                    yield ci.update(c)
+            finally:
+                r.close(); rel()
+        resp = Response(fgen(), status=r.status_code, mimetype="application/octet-stream", headers=hd)
+        resp.call_on_close(rel)
+        return resp
     if enc:  # 分片加密：前 8 字节 nonce，后面 AES-CTR 密文（边下边加密，不占内存）
         hd = {"Cache-Control": "private, no-store, no-transform"}
         if r.headers.get("Content-Length") and not gz:
@@ -2782,6 +2806,32 @@ def px_inner(u, h, hx, rel, enc=False):
     resp = Response(gen(), status=r.status_code, mimetype=ct or "video/mp2t", headers=hd)
     resp.call_on_close(rel)
     return resp
+
+PVSW_JS = r"""// 哈哈：mp4 加密播放解密（只管 /pv/ 地址，其它请求不碰）
+let K=null;
+self.addEventListener('install',()=>self.skipWaiting());
+self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+const b64d=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function key(){if(K)return K;const j=await (await fetch('/api/enc',{credentials:'same-origin'})).json();
+  K=await crypto.subtle.importKey('raw',b64d(j.key),{name:'AES-CTR'},false,['decrypt']);return K}
+self.addEventListener('fetch',e=>{const u=new URL(e.request.url);
+  if(u.origin!==location.origin||!u.pathname.startsWith('/pv/'))return;e.respondWith(pv(e.request,u))});
+async function pv(rq,u){const k=await key(),h={},rg=rq.headers.get('Range');if(rg)h.Range=rg;
+  const r=await fetch('/px?m=1&x='+u.pathname.slice(4),{headers:h,credentials:'same-origin'});
+  const nn=r.headers.get('X-N');if(!r.ok||!nn)return r;
+  const n=b64d(nn);let off=0;const m=/bytes (\d+)-/.exec(r.headers.get('Content-Range')||'');if(m)off=+m[1];
+  const ts=new TransformStream({async transform(ch,c){const s=off%16,b=Math.floor(off/16),cnt=new Uint8Array(16);cnt.set(n,0);
+    const dv=new DataView(cnt.buffer);dv.setUint32(8,Math.floor(b/4294967296));dv.setUint32(12,b>>>0);
+    const buf=new Uint8Array(s+ch.byteLength);buf.set(ch,s);
+    const pt=new Uint8Array(await crypto.subtle.decrypt({name:'AES-CTR',counter:cnt,length:64},k,buf));off+=ch.byteLength;c.enqueue(pt.subarray(s))}});
+  const hd=new Headers();for(const x of ['Content-Length','Content-Range','Accept-Ranges'])if(r.headers.get(x))hd.set(x,r.headers.get(x));
+  hd.set('Content-Type',r.headers.get('X-T')||'video/mp4');
+  return new Response(r.body.pipeThrough(ts),{status:r.status,headers:hd})}
+"""
+
+@app.route("/pvsw.js")
+def pvsw_js():
+    return Response(PVSW_JS, mimetype="application/javascript", headers={"Cache-Control": "no-cache"})
 
 @app.route("/hls.js")
 def hls_js():
