@@ -451,10 +451,130 @@ uninstall_all() {
       (cd /opt/moontv && docker compose down -v --rmi all) ; rm -rf /opt/moontv
     fi
   fi
+  if tg_installed; then
+    reading "检测到 tgweb，一起卸载（含 TG 登录 session）？(y/N): " yn
+    { [ "$yn" = y ] || [ "$yn" = Y ]; } && tg uninstall yes
+  fi
   rm -f /usr/local/bin/ys
   green "已卸载（证书保留在 /root/cert）"
   exit 0
 }
+
+# ---------------- tgweb（Telegram 频道视频，Docker，只绑 127.0.0.1:9393）----------------
+# 网页通过哈哈的 /tg/ 访问，登录用哈哈的账号；tgweb 自己的网页账号密码随机生成，只给哈哈后台代登录用
+TGD=${TGWEB_DIR:-/root/telegram-stream}; export TG_APP_DIR="$TGD"
+TG_REPO=https://github.com/hyp3365/tgweb.git
+tg_installed() { [ -f "$TGD/docker-compose.yml" ]; }
+tg_running() { tg_installed && command -v docker >/dev/null && [ -n "$(cd "$TGD" && docker compose ps -q --status running 2>/dev/null)" ]; }
+tg_envv() { grep -E "^$1=" "$TGD/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r'; }
+tg_rand() { LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$1"; }
+tg_setv() { touch "$TGD/.env"; sed -i "/^$1=/d" "$TGD/.env"; echo "$1=$2" >> "$TGD/.env"; }
+tg_state() {
+  if ! tg_installed; then echo "未安装"; return; fi
+  local a="api 未配置（选 4/5 设置）"; [ -n "$(tg_envv TG_API_ID)" ] && [ "$(tg_envv TG_API_ID)" != 0 ] && [ -n "$(tg_envv TG_API_HASH)" ] && a="api 已配置"
+  if tg_running; then echo "运行中  $a"; else echo "已停止  $a"; fi
+}
+tg_install() {  # 安装/补全 tgweb：跳过 api_id/api_hash；不碰 nginx（网页走哈哈的 /tg/）
+  if [ "$(getenv TGWEB)" = 0 ] && [ -z "$TG_FORCE" ]; then yellow "tgweb 已设为不安装（ys 选 14 → 1 可安装）"; return 0; fi
+  command -v apt-get >/dev/null || { red "tgweb 只支持 Debian/Ubuntu"; return 1; }
+  command -v git >/dev/null || apt-get install -y git >/dev/null 2>&1 || { red "git 安装失败"; return 1; }
+  if ! command -v docker >/dev/null; then
+    skyblue "安装 Docker（tgweb 用）..."
+    curl -fsSL https://get.docker.com | sh >/dev/null 2>&1 || { red "Docker 安装失败，tgweb 跳过（弹幕和网页播放器不受影响）"; return 1; }
+  fi
+  systemctl enable --now docker >/dev/null 2>&1 || true
+  docker compose version >/dev/null 2>&1 || apt-get install -y docker-compose-plugin >/dev/null 2>&1 || { red "docker compose 不可用"; return 1; }
+  if [ ! -d "$TGD/.git" ]; then
+    if [ -d "$TGD" ] && [ -n "$(ls -A "$TGD" 2>/dev/null)" ]; then
+      local bak="$TGD.bak.$(date +%Y%m%d%H%M%S)"; mv "$TGD" "$bak"
+      git clone -q "$TG_REPO" "$TGD" || { mv "$bak" "$TGD"; red "下载 tgweb 失败"; return 1; }
+      [ -f "$bak/.env" ] && cp "$bak/.env" "$TGD/.env"; [ -d "$bak/data" ] && mkdir -p "$TGD/data" && cp -r "$bak/data/." "$TGD/data/"
+    else
+      git clone -q "$TG_REPO" "$TGD" || { red "下载 tgweb 失败"; return 1; }
+    fi
+  fi
+  [ -f "$TGD/.env" ] || printf 'TG_API_ID=\nTG_API_HASH=\nTG_PARALLEL=2\n' > "$TGD/.env"
+  chmod 600 "$TGD/.env"
+  [ -n "$(tg_envv WEB_USERNAME)" ] || tg_setv WEB_USERNAME "u$(tg_rand 15)"
+  [ -n "$(tg_envv WEB_PASSWORD)" ] || tg_setv WEB_PASSWORD "$(tg_rand 32)"
+  [ -n "$(tg_envv WEB_PATH)" ] || tg_setv WEB_PATH "$(tg_rand 24)"
+  cp "$TGD/tg" /usr/local/bin/tg 2>/dev/null && chmod +x /usr/local/bin/tg
+  cp "$TGD/tg-domain.sh" /usr/local/bin/tg-domain 2>/dev/null && chmod +x /usr/local/bin/tg-domain
+  setenv TGWEB 1
+  skyblue "构建并启动 tgweb（第一次要几分钟）..."
+  (cd "$TGD" && docker compose up -d --build) >/tmp/tgweb_build.log 2>&1 || { red "tgweb 启动失败，日志：/tmp/tgweb_build.log"; return 1; }
+  green "tgweb 已启动：网页左上角配置框选 tgweb；api_id/api_hash 在 ys 选 14 里设置"
+}
+tg_set_api() {  # api_id 明文输入，api_hash 不回显；改完重启 tgweb
+  local v
+  if [ "$1" = TG_API_ID ]; then
+    reading "输入 api_id（my.telegram.org 获取，纯数字）: " v
+    [[ "$v" =~ ^[0-9]+$ ]] || { red "api_id 必须是纯数字"; return 0; }
+  else
+    read -r -s -p "$(red "输入 api_hash（不回显）: ")" v; echo
+    [ -n "$v" ] || { red "不能为空"; return 0; }
+  fi
+  tg_setv "$1" "$v"; green "已保存"
+  (cd "$TGD" && docker compose up -d >/dev/null 2>&1) && green "tgweb 已重启生效"
+}
+tg_toggle() {
+  tg_installed || { red "tgweb 未安装，先选 1"; return; }
+  if tg_running; then
+    (cd "$TGD" && docker compose stop) && green "tgweb 已停止（网页里不再显示 tgweb，开机也不自动启动）"
+  else
+    (cd "$TGD" && docker compose up -d) && green "tgweb 已启动"
+  fi
+}
+tg_uninstall() {
+  tg_installed || { red "未安装"; return; }
+  reading "卸载 tgweb（删除容器、$TGD 含 TG 登录 session）？输入 yes 确认: " yn
+  [ "$yn" = yes ] || { yellow "已取消"; return; }
+  tg uninstall yes; setenv TGWEB 0; green "tgweb 已卸载"
+}
+tg_menu() {
+  while true; do
+    clear
+    purple "=== tgweb（TG 频道视频）==="
+    echo "状态：$(tg_state)"
+    echo "网页：哈哈左上角配置框选 tgweb（用哈哈的账号登录，只在运行时显示）"
+    echo "-----------------------------"
+    green "1. 安装 / 修复"
+    green "2. 更新到最新版"
+    if tg_running; then yellow "3. 停止程序"; else green "3. 启动程序"; fi
+    green "4. 设置 api_id"
+    green "5. 设置 api_hash"
+    green "6. 删除 api 配置"
+    green "7. 查看配置状态"
+    green "8. 设置并行下载数（1-4，默认 2）"
+    green "9. 同步 session 到备份仓库"
+    green "10. 从备份仓库恢复 session"
+    green "11. 重启"
+    green "12. 查看日志"
+    red   "13. 卸载 tgweb"
+    echo "-----------------------------"
+    purple "0. 返回"
+    reading "请输入选择: " c
+    echo
+    case "$c" in
+      1) TG_FORCE=1 tg_install; pause ;;
+      2) tg_installed && { tg update; cp "$TGD/tg" /usr/local/bin/tg 2>/dev/null; } || red "未安装"; pause ;;
+      3) tg_toggle; pause ;;
+      4) tg_installed && tg_set_api TG_API_ID || red "未安装"; pause ;;
+      5) tg_installed && tg_set_api TG_API_HASH || red "未安装"; pause ;;
+      6) tg_installed && tg del || red "未安装"; pause ;;
+      7) tg_installed && tg status || red "未安装"; pause ;;
+      8) tg_installed && tg set-parallel || red "未安装"; pause ;;
+      9) tg_installed && tg sync-session || red "未安装"; pause ;;
+      10) tg_installed && tg restore-session || red "未安装"; pause ;;
+      11) tg_installed && (cd "$TGD" && docker compose restart) && green "已重启" || red "未安装或重启失败"; pause ;;
+      12) tg_installed && (cd "$TGD" && docker compose logs --tail 50) || red "未安装"; pause ;;
+      13) tg_uninstall; pause ;;
+      0|"") return ;;
+      *) red "无效选项"; sleep 1 ;;
+    esac
+  done
+}
+[ "${1:-}" = tg-install ] && { tg_install; exit $?; }
 
 while true; do
   clear
@@ -474,6 +594,7 @@ while true; do
   green "11. 设置弹幕域名（HTTPS）"
   if installed && ! systemctl is-active -q danmu; then green "12. 启动程序"; else yellow "12. 停止程序（弹幕 + 网页播放器）"; fi
   red   "13. 卸载"
+  green "14. tgweb（TG 频道视频）：$(tg_state)"
   echo "-----------------------------"
   purple "0. 退出"
   reading "请输入选择: " c
@@ -492,6 +613,7 @@ while true; do
     11) setup_domain danmu; pause ;;
     12) toggle_run; pause ;;
     13) uninstall_all; pause ;;
+    14) tg_menu ;;
     0) exit 0 ;;
     *) red "无效选项"; sleep 1 ;;
   esac

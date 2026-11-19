@@ -252,6 +252,11 @@ YML
 fi
 
 curl -fsSL "$RAW/danmu/ys.sh" -o /usr/local/bin/ys && chmod +x /usr/local/bin/ys || true
+# tgweb（TG 频道视频）：网页版一起装，跳过 api_id/api_hash；已装过的不动（更新在 ys 14）；TGWEB=0 不装
+if [ "$MODE" = web ] && [ "${TGWEB:-}" != 0 ] && [ ! -f "${TGWEB_DIR:-/root/telegram-stream}/docker-compose.yml" ] && [ -x /usr/local/bin/ys ]; then
+  echo "[+] 安装 tgweb（TG 频道视频，Docker；api_id/api_hash 之后在 ys 选 14 设置）"
+  /usr/local/bin/ys tg-install || echo "    ⚠ tgweb 没装上，不影响弹幕和网页播放器，之后可在 ys 选 14 安装"
+fi
 
 IP=$(pubip); IP=${IP:-你的IP}
 RUN_VER=$(curl -s --max-time 3 "http://127.0.0.1:$PORT/version" 2>/dev/null || true)

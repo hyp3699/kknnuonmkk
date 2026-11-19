@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "2.3.2"  # 2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "2.4.0"  # 2.4.0: 集成 tgweb（TG 频道视频）：安装时一起装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -814,7 +814,7 @@ def acl_ok(scope):
     return hit if mode == "allow" else not hit
 
 def is_web_path(p):
-    return p in ("/web", "/px", "/hls.js", "/login", "/logout") or (p.startswith("/api/") and not p.startswith("/api/v2/"))
+    return p in ("/web", "/px", "/hls.js", "/login", "/logout", "/tg") or p.startswith("/tg/") or (p.startswith("/api/") and not p.startswith("/api/v2/"))
 
 # 2525 每个 IP 每分钟最多 DANMU_RPM 次（默认 240，0=不限），防止被人拿去刷
 DANMU_RPM = int(os.environ.get("DANMU_RPM", "240") or 0)
@@ -1279,7 +1279,7 @@ def web_guard():
         return (jsonify({"error": msg}), 503) if (p.startswith("/api/") or p == "/px") else Response(msg, status=503, mimetype="text/plain; charset=utf-8")
     if authed():
         return None
-    if p.startswith("/api/") or p == "/px":
+    if p.startswith("/api/") or p == "/px" or p.startswith("/tg/api/") or p == "/tg/sw.js":
         return jsonify({"error": "login"}), 401
     return Response(LOGIN_HTML, mimetype="text/html")
 
@@ -1313,9 +1313,164 @@ def login():
 @app.route("/logout")
 def logout():
     from flask import redirect
+    tg_web_logout()  # tgweb 只退出网页会话，TG 账号不退出
     r = redirect("/")
     r.delete_cookie("ys_auth")
     return r
+
+# ---------- tgweb（Telegram 频道视频，Docker 只绑 127.0.0.1:9393）：网页 /tg/ 反代，登录用哈哈的 ----------
+# 浏览器只认哈哈的登录；tgweb 自己的网页账号密码（.env 里随机生成）由这里代登录，web_token 只在服务器里用，不发给浏览器。
+TG_DIR = os.environ.get("TGWEB_DIR", "/root/telegram-stream")
+TG_UP = os.environ.get("TGWEB_URL", "http://127.0.0.1:9393").rstrip("/")
+TG_S = requests.Session(); TG_S.trust_env = False  # 本机直连，不走节点/系统代理
+TG_TOK, TG_LOCK, TG_ST, TG_FAIL = [None], threading.Lock(), [0.0, False], [0.0]
+TG_DROP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
+           "transfer-encoding", "upgrade", "set-cookie", "x-frame-options", "server", "date"}
+
+TG_INJ = (b"<script>(()=>{const f=window.fetch;window.fetch=function(u,o){const p=f.apply(this,arguments);"
+          b"if(String(u&&u.url||u).indexOf('/api/web-logout')>=0)p.finally(()=>{try{top.location.href='/'}catch(e){location.href='/'}});return p}})()</script>")
+
+def tg_env():
+    d = {}
+    try:
+        for ln in open(os.path.join(TG_DIR, ".env"), encoding="utf-8"):
+            ln = ln.strip()
+            if "=" not in ln or ln.startswith("#"):
+                continue
+            k, v = ln.split("=", 1)
+            v = v.strip().replace("\r", "")
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                v = v[1:-1]
+            d[k.strip()] = v  # 和 tg 命令一样，重复的键以最后一行为准
+    except Exception:
+        pass
+    return d
+
+def tg_base(e=None):
+    e = e or tg_env()
+    p = e.get("WEB_PATH", "").strip().strip("/")
+    if e.get("WEB_PATH_ENABLED", "1").strip().lower() in ("0", "false", "off", "no"):
+        p = ""
+    return ("/" + p) if p else ""
+
+def tg_running(force=False):
+    now = time.time()
+    if not force and now - TG_ST[0] < 10:
+        return TG_ST[1]
+    ok = False
+    if os.path.isfile(os.path.join(TG_DIR, ".env")):
+        try:
+            TG_S.get(TG_UP + tg_base() + "/api/status", timeout=2, allow_redirects=False)
+            ok = True  # 有任何 HTTP 回应就算在运行（没登录是 401）
+        except Exception:
+            ok = False
+    TG_ST[0], TG_ST[1] = now, ok
+    return ok
+
+def tg_login(force=False):
+    with TG_LOCK:
+        if TG_TOK[0] and not force:
+            return TG_TOK[0]
+        if time.time() - TG_FAIL[0] < 20:  # 刚失败过，别一直撞 tgweb 的登录限流
+            return None
+        e = tg_env()
+        try:
+            r = TG_S.post(TG_UP + tg_base(e) + "/api/web-login", timeout=8, headers={"X-Real-IP": "127.0.0.1"},
+                          json={"username": e.get("WEB_USERNAME", ""), "password": e.get("WEB_PASSWORD", "")})
+            tok = r.cookies.get("web_token") if r.status_code == 200 else None
+        except Exception as ex:
+            tok = None
+            print("[tg] login err", repr(ex)[:200], flush=True)
+        if not tok:
+            TG_FAIL[0] = time.time()
+            print("[tg] login failed（检查 %s/.env 里的 WEB_PASSWORD）" % TG_DIR, flush=True)
+        TG_TOK[0] = tok
+        return tok
+
+def tg_web_logout():
+    tok, TG_TOK[0] = TG_TOK[0], None
+    if not tok:
+        return
+    def go():
+        try:
+            TG_S.post(TG_UP + tg_base() + "/api/web-logout", cookies={"web_token": tok}, timeout=5)
+        except Exception:
+            pass
+    threading.Thread(target=go, daemon=True).start()
+
+@app.route("/api/tg/status")
+def tg_status_api():
+    return jsonify({"on": tg_running(request.args.get("f") == "1")})
+
+@app.route("/tg", methods=["GET", "HEAD"])
+def tg_root():
+    from flask import redirect
+    return redirect("/tg/")
+
+@app.route("/tg/", defaults={"sub": ""}, methods=["GET", "HEAD", "POST", "PUT", "DELETE"])
+@app.route("/tg/<path:sub>", methods=["GET", "HEAD", "POST", "PUT", "DELETE"])
+def tg_proxy(sub):
+    if request.environ.get("SERVER_PORT") != str(WEB_PORT):
+        return "not found", 404
+    if sub == "api/web-logout":  # tgweb 里点退出 = 哈哈一起退出网页登录（TG 账号不退）
+        tg_web_logout()
+        r = jsonify({"ok": True})
+        r.delete_cookie("ys_auth")
+        return r
+    raw = request.environ.get("RAW_URI") or request.environ.get("REQUEST_URI") or request.full_path
+    rest = raw.split("?", 1)
+    path = rest[0][3:] if rest[0].startswith("/tg") else "/" + sub
+    base = tg_base()
+    url = TG_UP + base + (path or "/") + ("?" + rest[1] if len(rest) > 1 and rest[1] else "")
+    h = {k: v for k, v in request.headers.items() if k.lower() in (
+        "content-type", "range", "accept", "accept-language", "if-none-match", "if-modified-since", "if-range")}
+    h["Accept-Encoding"] = "identity"  # 不压缩，原样转发字节
+    h["X-Real-IP"] = client_ip()
+    h["X-Forwarded-Proto"] = request.headers.get("X-Forwarded-Proto") or request.scheme
+    body = request.get_data() if request.method in ("POST", "PUT", "DELETE") else None
+    def go(tok):
+        return TG_S.request(request.method, url, data=body, headers=h, cookies={"web_token": tok} if tok else None,
+                            stream=True, timeout=(5, 300), allow_redirects=False)
+    try:
+        tok = TG_TOK[0] or tg_login()
+        r = go(tok)
+        if r.status_code == 401:
+            txt = r.content[:500]
+            if b"need_web_auth" in txt and tg_login(force=True):
+                r = go(TG_TOK[0])
+    except requests.exceptions.ConnectionError:
+        TG_ST[0] = 0
+        return Response("tgweb 没有运行（服务器上 ys 选 14 启动）", status=502, mimetype="text/plain; charset=utf-8")
+    except Exception as e:
+        return Response("tgweb 出错：" + repr(e)[:200], status=502, mimetype="text/plain; charset=utf-8")
+    inj = None
+    if request.method == "GET" and path in ("", "/") and r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
+        # tgweb 里点“退出网页登录”后整个哈哈回到登录页
+        inj = r.content.replace(b"</body>", TG_INJ + b"</body>", 1)
+    hd = []
+    for k, v in r.raw.headers.items():
+        lk = k.lower()
+        if inj is not None and lk in ("content-length", "etag", "last-modified"):
+            continue
+        if lk in TG_DROP:
+            continue
+        if lk == "location" and base and v.startswith(base + "/"):
+            v = "/tg" + v[len(base):]
+        hd.append((k, v))
+    hd.append(("X-Frame-Options", "SAMEORIGIN"))  # 哈哈里用 iframe 嵌入
+    if inj is not None:
+        r.close()
+        return Response(inj, status=200, headers=hd)
+    def gen():
+        try:
+            if r._content_consumed:
+                yield r.content
+            else:
+                for c in r.raw.stream(65536, decode_content=False):
+                    yield c
+        finally:
+            r.close()
+    return Response(gen(), status=r.status_code, headers=hd, direct_passthrough=True)
 
 # ---------- 播放记录（服务器保存，手机/电脑同步） ----------
 def hist_load():

@@ -12,6 +12,8 @@ header{position:sticky;top:0;z-index:10;background:#1a1a1a;padding:8px;display:f
 select,input,button{font:inherit;color:#eee;background:#2a2a2a;border:1px solid #333;border-radius:8px;padding:7px 9px}
 select{max-width:38%;min-width:0}
 #cfg{max-width:28%}
+#tgf{position:fixed;left:0;right:0;top:var(--hh,52px);bottom:0;width:100%;height:calc(100% - var(--hh,52px));border:0;background:#111;display:none;z-index:8}
+body.tg #tgf{display:block}body.tg #site,body.tg #cats,body.tg #grid,body.tg #more{display:none}
 #site{flex:0 0 29%;max-width:29%;text-overflow:ellipsis}
 header button{white-space:nowrap;flex:none}
 #srch .back{width:84px;padding:7px 0}
@@ -108,6 +110,7 @@ button.on{background:#e50914;border-color:#e50914}
   <div id="cats"></div>
   <div id="grid"></div>
   <div id="more"></div>
+  <iframe id="tgf" allow="autoplay; fullscreen" allowfullscreen></iframe>
 </div>
 <div id="npop" class="sbox" style="display:none"></div>
 <div id="srch" style="display:none">
@@ -121,7 +124,7 @@ button.on{background:#e50914;border-color:#e50914}
   <div id="hgrid"></div>
 </div>
 <div id="set" style="display:none">
-  <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="bnadd">添加节点</button><button id="sraw">编辑 jjoo</button></header>
+  <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="bnadd">添加节点</button><button id="blogout">退出登录</button><button id="sraw">编辑 jjoo</button></header>
   <div class="sbox">
     <div class="srow" style="margin-top:8px"><input id="cname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="curl" placeholder="配置地址 http://xxx/tv"><button id="cadd">添加配置</button></div>
     <div class="st" id="cst"></div>
@@ -196,11 +199,21 @@ const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"
 
 // ---------- 列表 ----------
 const NAMES={};let CUR=[];
+let TGON=false;
 async function loadCfgs(){
-  let cs=[];try{cs=await api('/api/configs')}catch(e){}
-  $('#cfg').innerHTML=cs.map(c=>`<option value="${esc(c.id)}">${esc(c.builtin?'jjoo':c.name)}</option>`).join('');
+  let cs=[];const tq=api('/api/tg/status').then(d=>!!d.on,()=>false);
+  try{cs=await api('/api/configs')}catch(e){}
+  TGON=await tq;  // tgweb 在运行才显示
+  $('#cfg').innerHTML=cs.map(c=>`<option value="${esc(c.id)}">${esc(c.builtin?'jjoo':c.name)}</option>`).join('')+(TGON?'<option value="__tg">tgweb</option>':'');
   if(!cs.find(c=>c.id===LS.cfg))LS.cfg='jjoo';
-  $('#cfg').value=LS.cfg;return cs;
+  if(!TGON)LS.tg='0';
+  $('#cfg').value=LS.tg==='1'?'__tg':LS.cfg;tgMode(LS.tg==='1');return cs;
+}
+// tgweb：左上角配置框选 tgweb，首页换成 tgweb 页面（同一个登录）；选回别的配置就回来
+function tgMode(on){
+  const f=$('#tgf');document.body.classList.toggle('tg',on);
+  if(on){if(!f.getAttribute('src'))f.src='/tg/'}
+  else{try{f.contentDocument.querySelectorAll('video').forEach(v=>v.pause())}catch(e){}}
 }
 async function loadSites(){
   $('#site').innerHTML='<option>加载中…</option>';
@@ -218,7 +231,10 @@ async function init(){
   if(await loadSites()) await loadCats();
   route();
 }
-$('#cfg').onchange=async()=>{LS.cfg=$('#cfg').value;$('#qres').innerHTML='';if(await loadSites())loadCats()};
+$('#cfg').onchange=async()=>{const v=$('#cfg').value;
+  if(v==='__tg'){LS.tg='1';tgMode(true);return}
+  const was=LS.tg==='1';LS.tg='0';tgMode(false);if(was&&v===LS.cfg&&$('#grid').children.length)return;
+  LS.cfg=v;$('#qres').innerHTML='';if(await loadSites())loadCats()};
 async function loadCats(){
   $('#cats').innerHTML='<span class="msg">加载分类…</span>';
   let cls=[];
@@ -314,7 +330,8 @@ if(!history.state)history.replaceState({root:1},'');
 const goBack=()=>{if(history.state&&history.state.root){if(location.hash&&location.hash!=='#')location.hash=''}else history.back()};
 $('#back').onclick=()=>goBack();$('#hist .back').onclick=()=>goBack();
 $('#bh').onclick=()=>location.hash='#/h';
-$('#bset').onclick=()=>location.hash='#/s';$('#set .back').onclick=()=>goBack();
+$('#bset').onclick=()=>location.hash='#/s';
+$('#blogout').onclick=()=>{if(confirm('退出网页登录？哈哈和 tgweb 一起退出（TG 账号不会退出）'))location.href='/logout'};$('#set .back').onclick=()=>goBack();
 
 // ---------- 设置：采集站 ----------
 let SITES=[],TEST={};
