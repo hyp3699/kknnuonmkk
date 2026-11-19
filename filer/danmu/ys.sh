@@ -292,6 +292,27 @@ $(v6 "    listen [::]:80;")
 EOF
 }
 
+ip_reject() {  # 只允许域名：本站块里非本域名直接断开；没有别的 default_server 时再加一个拒绝握手的默认站（IP 打开连证书都不给）
+  local name=$1 d=$2 hp=$3 f="/etc/nginx/conf.d/$1.conf"
+  grep -q 'return 444' "$f" || sed -i "s#^    server_name $d;#    server_name $d;\n    if (\$host != \"$d\") { return 444; }#" "$f"
+  if grep -rsE "listen\s+[^;]*\b$hp\b[^;]*default_server" /etc/nginx/nginx.conf /etc/nginx/conf.d /etc/nginx/sites-enabled | grep -v "^$f:" | grep -q .; then
+    yellow "已有别的 $hp 默认站点，IP 打开会先看到证书警告，继续访问也会被拒绝"
+  else
+    cp "$f" "$f.bak"
+    cat >> "$f" <<EOF
+# 只允许域名访问：IP 或别的域名直接拒绝握手
+server {
+    listen $hp ssl default_server;
+$(v6 "    listen [::]:$hp ssl default_server;")
+    ssl_reject_handshake on;
+}
+EOF
+    if nginx -t >/dev/null 2>&1; then rm -f "$f.bak"
+    else mv -f "$f.bak" "$f"; yellow "nginx 版本太旧不支持拒绝握手，IP 打开会先看到证书警告，继续访问也会被拒绝"; fi
+  fi
+  nginx -t >/dev/null 2>&1 && systemctl reload nginx
+}
+
 setup_domain() {  # $1=web|danmu
   installed || { red "未安装，先选 1"; return; }
   local kind=$1 name up envk label cur d rip myip hp occ http80
@@ -430,7 +451,7 @@ EOF
   setenv $envk "$url"
   if [ "$kind" = web ]; then
     reading "只允许用域名访问网页（关闭 IP:$(web_port) 直连）？(y/N): " yn
-    if [ "$yn" = y ] || [ "$yn" = Y ]; then setenv WEB_BIND 127.0.0.1; else setenv WEB_BIND ""; fi
+    if [ "$yn" = y ] || [ "$yn" = Y ]; then setenv WEB_BIND 127.0.0.1; ip_reject "$name" "$d" "$hp"; else setenv WEB_BIND ""; fi
   fi
   ensure_envfile; systemctl restart danmu
   green "✅ $label 域名已设置：$url"
