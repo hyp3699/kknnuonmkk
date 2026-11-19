@@ -3349,6 +3349,11 @@ allow_port() {
             tcp|udp) ;;
             *) red "错误：无效协议 $proto"; return 1 ;;
         esac
+        # 之前在防火墙菜单里删过这个端口，会在 script_blocked 留一条 drop（优先于放行），先清掉
+        while read -r h; do
+            [ -n "$h" ] && nft delete rule inet filter script_blocked handle "$h" 2>/dev/null
+        done < <(nft -a list chain inet filter script_blocked 2>/dev/null |
+            awk -v pr="$proto" -v p="$port" '$0 ~ "(^|[[:space:]])" pr " dport " p "[[:space:]].*drop" { for (i=1;i<=NF;i++) if ($i=="handle") print $(i+1) }')
         # nft list 输出是 Tab 缩进的，(^| ) 匹配不到 Tab，必须用 [[:space:]]
         if ! nft list chain inet filter script_input 2>/dev/null | grep -Eq "(^|[[:space:]])$proto dport $port([[:space:],;]|$)"; then
             nft add rule inet filter script_input $proto dport $port accept comment "ScriptManaged" 2>/dev/null
@@ -10311,6 +10316,14 @@ add_safe_rule() {
     local rule_spec="$1"
     [ -z "$rule_spec" ] && return 1
     ensure_nft_env
+    # 不限来源的放行：清掉之前删规则时留在 script_blocked 里的同端口 drop
+    if [[ "$rule_spec" =~ ^(tcp|udp)\ dport\ ([0-9]+)\ accept$ ]]; then
+        local _pr="${BASH_REMATCH[1]}" _p="${BASH_REMATCH[2]}" _h
+        while read -r _h; do
+            [ -n "$_h" ] && nft delete rule inet filter script_blocked handle "$_h" 2>/dev/null
+        done < <(nft -a list chain inet filter script_blocked 2>/dev/null |
+            awk -v pr="$_pr" -v p="$_p" '$0 ~ "(^|[[:space:]])" pr " dport " p "[[:space:]].*drop" { for (i=1;i<=NF;i++) if ($i=="handle") print $(i+1) }')
+    fi
     # 全部存入 script_input 链，保持主链干净
     if ! nft insert rule inet filter script_input $rule_spec comment "ScriptManaged"; then
         red "添加 nft 规则失败，请检查语法或系统状态: $rule_spec"
