@@ -475,7 +475,6 @@ tg_state() {
   if tg_running; then echo "运行中  $a"; else echo "已停止  $a"; fi
 }
 tg_install() {  # 安装/补全 tgweb：跳过 api_id/api_hash；不碰 nginx（网页走哈哈的 /tg/）
-  if [ "$(getenv TGWEB)" = 0 ] && [ -z "$TG_FORCE" ]; then yellow "tgweb 已设为不安装（ys 选 14 → 1 可安装）"; return 0; fi
   command -v apt-get >/dev/null || { red "tgweb 只支持 Debian/Ubuntu"; return 1; }
   command -v git >/dev/null || apt-get install -y git >/dev/null 2>&1 || { red "git 安装失败"; return 1; }
   if ! command -v docker >/dev/null; then
@@ -500,7 +499,6 @@ tg_install() {  # 安装/补全 tgweb：跳过 api_id/api_hash；不碰 nginx（
   [ -n "$(tg_envv WEB_PATH)" ] || tg_setv WEB_PATH "$(tg_rand 24)"
   cp "$TGD/tg" /usr/local/bin/tg 2>/dev/null && chmod +x /usr/local/bin/tg
   cp "$TGD/tg-domain.sh" /usr/local/bin/tg-domain 2>/dev/null && chmod +x /usr/local/bin/tg-domain
-  setenv TGWEB 1
   skyblue "构建并启动 tgweb（第一次要几分钟）..."
   (cd "$TGD" && docker compose up -d --build) >/tmp/tgweb_build.log 2>&1 || { red "tgweb 启动失败，日志：/tmp/tgweb_build.log"; return 1; }
   green "tgweb 已启动：网页左上角配置框选 tgweb；api_id/api_hash 在 ys 选 14 里设置"
@@ -529,7 +527,7 @@ tg_uninstall() {
   tg_installed || { red "未安装"; return; }
   reading "卸载 tgweb（删除容器、$TGD 含 TG 登录 session）？输入 yes 确认: " yn
   [ "$yn" = yes ] || { yellow "已取消"; return; }
-  tg uninstall yes; setenv TGWEB 0; green "tgweb 已卸载"
+  tg uninstall yes; green "tgweb 已卸载"
 }
 tg_menu() {
   while true; do
@@ -556,7 +554,7 @@ tg_menu() {
     reading "请输入选择: " c
     echo
     case "$c" in
-      1) TG_FORCE=1 tg_install; pause ;;
+      1) tg_install; pause ;;
       2) tg_installed && { tg update; cp "$TGD/tg" /usr/local/bin/tg 2>/dev/null; } || red "未安装"; pause ;;
       3) tg_toggle; pause ;;
       4) tg_installed && tg_set_api TG_API_ID || red "未安装"; pause ;;
@@ -574,7 +572,6 @@ tg_menu() {
     esac
   done
 }
-[ "${1:-}" = tg-install ] && { tg_install; exit $?; }
 
 while true; do
   clear
