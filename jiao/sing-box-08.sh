@@ -2920,10 +2920,13 @@ fi
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
 # 证书是否已被 nginx 使用：某个 nginx 配置引用了该证书目录，或 server_name 里有这个域名/IP
 cert_used_by_nginx() {
-    local d="$1" path="$2" files
-    files=$(ls /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/* 2>/dev/null)
-    [ -z "$files" ] && return 1
-    grep -qsF "${path}/" $files && return 0
+    local d="$1" path="$2" f files=()
+    # 只读真实存在的文件：sites-enabled 里可能有指向已删除配置的断链
+    for f in /etc/nginx/nginx.conf /etc/nginx/conf.d/*.conf /etc/nginx/sites-enabled/*; do
+        [ -f "$f" ] && [ -r "$f" ] && files+=("$f")
+    done
+    [ ${#files[@]} -eq 0 ] && return 1
+    grep -qsF "${path}/" "${files[@]}" && return 0
     awk -v d="$d" '
         { sub(/#.*/, "") }
         {
@@ -2936,7 +2939,7 @@ cert_used_by_nginx() {
             }
         }
         END { exit !f }
-    ' $files
+    ' "${files[@]}" 2>/dev/null
 }
 check_and_issue_ssl() {
     local input_domain="$1"
