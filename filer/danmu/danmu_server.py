@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "2.5.2"  # 2.5.2: 修 tgweb 走 CDN 的 5 处 + tgweb 刚启动看不到选项：①角标看不到当前域名——SW 第一跳就成功时不发通知，切回主域名也不清旧名字（现在拿到可用响应就告诉页面实际走的哪个域名）；②SW 闲置被系统回收后丢 CDN 选择，悄悄退回主域名（cdnState 存进 CacheStorage，新实例发请求前读回来；页面推过新配置绝不拿旧缓存覆盖；退出登录一并清掉）；③进 tgweb 页面就先注册并检查新版 sw.js（以前只在播放时注册，更新后第一次播还在用旧 SW）；④角标点不开 🌐——它落在 <video> 区域里被滑动/长按的手势拦截吞了点击；⑤tgweb 模式下 CDN 配置不再等采集站加载完才取（点播时域名和票据已经就绪）；⑥重启/更新 tgweb 后网页十几秒里看不到 tgweb 选项（服务器把“不在运行”也缓存 10 秒，现在不缓存了，网页进页面用 ?f=1 强制实时探）；2.5.1: tgweb 视频也能选 CDN 域名（🌐 里选的走哪里同步给 tgweb，加密流/明文流都按 CDN 走，卡了/失败了自动换下一个域名，角标显示当前走的域名）；修 2.5.0：先取加密会话再取 CDN 票据（否则 PT 签成空会话，CDN 上 401）；指定 CDN 在冷却期内不再被选中；加密 m3u8 分片重连不再丢 #u=；🌐「视频走哪里」弹窗在播放页挪到播放器下方、不再挡住画面；左右滑快进快退/上下滑调音量的提示框最多 1.5 秒自动收起（换集、退出播放页、切后台也一并清理）；2.5.0: 搜索框左边 🌐 也打开同一个“视频走哪里”弹窗；弹窗居中上移、选完自动关；指定 CDN 失败也自动换回主域名；2.4.9: 设置 → 添加节点里可加 CDN 域名（可备注名字，如 CF、AWS）；播放页“代理”弹窗可选 直连/自动/指定节点/指定 CDN，自动时视频卡了或失败按分片无缝换另一个域名；2.4.8: 配了域名并选只允许域名后，哈哈影视用 IP 打开会被拒绝（只管哈哈，服务器 IP 给别的项目用不受影响；撤销 2.4.7 的全局拒绝）；2.4.6: tgweb 代码在哈哈仓库自己保存一份（filer/tgweb），安装和更新只从这里拉；2.4.5: 采集站加密改成 tgweb 那套（AES-256、每次登录一把钥匙、退出作废、每次响应随机 nonce）；tgweb 滑动快进快退提示改成哈哈的样式；2.4.4: 加密开着时全部视频强制加密播放（不管代理开关），mp4 也加密（Service Worker 解密）；2.4.3: 加密播放时状态栏显示“🔒已加密”；2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "2.5.3"  # 2.5.3: 采集站加密 mp4（/pv/ 由 /pvsw.js 解密）接入 CDN——按 🌐 里选的“视频走哪里”挑域名、走 CDN 带 ?pt= 票据、第一跳成功也把实际域名告诉网页；SW 闲置被系统回收后从 CacheStorage 读回 CDN 配置，退出登录清掉钥匙和票据；只有「自动选择」才自动切换线路——选「直连」「节点」「指定 CDN」播放失败都不再自动切换（采集站 m3u8/mp4 与 tgweb 明文流、加密帧流一致：指定 CDN 失败就报错，不偷着退回主域名）；2.5.2: 修 tgweb 走 CDN 的 5 处 + tgweb 刚启动看不到选项：①角标看不到当前域名——SW 第一跳就成功时不发通知，切回主域名也不清旧名字（现在拿到可用响应就告诉页面实际走的哪个域名）；②SW 闲置被系统回收后丢 CDN 选择，悄悄退回主域名（cdnState 存进 CacheStorage，新实例发请求前读回来；页面推过新配置绝不拿旧缓存覆盖；退出登录一并清掉）；③进 tgweb 页面就先注册并检查新版 sw.js（以前只在播放时注册，更新后第一次播还在用旧 SW）；④角标点不开 🌐——它落在 <video> 区域里被滑动/长按的手势拦截吞了点击；⑤tgweb 模式下 CDN 配置不再等采集站加载完才取（点播时域名和票据已经就绪）；⑥重启/更新 tgweb 后网页十几秒里看不到 tgweb 选项（服务器把“不在运行”也缓存 10 秒，现在不缓存了，网页进页面用 ?f=1 强制实时探）；2.5.1: tgweb 视频也能选 CDN 域名（🌐 里选的走哪里同步给 tgweb，加密流/明文流都按 CDN 走，卡了/失败了自动换下一个域名，角标显示当前走的域名）；修 2.5.0：先取加密会话再取 CDN 票据（否则 PT 签成空会话，CDN 上 401）；指定 CDN 在冷却期内不再被选中；加密 m3u8 分片重连不再丢 #u=；🌐「视频走哪里」弹窗在播放页挪到播放器下方、不再挡住画面；左右滑快进快退/上下滑调音量的提示框最多 1.5 秒自动收起（换集、退出播放页、切后台也一并清理）；2.5.0: 搜索框左边 🌐 也打开同一个“视频走哪里”弹窗；弹窗居中上移、选完自动关；指定 CDN 失败也自动换回主域名；2.4.9: 设置 → 添加节点里可加 CDN 域名（可备注名字，如 CF、AWS）；播放页“代理”弹窗可选 直连/自动/指定节点/指定 CDN，自动时视频卡了或失败按分片无缝换另一个域名；2.4.8: 配了域名并选只允许域名后，哈哈影视用 IP 打开会被拒绝（只管哈哈，服务器 IP 给别的项目用不受影响；撤销 2.4.7 的全局拒绝）；2.4.6: tgweb 代码在哈哈仓库自己保存一份（filer/tgweb），安装和更新只从这里拉；2.4.5: 采集站加密改成 tgweb 那套（AES-256、每次登录一把钥匙、退出作废、每次响应随机 nonce）；tgweb 滑动快进快退提示改成哈哈的样式；2.4.4: 加密开着时全部视频强制加密播放（不管代理开关），mp4 也加密（Service Worker 解密）；2.4.3: 加密播放时状态栏显示“🔒已加密”；2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -3029,6 +3029,11 @@ def px_inner(u, h, hx, rel, enc=False, fm=False):
     return resp
 
 PVSW_JS = r"""// 哈哈：mp4 加密播放解密（只管 /pv/ 地址，其它请求不碰）
+// 走哪个域名由页面（🌐 里的“视频走哪里”）推过来，和 tgweb 的 sw.js 同一套规则：
+//   off / n:<id>  只走主域名（同源，带登录 cookie）
+//   auto          先主域名，失败依次换 CDN，最后再试一次主域名
+//   c:<id>        只走指定的那个 CDN，失败也绝不退回主域名
+// CDN 域名上没有登录 cookie，靠 ?pt= 票据放行；跨域要 cors + omit 才读得到响应头和流。
 let K=null,KID='';
 self.addEventListener('install',()=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
@@ -3037,17 +3042,171 @@ async function key(kid){if(K&&(!kid||kid===KID))return K;const j=await (await fe
   K=await crypto.subtle.importKey('raw',b64d(j.key),{name:'AES-CTR'},false,['decrypt']);KID=j.kid||'';return K}
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);
   if(u.origin!==location.origin||!u.pathname.startsWith('/pv/'))return;e.respondWith(pv(e.request,u))});
-async function pv(rq,u){const h={},rg=rq.headers.get('Range');if(rg)h.Range=rg;
-  const r=await fetch('/px?m=1&x='+u.pathname.slice(4),{headers:h,credentials:'same-origin'});
-  const nn=r.headers.get('X-N');if(!r.ok||!nn)return r;const k=await key(r.headers.get('X-K'));  // 重新登录换了钥匙就重新取
-  const n=b64d(nn);let off=0;const m=/bytes (\d+)-/.exec(r.headers.get('Content-Range')||'');if(m)off=+m[1];
+
+// ---------- CDN 域名状态（页面推过来，存在内存 + CacheStorage） ----------
+// 一个域名坏过一次就在 cdnBad 里冷却 60 秒，只有 auto 会用到它；指定 c:<id> 不走冷却表。
+const CDN_COOLDOWN=60000;
+const CDN_CACHE='ha-pv-cdn-v1';
+const CDN_STATE_KEY='/_ha_pv_cdn_state';
+let cdnState={pxs:'off',cdns:[],pt:''};
+const cdnBad=new Map();
+// 安卓上 SW 闲置几分钟就被系统杀掉：续播/拖进度条时再唤醒是一个全新实例，内存里的 cdnState
+// 又变回 off，用户明明选了 CDN 却悄悄退回主域名。所以存一份到 CacheStorage，发请求前读回来。
+// 页面推过的新配置永远优先：cdnBooted = true 之后绝不再拿旧缓存覆盖。
+let cdnBooted=false,cdnBooting=null,cdnPersist=null;
+function nowMs(){return Date.now()}
+function cdnStateDefault(){return {pxs:'off',cdns:[],pt:''}}
+function cdnNorm(d){return {pxs:String((d&&d.pxs)||'off'),cdns:Array.isArray(d&&d.cdns)?d.cdns.filter(c=>c&&c.url):[],pt:String((d&&d.pt)||'')}}
+function hasCaches(){return typeof caches!=='undefined'&&!!caches&&typeof caches.open==='function'}
+// Node 单测里没有 caches，直接跳过（不影响别的逻辑）
+function saveCdnState(){
+  try{
+    if(!hasCaches()||typeof Response!=='function')return Promise.resolve();
+    const snap=JSON.stringify({pxs:cdnState.pxs,cdns:cdnState.cdns,pt:cdnState.pt});
+    cdnPersist=caches.open(CDN_CACHE).then(c=>c.put(CDN_STATE_KEY,new Response(snap,{headers:{'Content-Type':'application/json'}}))).catch(()=>{});
+    return cdnPersist;
+  }catch(e){return Promise.resolve()}
+}
+function dropCdnState(){
+  try{
+    if(!hasCaches())return Promise.resolve();
+    cdnPersist=caches.open(CDN_CACHE).then(c=>c.delete(CDN_STATE_KEY)).catch(()=>{});
+    return cdnPersist;
+  }catch(e){return Promise.resolve()}
+}
+function ensureCdnState(){
+  if(cdnBooted)return Promise.resolve();
+  if(cdnBooting)return cdnBooting;
+  cdnBooting=(async function(){
+    try{
+      if(hasCaches()){
+        const c=await caches.open(CDN_CACHE);
+        const r=await c.match(CDN_STATE_KEY);
+        if(r&&!cdnBooted){const d=await r.json();if(d&&!cdnBooted)cdnState=cdnNorm(d)}
+      }
+    }catch(e){/* 读不出来就照内存里的（默认只走主域名），绝不能让续播卡死 */}
+    if(!cdnBooted)cdnBooted=true;
+  })().then(function(){cdnBooting=null});
+  return cdnBooting;
+}
+// 候选域名，按优先顺序；'' = 主域名
+function cdnList(st){
+  const s=(st&&st.pxs)||'off',cdns=(st&&st.cdns)||[];
+  const urls=cdns.filter(c=>c&&c.url).map(c=>c.url);
+  if(s==='auto')return [''].concat(urls);
+  if(s.indexOf('c:')===0){
+    const hit=cdns.filter(c=>c&&c.url&&('c:'+c.id)===s)[0];
+    return hit?[hit.url]:[''];   // 指定 CDN：只返回它一个，失败也绝不换（不把主域名/别的 CDN 排在后面）
+  }
+  return [''];
+}
+function cdnGood(b,now){const t=cdnBad.get(b);return !(t&&t>(now===undefined?nowMs():now))}
+function cdnPick(st,skip,now){
+  const bs=cdnList(st),t=now===undefined?nowMs():now;
+  for(let i=0;i<bs.length;i++){
+    const b=bs[i];
+    if(skip&&skip.indexOf(b)>=0)continue;
+    if(!cdnGood(b,t))continue;
+    return b;
+  }
+  return null;
+}
+// 换了域名就告诉页面，状态栏上能看出这一段实际走的哪个域名
+function notifyCdn(base){
+  try{
+    if(typeof self==='undefined'||!self.clients||typeof self.clients.matchAll!=='function')return;
+    const p=self.clients.matchAll({type:'window',includeUncontrolled:true});
+    if(!p||typeof p.then!=='function')return;
+    p.then(list=>{(list||[]).forEach(c=>{try{c.postMessage({type:'pv-cdn',base:base})}catch(e){}})}).catch(()=>{});
+  }catch(e){}
+}
+function pxUrl(base,token){
+  const pt=(cdnState&&cdnState.pt)||'';
+  if(!base)return '/px?m=1&x='+token;
+  return base+'/px?m=1&x='+token+(pt?'&pt='+encodeURIComponent(pt):'');
+}
+function pxInit(base,h){
+  if(!base)return {headers:h,credentials:'same-origin'};
+  return {headers:h,mode:'cors',credentials:'omit'};
+}
+async function pv(rq,u){
+  const h={},rg=rq.headers.get('Range');if(rg)h.Range=rg;
+  const token=u.pathname.slice(4);          // /pv/<token>，就是 /px?x= 那一串
+  await ensureCdnState();                   // SW 闲置被回收过：先把上次的 CDN 配置读回来再挑域名
+  const st=cdnState;
+  const isAuto=st.pxs==='auto'&&cdnList(st).length>1;   // 只有「自动选择」才自动换线路
+  const tried=[];
+  let base=isAuto?cdnPick(st,[]):(cdnList(st)[0]||'');  // 指定 c:<id> 时不看冷却表，老老实实请求它
+  if(base===null||base===undefined)base=cdnList(st)[0]||'';
+  let resp=null,last=null;
+  for(;;){
+    try{resp=await fetch(pxUrl(base,token),pxInit(base,h))}
+    catch(e){resp=null}
+    // 成功只认「200 + X-N」：CDN 被拦成 HTML 的 200/502、上游 401 都算失败
+    if(resp&&resp.ok&&resp.headers.get('X-N'))break;
+    if(resp)last=resp;
+    if(!isAuto)break;                       // 直连/节点/指定 CDN：不换线路，原样把失败响应交回
+    cdnBad.set(base,nowMs()+CDN_COOLDOWN);
+    tried.push(base);
+    let nb=cdnPick(st,tried);
+    if(nb===null&&base!=='')nb='';          // 候选全挂了：主域名最后再给一次机会
+    if(nb===null)break;
+    base=nb;resp=null;
+  }
+  if(!resp){                                // fetch 直接抛错（网络断了/被拦）
+    if(last)return last;
+    return new Response('',{status:502,headers:{'X-Pv-Err':'cdn'}});
+  }
+  if(!resp.ok||!resp.headers.get('X-N'))return resp;   // 非 auto 的失败：原样返回
+  notifyCdn(base);
+  const k=await key(resp.headers.get('X-K'));  // 重新登录换了钥匙就重新取
+  const n=b64d(resp.headers.get('X-N'));let off=0;const m=/bytes (\d+)-/.exec(resp.headers.get('Content-Range')||'');if(m)off=+m[1];
   const ts=new TransformStream({async transform(ch,c){const s=off%16,b=Math.floor(off/16),cnt=new Uint8Array(16);cnt.set(n,0);
     const dv=new DataView(cnt.buffer);dv.setUint32(8,Math.floor(b/4294967296));dv.setUint32(12,b>>>0);
     const buf=new Uint8Array(s+ch.byteLength);buf.set(ch,s);
     const pt=new Uint8Array(await crypto.subtle.decrypt({name:'AES-CTR',counter:cnt,length:64},k,buf));off+=ch.byteLength;c.enqueue(pt.subarray(s))}});
-  const hd=new Headers();for(const x of ['Content-Length','Content-Range','Accept-Ranges'])if(r.headers.get(x))hd.set(x,r.headers.get(x));
-  hd.set('Content-Type',r.headers.get('X-T')||'video/mp4');
-  return new Response(r.body.pipeThrough(ts),{status:r.status,headers:hd})}
+  const hd=new Headers();for(const x of ['Content-Length','Content-Range','Accept-Ranges'])if(resp.headers.get(x))hd.set(x,resp.headers.get(x));
+  hd.set('Content-Type',resp.headers.get('X-T')||'video/mp4');
+  return new Response(resp.body.pipeThrough(ts),{status:resp.status,headers:hd})
+}
+
+// 页面发来的消息：🌐 选完走哪里（pv_cdn）、清冷却（badReset）、退出登录（pv_logout）
+function handleSwMessage(event){
+  if(!event||!event.data)return false;
+  const d=event.data;
+  if(d.type==='pv_cdn'){
+    const prev=cdnState;
+    cdnState=cdnNorm(d);
+    // 换了走法 / 换了票据 / 显式要求：清冷却，新选择要能立刻试
+    if(d.badReset||prev.pxs!==cdnState.pxs||prev.pt!==cdnState.pt)cdnBad.clear();
+    cdnBooted=true;      // 页面推的是最新的，之后绝不能再拿缓存里的旧配置覆盖它
+    saveCdnState();
+    return true;
+  }
+  if(d.type==='badReset'){cdnBad.clear();return true}
+  if(d.type!=='pv_logout')return false;
+  K=null;KID='';         // 退出登录：浏览器里这把钥匙不再留着（服务端会话也已作废）
+  cdnState=cdnStateDefault();
+  cdnBad.clear();
+  cdnBooted=true;
+  dropCdnState();        // 持久化的那份票据一并删掉，免得 SW 重启后又读回上个账号的
+  return true;
+}
+self.addEventListener('message',e=>{
+  handleSwMessage(e);
+  // CacheStorage 写是异步的，算进这次消息的生命周期：不然刚发完消息 SW 就被回收，持久化没落地
+  if(typeof e.waitUntil==='function'&&cdnPersist){try{e.waitUntil(cdnPersist)}catch(x){}}
+});
+
+// Node 里的自动化测试直接调这些纯逻辑（浏览器里没有 module，这段会被忽略）
+if(typeof module!=='undefined'&&module.exports){
+  module.exports={pv:pv,cdnList:cdnList,cdnPick:cdnPick,cdnUrl:pxUrl,cdnInit:pxInit,cdnGood:cdnGood,
+    ensureCdnState:ensureCdnState,saveCdnState:saveCdnState,dropCdnState:dropCdnState,
+    handleSwMessage:handleSwMessage,notifyCdn:notifyCdn,cdnNorm:cdnNorm,cdnStateDefault:cdnStateDefault,
+    CDN_COOLDOWN:CDN_COOLDOWN,CDN_CACHE:CDN_CACHE,CDN_STATE_KEY:CDN_STATE_KEY,
+    getCdnState:()=>cdnState,getCdnBad:()=>cdnBad,getCdnBooted:()=>cdnBooted,getKey:()=>K};
+}
+
 """
 
 @app.route("/pvsw.js")

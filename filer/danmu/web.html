@@ -121,7 +121,7 @@ button.on{background:#e50914;border-color:#e50914}
   <div id="qres"></div>
 </div>
 <div id="hist" style="display:none">
-  <header><button class="back">‹ 返回</button><span style="flex:1">播放记录</span><button id="hclr">清空</button><a href="/logout"><button>退出登录</button></a></header>
+  <header><button class="back">‹ 返回</button><span style="flex:1">播放记录</span><button id="hclr">清空</button><a id="hlogout" href="/logout"><button>退出登录</button></a></header>
   <div id="hgrid"></div>
 </div>
 <div id="set" style="display:none">
@@ -366,7 +366,7 @@ const goBack=()=>{if(history.state&&history.state.root){if(location.hash&&locati
 $('#back').onclick=()=>goBack();$('#hist .back').onclick=()=>goBack();
 $('#bh').onclick=()=>location.hash='#/h';
 $('#bset').onclick=()=>location.hash='#/s';
-$('#blogout').onclick=()=>{if(confirm('退出网页登录？哈哈和 tgweb 一起退出（TG 账号不会退出）'))location.href='/logout'};$('#set .back').onclick=()=>goBack();
+$('#blogout').onclick=()=>{if(confirm('退出网页登录？哈哈和 tgweb 一起退出（TG 账号不会退出）')){pvLogout();location.href='/logout'}};$('#hlogout').onclick=()=>pvLogout();$('#set .back').onclick=()=>goBack();
 
 // ---------- 设置：采集站 ----------
 let SITES=[],TEST={};
@@ -590,7 +590,7 @@ $('#eps').onclick=e=>{const b=e.target.closest('button');if(!b)return;const i=+b
 let hls=null, triedPx=false, HDR='';
 const V=$('#v');
 let LG=0,WDT=0;
-function stopPlay(){LG++;clearTimeout(WDT);V.onerror=null;if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([]);try{playUiReset()}catch(e){}}
+function stopPlay(){LG++;clearTimeout(WDT);V.onerror=null;if(hls){hls.destroy();hls=null}V.removeAttribute('src');V.load();dmReset([]);PVB='';PVGOT=false;PVON=false;try{playUiReset()}catch(e){}}
 function setSt(t){$('#st').textContent=t}
 function play(fi,ei,t0){
   saveHist();
@@ -683,16 +683,33 @@ function adLoader(){const B=Hls.DefaultConfig.loader;
         encDec(r.data).then(d=>{r.data=d;if(stats&&d&&d.byteLength!=null)stats.loaded=stats.total=d.byteLength;fin()}).catch(()=>er({code:0,text:'解密失败'},c,nd,stats))}}
     super.load(ctx,cfg,cb)}}}
 // ---------- 代理走哪里：自动选择 / 直连 / 指定节点 / 指定 CDN（LS.pxs = auto|off|n:id|c:id） ----------
-let CDNS=[],PXT='',PTT=0,PXB='',PXBAD={};
+let CDNS=[],PXT='',PTT=0,PXB='',PXBAD={},PVB='',PVGOT=false,PVON=false;
 const pxSel=()=>LS.pxs||(LS.px==='1'?'auto':'off');
-async function getCdns(){try{const d=await api('/api/cdns');CDNS=d.cdns||[];PXT=d.pt||'';PTT=Date.now()}catch(e){}tgSync();return CDNS}
+// ---------- 加密 mp4（/pv/）走哪个域名：把 {pxs, cdns, pt} 推给 /pvsw.js ----------
+// 和 tgweb 同一套规则：off / n:id 只走主域名，auto 先主域名、失败换 CDN，c:id 只走指定 CDN（失败不换）。
+// 节点（n:id）对这一段没意义（浏览器↔服务器不走节点），按主域名处理。
+function pvSync(){const sw=navigator.serviceWorker&&navigator.serviceWorker.controller;if(!sw)return;
+  const s=pxSel(),v=(s==='off'||s.startsWith('n:'))?'off':s;
+  try{sw.postMessage({type:'pv_cdn',pxs:v,cdns:CDNS,pt:PXT})}catch(e){}}
+function pvLogout(){const sw=navigator.serviceWorker&&navigator.serviceWorker.controller;if(sw){try{sw.postMessage({type:'pv_logout'})}catch(e){}}  // 退出登录：SW 里的解密钥匙和 CDN 票据一起清
+  try{const w=$('#tgf').contentWindow;const s=w&&w.navigator&&w.navigator.serviceWorker&&w.navigator.serviceWorker.controller;if(s)s.postMessage({type:'tgweb-logout'})}catch(e){}}  // tgweb 的 SW 也把上个会话的钥匙收干净
+function pxNameOf(b){if(!b)return '';const c=CDNS.find(x=>x.url===b);return c?c.name:String(b).replace(/^https?:\/\//,'')}
+if(navigator.serviceWorker){
+  navigator.serviceWorker.addEventListener('controllerchange',()=>pvSync());   // 新 SW 接管：重新推一次配置
+  navigator.serviceWorker.addEventListener('message',e=>{const d=e.data||{};if(d.type!=='pv-cdn')return;
+    PVB=String(d.base||'');PVGOT=true;   // SW 报上来的实际域名（'' = 主域名）
+    if(!PVON||!$('#st'))return;          // 正在放 /pv/ 才动状态栏
+    const t=$('#st').textContent||'',n=PVB?pxNameOf(PVB):'';
+    setSt(n?t.replace(/ · 经 .*$/,'')+' · 经 '+n:t.replace(/ · 经 .*$/,''))});
+}
+async function getCdns(){try{const d=await api('/api/cdns');CDNS=d.cdns||[];PXT=d.pt||'';PTT=Date.now()}catch(e){}tgSync();pvSync();return CDNS}
 const refreshCdns=async()=>{await getCdns();pxBtn()};
-const pxBases=()=>{const a=['',...CDNS.map(c=>c.url)],s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);if(c)return [c.url,...a.filter(x=>x!==c.url)]}return a};
+const pxBases=()=>{const a=['',...CDNS.map(c=>c.url)],s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);if(c)return [c.url]}return s.startsWith('c:')?['']:a};  // 指定 CDN 只有它一个（失败不换线路）
 function pxPick(){const s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);
-    // 指定的域名刚刚失败过（60 秒冷却内）：先退回一个还能用的域名，别下一集又撞上同一个坏域名
-    if(c&&!(PXBAD[c.url]>Date.now()))PXB=c.url;else{const b=pxBases().find(x=>!(PXBAD[x]>Date.now()));PXB=b===undefined?'':b}}
+    // 指定 CDN：就一直用它——冷却期里也照发，绝不偷着换主域名或别的 CDN 糊弄用户
+    PXB=c?c.url:''}
   else if(s==='auto'){const b=pxBases().find(x=>!(PXBAD[x]>Date.now()));PXB=b===undefined?'':b}else PXB=''}
-const pxAuto=()=>(pxSel()==='auto'||pxSel().startsWith('c:'))&&CDNS.length>0;
+const pxAuto=()=>pxSel()==='auto'&&CDNS.length>0;   // 只有「自动选择」才自动换线路
 function pxSwitch(from){const bs=pxBases();if(bs.length<2)return false;PXBAD[from]=Date.now()+60000;const nx=bs.find(x=>x!==from&&!(PXBAD[x]>Date.now()));if(nx===undefined)return false;PXB=nx;pxShow();return true}
 function pxRel(u){try{const x=new URL(u,location.href);if(x.pathname!=='/px')return '';if(x.origin!==location.origin&&!CDNS.some(c=>c.url===x.origin))return '';const q=new URLSearchParams(x.search);q.delete('pt');return '/px?'+q.toString()+x.hash}catch(e){return ''}}  // #u= 要留着：加密 m3u8 的分片重连/去广告靠它认路径
 function pxu(r){if(!PXB||!r.startsWith('/px?'))return r;const i=r.indexOf('#'),head=i<0?r:r.slice(0,i),tail=i<0?'':r.slice(i);return PXB+head+'&pt='+encodeURIComponent(PXT)+tail}  // pt 加在 # 前面
@@ -737,6 +754,7 @@ const kindOf=u=>/\.m3u8(\?|#|$)/i.test(u)?'hls':(/\.(mp4|mkv|webm|flv|mov|m4v)(\
 function load(u,t0,px,kind,xs){
   try{playUiReset()}catch(e){}  // 换集/重载：上一轮的滑动提示和手势状态作废
   const lg=++LG;clearTimeout(WDT);ORI=null;clearTimeout(ORIT);
+  PVB='';PVGOT=false;PVON=false;   // 换集/重载：上一段实际走的域名作废，等 SW 重新报
   if(hls){hls.destroy();hls=null}
   V.onerror=null;V.onloadedmetadata=null;V.removeAttribute('src');
   const EU=encUse();if(EU)px=true;  // 开着加密：不管代理开关，全部经服务器加密
@@ -751,18 +769,27 @@ function load(u,t0,px,kind,xs){
   if(EU){  // 加密：m3u8 走 /px?x=，mp4 走 /pv/（Service Worker 解密），地址都藏在 token 里
     if(!xs){encTok(u,HDR).then(t=>{if(lg===LG)load(u,t0,px,kind,t)}).catch(()=>{if(lg===LG)load(u,t0,px,kind,'-')});return}
     if(xs!=='-'){src='/px?x='+xs;if(pvOk())fsrc='/pv/'+xs}}
-  const toPx=(t,m)=>{if(triedPx||EU)return false;  // 加密时不退回直连
+  const toPx=(t,m)=>{if(pxSel()!=='auto')return false;  // 只有「自动选择」才自动换线路：直连/节点/指定 CDN 失败都不换
+    if(triedPx||EU)return false;  // 加密时不退回直连
     if(!px){triedPx=true;setSt(m);load(u,t,true,kind==='try'?'':kind);return true}
     if(st.px&&!HDR){triedPx=true;setSt('代理放不了（视频服务器拒绝了 VPS），改直连…');load(u,t,false,kind==='try'?'':kind);return true}  // 手动开了代理也不行：退回直连试一次
     return false};
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
     if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
   const start=()=>{if(lg!==LG)return;clearTimeout(WDT);const ok=isF?fsrc.startsWith('/pv/'):src.startsWith('/px?x=');
-    const ek=ok?'🔒已加密 ':(ENC.on?'⚠️没加密（'+(!ENC.ok?'服务器缺加密组件':!ENCK?'浏览器不支持':isF?'mp4 解密组件没就绪，刷新一下':'出错')+'） ':'');setSt(ek+(px&&!ok?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:'')+(px&&pxName()&&!(isF&&fsrc.startsWith('/pv/'))?' · 经 '+pxName():''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
-  const asFile=()=>{isF=true;V.src=pxu(fsrc);V.onloadedmetadata=start;
-    V.onerror=()=>{if(lg!==LG)return;
-      if(fsrc.startsWith('/px?')&&pxAuto()&&pxSwitch(PXB)){const t=lastT||t0;V.src=pxu(fsrc);V.onloadedmetadata=()=>{if(t>5)V.currentTime=t;V.play().catch(()=>{})};return}  // mp4 换域名接着播
-      if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
+    const pvOn=isF&&fsrc.startsWith('/pv/');
+    // 加密 mp4 这一段实际走的域名：SW 报上来的优先（还没报、又选了指定 CDN 就先写它的名字）；主域名不加后缀
+    const via=pvOn?(PVGOT?(PVB?pxNameOf(PVB):''):(pxSel().startsWith('c:')?pxName():'')):(px?pxName():'');
+    const ek=ok?'🔒已加密 ':(ENC.on?'⚠️没加密（'+(!ENC.ok?'服务器缺加密组件':!ENCK?'浏览器不支持':isF?'mp4 解密组件没就绪，刷新一下':'出错')+'） ':'');setSt(ek+(px&&!ok?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:'')+(via?' · 经 '+via:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+  const asFile=()=>{isF=true;
+    const go=()=>{if(lg!==LG)return;V.src=pxu(fsrc);V.onloadedmetadata=start;
+      V.onerror=()=>{if(lg!==LG)return;
+        if(fsrc.startsWith('/px?')&&pxAuto()&&pxSwitch(PXB)){const t=lastT||t0;V.src=pxu(fsrc);V.onloadedmetadata=()=>{if(t>5)V.currentTime=t;V.play().catch(()=>{})};return}  // mp4 换域名接着播
+        if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
+    PVON=fsrc.startsWith('/pv/');
+    if(PVON){pvSync();   // 加密 mp4 由 SW 出网：起播前把最新的 CDN 配置再推一次
+      if(pxSel()==='auto'||pxSel().startsWith('c:')){setTimeout(go,20);return}}  // 和 tgweb 一样微等一下，让 SW 先收到配置
+    go()};
   pxPick();
   if(kind!=='file'&&window.Hls&&Hls.isSupported()){
     let netTry=0,medTry=0;
@@ -874,18 +901,18 @@ async function renderPx(){const p=$('#ppop');p.innerHTML='<div class="msg">加�
   const it=(v,name,sub)=>`<div class="si${cur===v?' cur':''}" data-v="${esc(v)}"><div class="n"><b>${cur===v?'✓ ':''}${esc(name)}</b><small>${esc(sub)}</small></div></div>`;
   const ns=d&&d.nodes?d.nodes:[];
   p.innerHTML=`<div class="srow"><b style="flex:1">视频走哪里</b><button id="ppx">关闭</button></div>`+
-    it('auto','自动选择','经服务器播放，节点自动切换'+(CDNS.length?'，域名卡了/失败自动换 CDN':''))+it('off','直连','浏览器直接连视频，连不上再自动走代理')+
+    it('auto','自动选择','经服务器播放，节点自动切换'+(CDNS.length?'，域名卡了/失败自动换 CDN':''))+it('off','直连','浏览器直接连视频（失败不自动切换）')+
     ns.map(n=>it('n:'+n.id,'节点：'+n.name,n.type+' · '+n.server)).join('')+
     CDNS.map(c=>it('c:'+c.id,'CDN：'+c.name,c.url.replace(/^https?:\/\//,''))).join('')+
     (ns.length||CDNS.length?'':'<div class="msg">还没有节点或 CDN，在 ⚙️ 设置里点“添加节点”</div>')+
-    (document.body.classList.contains('tg')?'<div class="st" style="padding:6px 4px">tgweb 视频：节点只管采集站，这里这一段只用主域名或 CDN 域名；CDN 卡了/失败了会自动换下一个。</div>':'');
+    (document.body.classList.contains('tg')?'<div class="st" style="padding:6px 4px">tgweb 视频：节点只管采集站，这里这一段只用主域名或 CDN 域名；仅「自动选择」时失败会自动换下一个。</div>':'');
   $('#ppx').onclick=()=>p.style.display='none'}
 function pxBtn(){const v=pxSel();$('#bpx').classList.toggle('on',v!=='off');$('#bnode').classList.toggle('on',v!=='off');const n=v.startsWith('c:')?(CDNS.find(c=>'c:'+c.id===v)||{}).name:v.startsWith('n:')?((ND&&ND.nodes||[]).find(x=>'n:'+x.id===v)||{}).name:'';$('#bpx').dataset.n=n||''}
 $('#bpx').onclick=e=>{e.stopPropagation();const p=$('#ppop');if(p.style.display==='block'){p.style.display='none';return}pxOpen()};
 $('#ppop').onclick=async e=>{e.stopPropagation();const r=e.target.closest('.si[data-v]');if(!r)return;const v=r.dataset.v;
   $('#ppop').style.display='none';LS.pxs=v;LS.px=v==='off'?'0':'1';st.px=v!=='off';PXBAD={};
   if(v==='auto')await post('/api/nodes',{act:'mode',mode:'auto'}).catch(()=>{});else if(v.startsWith('n:'))await post('/api/nodes',{act:'mode',mode:'fixed',id:v.slice(2)}).catch(()=>{});
-  pxBtn();$('#ppop').style.display='none';tgSync();  // tgweb 也跟着切
+  pxBtn();$('#ppop').style.display='none';tgSync();pvSync();  // tgweb 和加密 mp4 也跟着切
   if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
 document.addEventListener('click',()=>{$('#ppop').style.display='none'});
 // CDN 列表和票据统一在 init() 里等加密会话就绪后再取（之前在这里并发 getCdns，会把票据签成空会话）

@@ -101,6 +101,7 @@ function ensureCdnState() {
 }
 
 // 候选域名，按优先顺序；'' = 主域名。和哈哈里 pxBases() 的规则一致。
+// 指定 CDN（c:<id>）只返回它一个：失败了就该报错，不能偷着退回主域名/别的域名。
 function cdnList(st) {
   const s = (st && st.pxs) || 'off';
   const cdns = ((st && st.cdns) || []).filter(function (c) { return c && c.url; });
@@ -108,8 +109,7 @@ function cdnList(st) {
   if (s === 'auto') return [''].concat(urls);
   if (s.indexOf('c:') === 0) {
     const hit = cdns.filter(function (c) { return 'c:' + c.id === s; })[0];
-    if (!hit) return [''];
-    return [hit.url].concat([''].concat(urls).filter(function (u) { return u !== hit.url; }));
+    return hit ? [hit.url] : [''];
   }
   return [''];
 }
@@ -374,17 +374,19 @@ function abortError() {
 }
 
 // 一段（不超过 cap）的明文：一次 POST /api/blob，边读边解边 yield。
-// 开了 CDN：按配置挑域名发（跨域，带 ?pt= 票据）；这个域名网络错误 / 非 200 / 被拦成 HTML（没有 X-Blob-S）
-// 就把它拉黑 60 秒，当场换下一个可用域名重试这一段，最后一定回退到主域名。
+// 只有「自动选择（auto）」才换域名：主域名失败就拉黑 60 秒、当场依次换 CDN，最后一定回退到主域名。
+// 直连（off）、节点、指定 CDN（c:<id>）失败就把错误抛上去——绝不偷着换线路，也不往 cdnBad 里
+// 写东西（否则同一个指定 CDN 在 60 秒里会被当成坏的，等于偷偷换掉用户的选择）。
 async function* segmentPlaintext(ctx, state, start, end) {
   const want = end - start + 1;
   const body = JSON.stringify({ c: ctx.channel, m: ctx.msg, u: ctx.username || null, o: start, e: end });
   await ensureCdnState();   // SW 闲置被系统回收过：先把上次的 CDN 配置读回来，再挑域名
   const st = cdnState;
-  const multi = cdnList(st).length > 1;   // 有备选域名才需要换
+  const multi = (st && st.pxs === 'auto') && cdnList(st).length > 1;   // 只有 auto 且有备选域名才需要换
   const tried = [];
   let base = '';
   if (multi) { const b = cdnPick(st, null); base = b === null ? '' : b; }
+  else base = cdnList(st)[0] || '';   // 指定 c:<id> 时直接用它的域名，不经过 cdnBad
   let resp = null;
   let kidRetried = false;
   for (;;) {
@@ -427,14 +429,16 @@ async function* segmentPlaintext(ctx, state, start, end) {
     // 页面每次起播都会先把角标上的域名清空（tgCdnActive = ''），只靠失败分支发通知的话，
     // 选中的 CDN 第一次就成功时角标永远看不到“· 经 xxx”；切回 off 时老名字也会一直留着。
     if (resp) { notifyCdn(base); break; }
+    // 不是「自动选择」：不换线路，直接把这个错误抛上去（下一次仍走同一个域名）
+    if (!multi) throw err;
     // 这个域名不行：拉黑 60 秒，换下一个（试过的不再试）；实在没得换就拿主域名再试一次，最后才报错。
     cdnBad.set(base, nowMs() + CDN_COOLDOWN);
     tried.push(base);
-    let nb = multi ? cdnPick(st, tried) : null;
-    if (nb === null && multi && base) nb = '';   // 候选都试过了：主域名哪怕是刚失败的那个，也再给它一次机会
+    let nb = cdnPick(st, tried);
+    if (nb === null && base) nb = '';   // 候选都试过了：主域名哪怕是刚失败的那个，也再给它一次机会
     if (nb === null) throw err;
     base = nb;
-    if (multi) notifyCdn(base);
+    notifyCdn(base);
   }
   if (!resp.body) throw new Error('blob 没有响应体');
   const keys = state.keys;

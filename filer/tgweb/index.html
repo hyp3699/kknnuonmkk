@@ -2182,9 +2182,9 @@ function tgCdnList(){
   const s = tgCdn.pxs || 'off';
   if (s === 'auto') return [''].concat(urls);
   if (s.indexOf('c:') === 0) {
+    // 指定 CDN：只走它一个。失败就该报错，不能偷着退回主域名或别的 CDN
     const hit = cdns.filter(c=>'c:'+c.id===s)[0];
-    if (!hit) return [''];
-    return [hit.url].concat([''].concat(urls).filter(u=>u!==hit.url));
+    return hit ? [hit.url] : [''];
   }
   return [''];
 }
@@ -2235,8 +2235,10 @@ function tgPlainSrc(cid, mid, base){
   if (!base) return `${WEB_BASE}/stream/${cid}/${mid}` + (uq ? '?' + uq : '');
   return base + `${WEB_BASE}/stream/${cid}/${mid}` + '?' + (uq ? uq + '&' : '') + 'pt=' + encodeURIComponent(tgCdn.pt);
 }
-// 明文 /stream 起播前就失败（域名被拦/回源挂了）：换下一个域名续试，最后回主域名
+// 明文 /stream 起播前就失败（域名被拦/回源挂了）：换下一个域名续试，最后回主域名。
+// 只有「自动选择」才换：直连（off）、节点、指定 CDN（c:<id>）失败都不自动换线路。
 function tgPlainFailover(){
+  if (tgCdn.pxs !== 'auto') return false;
   if (encActive) return false;
   const p = document.getElementById('player');
   if (!p || !tgPlaying) return false;
@@ -2340,7 +2342,7 @@ async function playVideo(channelId, msgId){
   const session = encPlaySession;
   tgPlaying = { c: channelId, m: msgId };   // 明文流换域名时要用它重新拼地址
   tgCdnPlainTried = new Set();
-  tgCdnPlain = tgCdnList().length > 1 ? (tgCdnPick(null) || '') : '';
+  tgCdnPlain = tgCdnPick(null) || '';   // off/n:id -> 主域名；auto -> 先主域名；c:<id> -> 就用这个 CDN
   tgCdnActive = encActive ? tgCdnActive : tgCdnPlain;
   tgCdnSend();   // 每次播放前把最新的 CDN 配置再推一次（SW 闲置重启过也能拿到）
   let useEnc = false;
