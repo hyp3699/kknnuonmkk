@@ -15627,6 +15627,10 @@ ensure_service_guards() {
         changed=1
     done
     [ "$changed" = 1 ] && systemctl daemon-reload >/dev/null 2>&1
+    # 流量统计被 stop 过就不会自己起来，到量停用也就失效了
+    if systemctl cat singbox-traffic >/dev/null 2>&1 && ! systemctl is-active --quiet singbox-traffic; then
+        systemctl enable --now singbox-traffic >/dev/null 2>&1 || true
+    fi
     return 0
 }
 if [[ "${SB_LOAD_ONLY:-0}" != "1" ]]; then
