@@ -2917,6 +2917,14 @@ fi
 	return 0
 }
 
+# 清掉 sites-enabled 里指向已删除文件的断链，否则 nginx -t 直接失败
+nginx_prune_dangling() {
+    local f
+    for f in /etc/nginx/sites-enabled/*; do
+        [ -L "$f" ] && [ ! -e "$f" ] && rm -f "$f"
+    done
+    return 0
+}
 # 综合证书检查与申请 调用check_and_issue_ssl [域名] || return 1
 # 证书是否已被 nginx 使用：某个 nginx 配置引用了该证书目录，或 server_name 里有这个域名/IP
 cert_used_by_nginx() {
@@ -13698,6 +13706,7 @@ server {
     }
 }
 FANOUTNGX
+    nginx_prune_dangling
     # 老版本 nginx 不认 "http2 on;"，改用 listen ... ssl http2
     if ! nginx -t >/dev/null 2>&1; then
         sed -i -E '/^[[:space:]]*http2 on;/d; s/^([[:space:]]*listen [^;]*) ssl;/\1 ssl http2;/' "$FANOUT_NGX"
@@ -15354,6 +15363,7 @@ server {
     }
 }
 FJEOF
+    nginx_prune_dangling
     # 老版本 nginx 不认识 "http2 on;"，改用 listen ... ssl http2
     if ! nginx -t >/dev/null 2>&1; then
         sed -i -E '/^[[:space:]]*http2 on;/d; s/^([[:space:]]*listen [^;]*) ssl;/\1 ssl http2;/' "$FJ_NGX"
