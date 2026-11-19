@@ -671,7 +671,7 @@ function load(u,t0,px,kind,xs){
     return false};
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
     if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
-  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);setSt((px?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);const ek=src.startsWith('/px?x=')?'🔒已加密 ':(px&&ENC.on&&kind==='file'?'（mp4 直链不加密）':'');setSt(ek+(px?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
   const asFile=()=>{V.src=srcP;V.onloadedmetadata=start;
     V.onerror=()=>{if(lg!==LG)return;if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
   if(kind!=='file'&&window.Hls&&Hls.isSupported()){
