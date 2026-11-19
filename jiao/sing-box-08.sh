@@ -2397,6 +2397,11 @@ if [[ -f /root/last_80_occupant.txt ]]; then
     fi
     rm -f /root/last_80_occupant.txt
 fi
+# 兜底：已设开机自启却没在跑的 nginx / sing-box 一律拉起（hook 被打断或记录丢失时也不会一直停着）
+for svc in nginx sing-box; do
+    systemctl is-enabled --quiet "$svc" 2>/dev/null && ! systemctl is-active --quiet "$svc" 2>/dev/null && systemctl start "$svc" >/dev/null 2>&1
+done
+exit 0
 EOF
     chmod +x "$restore_80"
     local -a ip_sources=()
@@ -2574,6 +2579,11 @@ if [[ -f "$HOME/.acme.sh/last_80_occupant.txt" ]]; then
     fi
     rm -f "$HOME/.acme.sh/last_80_occupant.txt"
 fi
+# 兜底：已设开机自启却没在跑的 nginx / sing-box 一律拉起（hook 被打断或记录丢失时也不会一直停着）
+for svc in nginx sing-box; do
+    systemctl is-enabled --quiet "$svc" 2>/dev/null && ! systemctl is-active --quiet "$svc" 2>/dev/null && systemctl start "$svc" >/dev/null 2>&1
+done
+exit 0
 EOF
     chmod +x "$HOME/.acme.sh/restore_80.sh"
     local acme_cmd="$HOME/.acme.sh/acme.sh"
@@ -3601,6 +3611,7 @@ main_systemd_services() {
 Description=sing-box service
 Documentation=https://sing-box.sagernet.org
 After=network.target nss-lookup.target
+StartLimitIntervalSec=0
 
 [Service]
 User=root
@@ -3610,8 +3621,8 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/conf/
 ExecStartPre=/etc/sing-box/sing-box check -C /etc/sing-box/conf
 ExecReload=/bin/kill -HUP \$MAINPID
-Restart=on-failure
-RestartSec=10
+Restart=always
+RestartSec=5
 LimitNOFILE=infinity
 
 [Install]
@@ -15601,7 +15612,25 @@ menu() {
    reading "请输入数字选择: " choice || return 1
    echo ""
 }
+# 老安装的 sing-box.service 是 Restart=on-failure（正常退出/被 kill 不拉起），
+# nginx 没走过 ensure_nginx_autostart 时是 Restart=no。每次进脚本补一个 drop-in，只改守护策略。
+ensure_service_guards() {
+    command -v systemctl >/dev/null 2>&1 || return 0
+    local svc changed=0 d
+    for svc in sing-box nginx; do
+        systemctl cat "$svc" >/dev/null 2>&1 || continue
+        d="/etc/systemd/system/${svc}.service.d"
+        [ "$svc" = nginx ] && [ -f "$d/override.conf" ] && grep -q '^Restart=always' "$d/override.conf" && continue
+        [ -f "$d/restart.conf" ] && continue
+        mkdir -p "$d"
+        printf '[Unit]\nStartLimitIntervalSec=0\n\n[Service]\nRestart=always\nRestartSec=5\n' > "$d/restart.conf"
+        changed=1
+    done
+    [ "$changed" = 1 ] && systemctl daemon-reload >/dev/null 2>&1
+    return 0
+}
 if [[ "${SB_LOAD_ONLY:-0}" != "1" ]]; then
+ensure_service_guards
 # 捕获 Ctrl+C 退出信号
 trap 'red "已取消操作"; exit' INT
 
