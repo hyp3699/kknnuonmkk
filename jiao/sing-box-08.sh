@@ -6588,7 +6588,11 @@ for user_dir in "$URL_DIR"/*; do
     [ -f "$user_dir/$user_name" ] || continue
     [ -f "$user_dir/$user_name-sub" ] || continue
     user_entries+=("$user_name")
-    green "y${user_index}. ${user_name}"
+    if [ -d "/etc/sing-box/user_manager/disabled_users/$user_name" ] && ! grep -qs "\"$user_name\"" "$CONF_DIR"/*.json; then
+        red "y${user_index}. ${user_name}  已停用"
+    else
+        green "y${user_index}. ${user_name}"
+    fi
     user_index=$((user_index + 1))
 done
 shopt -u nullglob
@@ -8654,11 +8658,19 @@ period_total = _i(d.get("period_total"), period_uplink + period_downlink)
 print(uplink, downlink, total, connections, period_uplink, period_downlink, period_total)
 PY
 }
+# 两列对齐：按显示宽度（中文算 2 列）把左列补到 25 列
+_limit_row() {
+    local l="$1" a b
+    b=$(printf %s "$l" | LC_ALL=C wc -c)
+    a=$(printf %s "$l" | LC_ALL=C tr -d '\200-\377' | LC_ALL=C wc -c)
+    local w=$(( a + (b - a) * 2 / 3 ))
+    printf "%s%*s%s\n" "$l" $(( w < 25 ? 25 - w : 1 )) "" "$2"
+}
 show_limit() {
     local username="$1"
     if [ -z "$username" ]; then
-        echo "流量限制：未设置        流量周期：未设置"
-        echo "已用流量：未统计        流量状态：正常"
+        _limit_row "流量限制：未设置" "流量周期：未设置"
+        _limit_row "已用流量：未统计" "$(green "流量状态：正常")"
         return
     fi
     local limit_file=""
@@ -8673,8 +8685,8 @@ show_limit() {
         fi
     done
     if [ -z "$limit_file" ]; then
-        echo "流量限制：未设置        流量周期：未设置"
-        echo "已用流量：未统计        流量状态：正常"
+        _limit_row "流量限制：未设置" "流量周期：未设置"
+        _limit_row "已用流量：未统计" "$(green "流量状态：正常")"
         return
     fi
     local enabled
@@ -8705,17 +8717,15 @@ show_limit() {
             ;;
     esac
     if [ "$enabled" != "true" ] || [ "$limit_bytes" -le 0 ] 2>/dev/null; then
-        echo "流量限制：未设置        流量周期：未设置"
-        printf "已用流量：%-12s " "$(format_bytes "$used")"
-        green "流量状态：正常"
+        _limit_row "流量限制：未设置" "流量周期：未设置"
+        _limit_row "已用流量：$(format_bytes "$used")" "$(green "流量状态：正常")"
         return
     fi
-    printf "流量限制：%-12s    流量周期：%s\n" "$(format_bytes "$limit_bytes")" "$period_cn"
-    printf "已用流量：%-12s    " "$(format_bytes "$used")"
-    if [ "$disabled_by_limit" = "true" ]; then
-        red "流量状态：已停用"
+    _limit_row "流量限制：$(format_bytes "$limit_bytes")" "流量周期：$period_cn"
+    if [ -d "/etc/sing-box/user_manager/disabled_users/$username" ] && ! jq -e --arg u "$username" '[.inbounds[]?.users[]?.name] | index($u)' "${conf_dir}"/*.json >/dev/null 2>&1; then
+        _limit_row "已用流量：$(format_bytes "$used")" "$(red "流量状态：已停用")"
     else
-        green "流量状态：正常"
+        _limit_row "已用流量：$(format_bytes "$used")" "$(green "流量状态：正常")"
     fi
 }
 
@@ -9077,7 +9087,14 @@ manage_single_inbound() {
     local traffic_user=""
     IFS='|' read -r config_file inbound_type inbound_number <<< "$selected"
     # 以配置文件里第一个用户的 name 为准（不同协议的命名不统一，比如 socks1、naive-user1）
-    traffic_user=$(jq -r '[.inbounds[0].users[]? | .name // empty][0] // empty' "$config_file" 2>/dev/null)
+    traffic_user=$(jq -r '[.inbounds[0].users[]? | .name // empty | select(. != "tttttt")][0] // empty' "$config_file" 2>/dev/null)
+    if [ -z "$traffic_user" ]; then
+        # 用户到量被移出时从停用备份里找回名字，菜单仍能解除限制
+        local _bk
+        for _bk in /etc/sing-box/user_manager/disabled_users/*/"$(basename "$config_file")"; do
+            [ -f "$_bk" ] && traffic_user=$(basename "$(dirname "$_bk")") && break
+        done
+    fi
     [ -z "$traffic_user" ] && traffic_user="${inbound_type}-user${inbound_number}"
 	while true; do
         clear
