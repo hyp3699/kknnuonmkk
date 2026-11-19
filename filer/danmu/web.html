@@ -42,8 +42,8 @@ button.on{background:#e50914;border-color:#e50914}
 .si .r{font-size:12px;max-width:38%;text-align:right}.ok{color:#4caf50}.bad{color:#f55}.warn{color:#e6a23c}
 .si button{padding:5px 8px;font-size:12px}
 #nlink{width:100%;height:64px;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}#nodebox{border-top:1px solid #222}
-#npop{position:fixed;top:52px;right:8px;z-index:50;width:min(340px,94vw);max-height:70vh;overflow:auto;background:#181818;border:1px solid #333;border-radius:10px;box-shadow:0 6px 24px #000a}
-#benc.on{border-color:#2ecc71;color:#2ecc71}#npop .si{cursor:pointer}#npop .si.cur b{color:#e50914}#bnode.on{border-color:#e50914}
+#npop,#ppop{position:fixed;top:52px;right:8px;z-index:50;width:min(340px,94vw);max-height:70vh;overflow:auto;background:#181818;border:1px solid #333;border-radius:10px;box-shadow:0 6px 24px #000a}
+#benc.on{border-color:#2ecc71;color:#2ecc71}#npop .si,#ppop .si{cursor:pointer}#npop .si.cur b,#ppop .si.cur b{color:#e50914}#ppop{top:auto;bottom:12px}#bnode.on{border-color:#e50914}
 #raw{width:100%;height:70vh;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}
 #more,.msg{text-align:center;padding:14px;color:#888}
 #detail{display:none;padding-bottom:30px}
@@ -113,6 +113,7 @@ button.on{background:#e50914;border-color:#e50914}
   <iframe id="tgf" allow="autoplay; fullscreen" allowfullscreen></iframe>
 </div>
 <div id="npop" class="sbox" style="display:none"></div>
+<div id="ppop" class="sbox" style="display:none"></div>
 <div id="srch" style="display:none">
   <header><button class="back">‹ 返回</button><input id="kw" placeholder="搜索当前配置的全部采集站" enterkeyhint="search"><button id="go">搜索</button></header>
   <div style="display:flex;align-items:center;gap:6px;padding:8px 10px 0"><b id="qkwl" style="font-size:13px;flex:none"></b><div class="st" id="qst"></div><button id="qstop" style="display:none;margin-left:auto">停止搜索</button></div>
@@ -136,6 +137,10 @@ button.on{background:#e50914;border-color:#e50914}
     <div class="srow" style="margin-top:6px"><input id="nname" placeholder="名称（可空）"><button id="nadd">添加节点</button></div>
     <div class="st" id="nst"></div>
     <div id="nlist"></div>
+    <div class="srow" style="margin-top:12px"><b style="flex:1">CDN 域名</b></div>
+    <div class="srow"><input id="cdname" placeholder="备注（如 CF、AWS）" style="flex:0 1 32%"><input id="cdurl" placeholder="CDN 域名 如 cdn.example.com"><button id="cdadd">添加</button></div>
+    <div class="st" id="cdst">视频经这个域名走服务器 /px；域名要先在 CF/AWS 回源到哈哈</div>
+    <div id="cdlist"></div>
   </div>
   <div class="sbox" id="sitebox">
     <div class="srow"><button id="tall">全部测试</button><button id="tdel" disabled>删除失效</button><span class="st" id="sst"></span></div>
@@ -177,7 +182,7 @@ button.on{background:#e50914;border-color:#e50914}
 <script src="/hls.js"></script>
 <script>
 const $=s=>document.querySelector(s), LS=localStorage;
-const st={site:LS.site||'',cat:'',kw:'',pg:1,pc:1,loading:false,vod:null,from:0,ep:0,px:LS.px==='1',dmOn:LS.dm!=='0'};
+const st={site:LS.site||'',cat:'',kw:'',pg:1,pc:1,loading:false,vod:null,from:0,ep:0,px:(LS.pxs||(LS.px==='1'?'auto':'off'))!=='off',dmOn:LS.dm!=='0'};
 // 网络断一下（手机切网络/锁屏/服务重启）自动重试 2 次；GET 默认 25 秒超时
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function api(p,o={}){
@@ -360,7 +365,7 @@ let SITES=[],TEST={};
 async function loadSet(){
   $('#rawbox').style.display='none';$('#set .sbox').style.display='block';$('#sitebox').style.display='block';$('#nodebox').style.display=NBOX?'block':'none';
   const isJ=LS.cfg==='jjoo';document.querySelectorAll('.jonly').forEach(x=>x.style.display=isJ?'flex':'none');$('#sraw').style.display=isJ?'':'none';
-  loadCfgList();loadNodes();
+  loadCfgList();loadNodes();loadCdns();
   $('#slist').innerHTML='<div class="msg">加载中…</div>';
   try{SITES=await api('/api/sites?full=1&cfg='+encodeURIComponent(LS.cfg))}catch(e){SITES=[]}
   renderSet();
@@ -392,6 +397,11 @@ async function loadNodes(){
     return `<div class="si" data-n="${esc(n.id)}"><div class="n"><b>${esc(n.name)}</b><small>${esc(n.type+' · '+n.server)}</small></div><div class="r">${r}</div><button data-a="t">测试</button><button data-a="d">删除</button></div>`}).join('');
 }
 $('#bnadd').onclick=()=>{NBOX=!NBOX;loadSet();if(NBOX)setTimeout(()=>{$('#nodebox').scrollIntoView({behavior:'smooth'});$('#nlink').focus()},50)};
+async function loadCdns(){await getCdns();$('#cdlist').innerHTML=CDNS.map(c=>`<div class="si" data-c="${esc(c.id)}"><div class="n"><b>${esc(c.name)}</b><small>${esc(c.url)}</small></div><button>删除</button></div>`).join('')}
+$('#cdadd').onclick=async()=>{const u=$('#cdurl').value.trim();if(!u){$('#cdst').textContent='先填 CDN 域名';return}
+  try{const d=await post('/api/cdns',{act:'add',name:$('#cdname').value.trim(),url:u});if(d.ok){$('#cdname').value='';$('#cdurl').value='';$('#cdst').textContent='已添加'}else $('#cdst').textContent=d.msg||'添加失败'}catch(e){$('#cdst').textContent='添加失败：'+(e.message||'网络错误')}
+  loadCdns()};
+$('#cdlist').onclick=async e=>{const b=e.target.closest('button');if(!b)return;if(!confirm('删除这个 CDN 域名？'))return;await post('/api/cdns',{act:'del',id:b.closest('.si').dataset.c});loadCdns()};
 $('#nclose').onclick=()=>{NBOX=false;$('#nodebox').style.display='none'};
 $('#nadd').onclick=async()=>{const l=$('#nlink').value.trim();if(!l){$('#nst').textContent='先粘贴节点链接';return}
   $('#nadd').disabled=true;$('#nst').textContent='添加中…';
@@ -644,13 +654,31 @@ function adOut(head,keep,tail,cut,cs){
   const out=[...head];let lk='';keep.forEach((b,i)=>{if(i)out.push('#EXT-X-DISCONTINUITY');if(b.key&&b.key!==lk&&!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY')))out.push(b.key);out.push(...b.lines);b.lines.forEach(x=>{if(x.trim().startsWith('#EXT-X-KEY'))lk=x});if(!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY'))&&b.key)lk=b.key});out.push(...tail);
   return out.join('\n')}
 function adLoader(){const B=Hls.DefaultConfig.loader;
-  return class extends B{load(ctx,cfg,cb){const pl=ctx.type==='manifest'||ctx.type==='level'||ctx.type==='audioTrack'||ctx.type==='subtitleTrack';
+  return class extends B{constructor(c){super(c);this._hc=c}abort(){this._l2&&this._l2.abort();super.abort()}destroy(){this._l2&&this._l2.destroy();super.destroy()}
+  load(ctx,cfg,cb){
+    const rel=pxRel(ctx.url);
+    if(rel){ctx.url=pxu(rel);const B0=PXB;  // 视频分片按当前域名（直连/CDN）走，失败或超时自动换另一个域名重来一次
+      if(pxAuto()&&!ctx._sw){const ocb=cb,f=(orig)=>(...a)=>{if(!ctx._sw&&pxSwitch(B0)){ctx._sw=1;const L=new (adLoader())(this._hc);this._l2=L;L.load(ctx,cfg,ocb);return}orig&&orig(...a)};
+        cb={...cb,onError:f(cb.onError),onTimeout:f(cb.onTimeout)}}}const pl=ctx.type==='manifest'||ctx.type==='level'||ctx.type==='audioTrack'||ctx.type==='subtitleTrack';
     const enc=!!ENCK&&/^(https?:\/\/[^/]+)?\/px\?x=/.test(ctx.url||'');
     if(pl||enc){const ok=cb.onSuccess,er=cb.onError;
       cb.onSuccess=(r,stats,c,nd)=>{const fin=()=>{if(pl){try{if(typeof r.data==='string')r.data=adStrip(r.data)}catch(e){}}ok(r,stats,c,nd)};
         if(!enc)return fin();
         encDec(r.data).then(d=>{r.data=d;if(stats&&d&&d.byteLength!=null)stats.loaded=stats.total=d.byteLength;fin()}).catch(()=>er({code:0,text:'解密失败'},c,nd,stats))}}
     super.load(ctx,cfg,cb)}}}
+// ---------- 代理走哪里：自动选择 / 直连 / 指定节点 / 指定 CDN（LS.pxs = auto|off|n:id|c:id） ----------
+let CDNS=[],PXT='',PTT=0,PXB='',PXBAD={};
+const pxSel=()=>LS.pxs||(LS.px==='1'?'auto':'off');
+async function getCdns(){try{const d=await api('/api/cdns');CDNS=d.cdns||[];PXT=d.pt||'';PTT=Date.now()}catch(e){}return CDNS}
+const pxBases=()=>['',...CDNS.map(c=>c.url)];
+function pxPick(){const s=pxSel();if(s.startsWith('c:')){const c=CDNS.find(x=>'c:'+x.id===s);PXB=c?c.url:''}else if(s==='auto'){const b=pxBases().find(x=>!(PXBAD[x]>Date.now()));PXB=b===undefined?'':b}else PXB=''}
+const pxAuto=()=>pxSel()==='auto'&&CDNS.length>0;
+function pxSwitch(from){const bs=pxBases();if(bs.length<2)return false;PXBAD[from]=Date.now()+60000;const nx=bs.find(x=>x!==from&&!(PXBAD[x]>Date.now()));if(nx===undefined)return false;PXB=nx;pxShow();return true}
+function pxRel(u){try{const x=new URL(u,location.href);if(x.pathname!=='/px')return '';if(x.origin!==location.origin&&!CDNS.some(c=>c.url===x.origin))return '';const q=new URLSearchParams(x.search);q.delete('pt');return '/px?'+q.toString()}catch(e){return ''}}
+function pxu(r){if(!PXB||!r.startsWith('/px?'))return r;return PXB+r+'&pt='+encodeURIComponent(PXT)}
+function pxName(){const c=CDNS.find(x=>x.url===PXB);return c?c.name:''}
+function pxShow(){const n=pxName();const t=$('#st')?$('#st').textContent:'';if(n&&!t.includes('经 '+n))setSt(t.replace(/ · 经 .*$/,'')+' · 经 '+n)}
+setInterval(()=>{if(CDNS.length&&Date.now()-PTT>3600e3)getCdns()},600e3);
 const kindOf=u=>/\.m3u8(\?|#|$)/i.test(u)?'hls':(/\.(mp4|mkv|webm|flv|mov|m4v)(\?|#|$)/i.test(u)?'file':'');
 function load(u,t0,px,kind,xs){
   const lg=++LG;clearTimeout(WDT);ORI=null;clearTimeout(ORIT);
@@ -675,13 +703,16 @@ function load(u,t0,px,kind,xs){
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
     if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
   const start=()=>{if(lg!==LG)return;clearTimeout(WDT);const ok=isF?fsrc.startsWith('/pv/'):src.startsWith('/px?x=');
-    const ek=ok?'🔒已加密 ':(ENC.on?'⚠️没加密（'+(!ENC.ok?'服务器缺加密组件':!ENCK?'浏览器不支持':isF?'mp4 解密组件没就绪，刷新一下':'出错')+'） ':'');setSt(ek+(px&&!ok?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
-  const asFile=()=>{isF=true;V.src=fsrc;V.onloadedmetadata=start;
-    V.onerror=()=>{if(lg!==LG)return;if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
+    const ek=ok?'🔒已加密 ':(ENC.on?'⚠️没加密（'+(!ENC.ok?'服务器缺加密组件':!ENCK?'浏览器不支持':isF?'mp4 解密组件没就绪，刷新一下':'出错')+'） ':'');setSt(ek+(px&&!ok?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:'')+(px&&pxName()&&!(isF&&fsrc.startsWith('/pv/'))?' · 经 '+pxName():''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+  const asFile=()=>{isF=true;V.src=pxu(fsrc);V.onloadedmetadata=start;
+    V.onerror=()=>{if(lg!==LG)return;
+      if(fsrc.startsWith('/px?')&&pxAuto()&&pxSwitch(PXB)){const t=lastT||t0;V.src=pxu(fsrc);V.onloadedmetadata=()=>{if(t>5)V.currentTime=t;V.play().catch(()=>{})};return}  // mp4 换域名接着播
+      if(!toPx(lastT||t0,'直连失败，改用代理…'))fail('播放失败')}};
+  pxPick();
   if(kind!=='file'&&window.Hls&&Hls.isSupported()){
     let netTry=0,medTry=0;
     ADCUT={n:0,s:0};const AL=adLoader();hls=new Hls({loader:AL,pLoader:AL,maxBufferLength:bufLen(),maxMaxBufferLength:Math.max(600,bufLen()*2),maxBufferSize:Math.max(60,bufLen())*1e6});const h=hls;
-    h.loadSource(src);h.attachMedia(V);
+    h.loadSource(pxu(src));h.attachMedia(V);
     h.on(Hls.Events.MANIFEST_PARSED,start);
     h.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal||lg!==LG)return;
       if(kind==='try'&&(d.details===Hls.ErrorDetails.MANIFEST_PARSING_ERROR)){h.destroy();if(hls===h)hls=null;kind='file';asFile();return}  // 不是 m3u8，当普通视频
@@ -776,7 +807,24 @@ $('#bufset').onclick=e=>{if(e.target.id==='bnoad'){LS.noad=adOn()?'0':'1';bufPan
 setInterval(()=>{if(st.vod&&!V.paused)saveHist()},10000);
 V.addEventListener('pause',()=>saveHist());
 $('#bpx').classList.toggle('on',st.px);
-$('#bpx').onclick=()=>{st.px=!st.px;LS.px=st.px?'1':'0';$('#bpx').classList.toggle('on',st.px);if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
+async function renderPx(){const p=$('#ppop');p.innerHTML='<div class="msg">加载中…</div>';const [d]=await Promise.all([getNodes(),getCdns()]);const cur=pxSel();
+  const it=(v,name,sub)=>`<div class="si${cur===v?' cur':''}" data-v="${esc(v)}"><div class="n"><b>${cur===v?'✓ ':''}${esc(name)}</b><small>${esc(sub)}</small></div></div>`;
+  const ns=d&&d.nodes?d.nodes:[];
+  p.innerHTML=`<div class="srow"><b style="flex:1">视频走哪里</b><button id="ppx">关闭</button></div>`+
+    it('auto','自动选择','经服务器播放，节点自动切换'+(CDNS.length?'，域名卡了/失败自动换 CDN':''))+it('off','直连','浏览器直接连视频，连不上再自动走代理')+
+    ns.map(n=>it('n:'+n.id,'节点：'+n.name,n.type+' · '+n.server)).join('')+
+    CDNS.map(c=>it('c:'+c.id,'CDN：'+c.name,c.url.replace(/^https?:\/\//,''))).join('')+
+    (ns.length||CDNS.length?'':'<div class="msg">还没有节点或 CDN，在 ⚙️ 设置里点“添加节点”</div>');
+  $('#ppx').onclick=()=>p.style.display='none'}
+function pxBtn(){const v=pxSel();$('#bpx').classList.toggle('on',v!=='off');const n=v.startsWith('c:')?(CDNS.find(c=>'c:'+c.id===v)||{}).name:v.startsWith('n:')?((ND&&ND.nodes||[]).find(x=>'n:'+x.id===v)||{}).name:'';$('#bpx').dataset.n=n||''}
+$('#bpx').onclick=e=>{e.stopPropagation();const p=$('#ppop');if(p.style.display==='block'){p.style.display='none';return}p.style.display='block';renderPx()};
+$('#ppop').onclick=async e=>{e.stopPropagation();const r=e.target.closest('.si[data-v]');if(!r)return;const v=r.dataset.v;
+  LS.pxs=v;LS.px=v==='off'?'0':'1';st.px=v!=='off';PXBAD={};
+  if(v==='auto')await post('/api/nodes',{act:'mode',mode:'auto'}).catch(()=>{});else if(v.startsWith('n:'))await post('/api/nodes',{act:'mode',mode:'fixed',id:v.slice(2)}).catch(()=>{});
+  pxBtn();$('#ppop').style.display='none';
+  if(st.vod){const ep=st.vod.groups[st.from].eps[st.ep];if(st.vod.t4)play(st.from,st.ep,V.currentTime);else load(ep.u,V.currentTime,st.px)}};
+document.addEventListener('click',()=>{$('#ppop').style.display='none'});
+getCdns().then(pxBtn);
 // 全屏方向按正片定：中途画面尺寸变了（插播广告）不跟着转，新尺寸持续 20 秒以上才算正片换了方向
 let ORI=null,ORIT=0;
 const curOri=()=>{const w=V.videoWidth,h=V.videoHeight;return w&&h?(h>w?'portrait':'landscape'):null};

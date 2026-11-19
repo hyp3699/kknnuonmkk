@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "2.4.8"  # 2.4.8: 配了域名并选只允许域名后，哈哈影视用 IP 打开会被拒绝（只管哈哈，服务器 IP 给别的项目用不受影响；撤销 2.4.7 的全局拒绝）；2.4.6: tgweb 代码在哈哈仓库自己保存一份（filer/tgweb），安装和更新只从这里拉；2.4.5: 采集站加密改成 tgweb 那套（AES-256、每次登录一把钥匙、退出作废、每次响应随机 nonce）；tgweb 滑动快进快退提示改成哈哈的样式；2.4.4: 加密开着时全部视频强制加密播放（不管代理开关），mp4 也加密（Service Worker 解密）；2.4.3: 加密播放时状态栏显示“🔒已加密”；2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "2.4.9"  # 2.4.9: 设置 → 添加节点里可加 CDN 域名（可备注名字，如 CF、AWS）；播放页“代理”弹窗可选 直连/自动/指定节点/指定 CDN，自动时视频卡了或失败按分片无缝换另一个域名；2.4.8: 配了域名并选只允许域名后，哈哈影视用 IP 打开会被拒绝（只管哈哈，服务器 IP 给别的项目用不受影响；撤销 2.4.7 的全局拒绝）；2.4.6: tgweb 代码在哈哈仓库自己保存一份（filer/tgweb），安装和更新只从这里拉；2.4.5: 采集站加密改成 tgweb 那套（AES-256、每次登录一把钥匙、退出作废、每次响应随机 nonce）；tgweb 滑动快进快退提示改成哈哈的样式；2.4.4: 加密开着时全部视频强制加密播放（不管代理开关），mp4 也加密（Service Worker 解密）；2.4.3: 加密播放时状态栏显示“🔒已加密”；2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -1273,7 +1273,56 @@ def host_ok():
         return True
     h = (request.host or "").strip().lower()
     h = h[1:].split("]")[0] if h.startswith("[") else h.split(":")[0]
-    return h == d
+    return h == d or h in cdn_hosts()
+
+# ---------- CDN 域名（设置 → 添加节点 → CDN 域名；播放页“代理”里可选，视频经 CDN 走 /px） ----------
+CDN_FILE = os.environ.get("CDN_FILE", os.path.join(DATA_DIR, "web_cdns.json"))
+CDN_C = [None, []]
+
+def cdns_load():
+    try:
+        mt = os.path.getmtime(CDN_FILE)
+    except OSError:
+        return []
+    if CDN_C[0] != mt:
+        try:
+            d = json.load(open(CDN_FILE, encoding="utf-8"))
+            CDN_C[1] = [c for c in d if isinstance(c, dict) and c.get("id") and c.get("url")]
+        except Exception:
+            CDN_C[1] = []
+        CDN_C[0] = mt
+    return CDN_C[1]
+
+def cdns_save(lst):
+    tmp = CDN_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fp:
+        json.dump(lst, fp, ensure_ascii=False, indent=1)
+    os.replace(tmp, CDN_FILE)
+
+def cdn_hosts():
+    return {urllib.parse.urlsplit(c["url"]).hostname for c in cdns_load()}
+
+def pt_make():
+    """跨域名播放票据：CDN 域名上没有登录 cookie，/px 带 pt= 证明已登录（12 小时有效，含加密会话）"""
+    c = auth_conf()
+    if not c:
+        return ""
+    sid, exp = enc_sid() or "-", str(int(time.time()) + 12 * 3600)
+    sig = hmac.new(c["secret"].encode(), f"pt|{sid}|{exp}".encode(), "sha256").hexdigest()[:32]
+    return f"{sid}.{exp}.{sig}"
+
+def pt_check(t):
+    c = auth_conf()
+    try:
+        sid, exp, sig = t.rsplit(".", 2)
+    except ValueError:
+        return None
+    if not c or not exp.isdigit() or int(exp) < time.time():
+        return None
+    good = hmac.new(c["secret"].encode(), f"pt|{sid}|{exp}".encode(), "sha256").hexdigest()[:32]
+    if not hmac.compare_digest(sig, good):
+        return None
+    return "" if sid == "-" else sid
 
 @app.before_request
 def web_guard():
@@ -1293,6 +1342,16 @@ def web_guard():
         return None
     if p in ("/login", "/hls.js", "/favicon.ico"):
         return None
+    if p == "/px":
+        if request.method == "OPTIONS":  # CDN 域名跨域预检
+            return Response("", 204)
+        t = request.args.get("pt", "")
+        if t:
+            sid = pt_check(t)
+            if sid is None:
+                return jsonify({"error": "login"}), 401
+            request.environ["ys.pt_sid"] = sid
+            return None
     if not auth_conf():
         msg = "网页播放器还没有有效的账号密码，在 VPS 上运行 ys 选 8 设置"
         return (jsonify({"error": msg}), 503) if (p.startswith("/api/") or p == "/px") else Response(msg, status=503, mimetype="text/plain; charset=utf-8")
@@ -1397,7 +1456,7 @@ def enc_sids_save():
         print("[enc] sid save err", e, flush=True)
 
 def enc_sid(new=False):
-    sid = request.cookies.get("ys_sid", "")
+    sid = request.cookies.get("ys_sid", "") or request.environ.get("ys.pt_sid", "")
     if sid and sid in enc_sids():
         return sid
     if not new:
@@ -2765,7 +2824,42 @@ def api_dm():
             return jsonify(out)
     return jsonify([])
 
-@app.route("/px")
+@app.after_request
+def px_cors(resp):
+    if request.path == "/px":
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Headers"] = "Range"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        resp.headers["Access-Control-Expose-Headers"] = "Content-Range, Content-Length, Accept-Ranges, X-N, X-K, X-T"
+        resp.headers["Access-Control-Max-Age"] = "86400"
+    return resp
+
+@app.route("/api/cdns", methods=["GET", "POST"])
+def api_cdns():
+    """CDN 域名：GET 列表+票据；POST {act: add(name,url)|del(id)}"""
+    lst = list(cdns_load())
+    if request.method == "GET":
+        return jsonify({"cdns": lst, "pt": pt_make()})
+    j = request.get_json(silent=True) or {}
+    if j.get("act") == "add":
+        u = str(j.get("url", "")).strip().rstrip("/")
+        if not re.match(r"^https?://", u):
+            u = "https://" + u
+        sp = urllib.parse.urlsplit(u)
+        if not sp.hostname or not re.fullmatch(r"[a-z0-9.-]+", sp.hostname.lower()):
+            return jsonify({"ok": False, "msg": "域名格式不对"})
+        u = f"{sp.scheme}://{sp.netloc.lower()}"
+        if any(c["url"] == u for c in lst):
+            return jsonify({"ok": False, "msg": "已经有这个域名"})
+        lst.append({"id": secrets.token_hex(4), "name": str(j.get("name", "")).strip()[:30] or sp.hostname, "url": u})
+    elif j.get("act") == "del":
+        lst = [c for c in lst if c["id"] != j.get("id")]
+    else:
+        return jsonify({"ok": False, "msg": "bad act"})
+    cdns_save(lst)
+    return jsonify({"ok": True, "cdns": lst})
+
+@app.route("/px", methods=["GET", "OPTIONS"])
 def px():
     """播放代理：直连失败（跨域/防盗链）时网页自动改走这里"""
     x, enc, fm = arg("x"), False, arg("m") == "1"
