@@ -2917,6 +2917,19 @@ fi
 	return 0
 }
 
+# 域名走 Cloudflare 代理（小黄云）时，只有这些 HTTPS 端口能通
+cf_port_warn() {
+    local d="$1" p="$2" ip
+    case " 443 2053 2083 2087 2096 8443 " in *" $p "*) return 0 ;; esac
+    ip=$(getent ahostsv4 "$d" 2>/dev/null | awk 'NR==1{print $1}')
+    [ -z "$ip" ] && return 0
+    if curl -s --max-time 5 https://www.cloudflare.com/ips-v4 2>/dev/null | grep -q . ; then
+        if python3 -c "import ipaddress,sys,urllib.request;ip=ipaddress.ip_address(sys.argv[1]);r=urllib.request.urlopen('https://www.cloudflare.com/ips-v4',timeout=5).read().decode().split();sys.exit(0 if any(ip in ipaddress.ip_network(n) for n in r) else 1)" "$ip" 2>/dev/null; then
+            yellow "注意：${d} 开着 Cloudflare 代理，端口 ${p} 不通。改用 443/2053/2083/2087/2096/8443，或在 Cloudflare 关掉小黄云。"
+        fi
+    fi
+    return 0
+}
 # 清掉 sites-enabled 里指向已删除文件的断链，否则 nginx -t 直接失败
 nginx_prune_dangling() {
     local f
@@ -13719,6 +13732,8 @@ FANOUTNGX
     fi
     rm -f "${FANOUT_NGX}.bak"
     fanout_nginx_reload
+    allow_port "${hp}/tcp" >/dev/null 2>&1
+    cf_port_warn "$new_domain" "$hp"
     type ensure_nginx_autostart >/dev/null 2>&1 && ensure_nginx_autostart >/dev/null 2>&1
 
     # 只让 nginx 访问后端：外面只能走 HTTPS 域名
@@ -15374,6 +15389,8 @@ FJEOF
         if [ -f "${FJ_NGX}.bak" ]; then mv -f "${FJ_NGX}.bak" "$FJ_NGX"; else rm -f "$FJ_NGX"; fi
         return 1
     fi
+    allow_port "${hp}/tcp" >/dev/null 2>&1
+    cf_port_warn "$new_domain" "$hp"
     rm -f "${FJ_NGX}.bak"
     if systemctl is-active --quiet nginx 2>/dev/null; then
         systemctl reload nginx
