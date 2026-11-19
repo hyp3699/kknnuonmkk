@@ -13136,6 +13136,13 @@ fanout_password() {
     cat "$FANOUT_WORK_DIR/password" 2>/dev/null | tr -d '[:space:]'
 }
 
+# 网页登录用户名（v1.4.0 起有账号；老版本没有这个文件时默认 admin）
+fanout_username() {
+    local u
+    u=$(cat "$FANOUT_WORK_DIR/username" 2>/dev/null | tr -d '[:space:]')
+    echo "${u:-admin}"
+}
+
 fanout_ip() {
     local ip=""
     ip=$(curl -4 -s --connect-timeout 5 --max-time 6 https://api.ipify.org 2>/dev/null)
@@ -13208,6 +13215,7 @@ fanout_show_addr() {
     echo -e "  状态    ${green}$(fanout_status_text)${re}    版本 $(fanout_version)"
     echo -e "  开机自启 $(fanout_autostart_text)"
     echo -e "  管理地址  ${purple}$(fanout_url)${re}"
+    echo -e "  用户名    ${purple}$(fanout_username)${re}"
     echo -e "  访问口令  ${purple}${pw:-<未生成，首次启动会写入 ${FANOUT_WORK_DIR}/password>}${re}"
     if [ -z "$pw" ]; then
         yellow "  （第一次启动后才有口令，见日志 journalctl -u ${FANOUT_UNIT} -n 30）"
@@ -13361,7 +13369,11 @@ fanout_change_password() {
         return 1
     fi
     local pw
-    read -rp "新口令（留空随机生成）: " pw
+    read -rp "新口令（至少 8 位，留空随机生成）: " pw
+    if [ -n "$pw" ] && [ ${#pw} -lt 8 ]; then
+        red "口令至少 8 位"
+        return 1
+    fi
     if [ -z "$pw" ]; then
         pw=$(head -c 9 /dev/urandom | od -An -tx1 | tr -d ' \n')
     fi
@@ -13503,16 +13515,23 @@ fanout_list_tunnels() {
         yellow "网页面板没在运行，先开启再看隧道"
         return 1
     fi
-    local port bp pw ck
+    local port bp pw ck lt
     port=$(fanout_port)
     bp=$(fanout_basepath)
     pw=$(fanout_password)
     ck=$(mktemp)
-    curl -s --max-time 10 -c "$ck" -X POST -d "password=${pw}" \
-        "http://127.0.0.1:${port}/${bp:+$bp/}login" -o /dev/null 2>/dev/null
+    lt=$(cat "$FANOUT_WORK_DIR/localtoken" 2>/dev/null | tr -d '[:space:]')
     echo
-    curl -s --max-time 10 -b "$ck" "http://127.0.0.1:${port}/${bp:+$bp/}api/tunnels" \
-        > "${ck}.json" 2>/dev/null
+    if [ -n "$lt" ]; then
+        # 新版：本机令牌直连，不受两步验证影响
+        curl -s --max-time 10 -H "X-Fanout-Local: ${lt}" \
+            "http://127.0.0.1:${port}/${bp:+$bp/}api/tunnels" > "${ck}.json" 2>/dev/null
+    else
+        curl -s --max-time 10 -c "$ck" -X POST -d "username=$(fanout_username)&password=${pw}" \
+            "http://127.0.0.1:${port}/${bp:+$bp/}login" -o /dev/null 2>/dev/null
+        curl -s --max-time 10 -b "$ck" "http://127.0.0.1:${port}/${bp:+$bp/}api/tunnels" \
+            > "${ck}.json" 2>/dev/null
+    fi
     rm -f "$ck"
 
     # 用 sed 解析而不是 python3/jq：Alpine 最小安装两者都没有
@@ -13944,7 +13963,7 @@ fanout_menu() {
         echo -e "  开机自启：$(fanout_autostart_text)"
         if fanout_installed; then
             echo -e "  访问地址：${purple}$(fanout_url)${re}"
-            echo -e "  访问口令：${purple}$(fanout_password)${re}"
+            echo -e "  用户名：${purple}$(fanout_username)${re}    访问口令：${purple}$(fanout_password)${re}"
             echo -e "  端口：$(fanout_port)    路径：/$(fanout_basepath)/    运行隧道：$(fanout_tunnel_count) 条"
         fi
         echo
