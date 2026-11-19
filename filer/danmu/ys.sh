@@ -467,7 +467,20 @@ uninstall_all() {
 # ---------------- tgweb（Telegram 频道视频，Docker，只绑 127.0.0.1:9393）----------------
 # 网页通过哈哈的 /tg/ 访问，登录用哈哈的账号；tgweb 自己的网页账号密码随机生成，只给哈哈后台代登录用
 TGD=${TGWEB_DIR:-/root/telegram-stream}; export TG_APP_DIR="$TGD"
-TG_REPO=https://github.com/hyp3365/tgweb.git
+TG_RAW=https://raw.githubusercontent.com/hyp3699/kknnuonmkk/main/filer/tgweb  # 哈哈自己保存的一份 tgweb，不从别的仓库拉
+TG_FILES=".env.example .gitignore Dockerfile README.md app.py docker-compose.yml index.html install.sh requirements.txt sw.js tg tg-domain.sh"
+tg_fetch() {  # 下载/更新 tgweb 代码：只覆盖代码文件，.env 和 data/（session）不动
+  local tmp f; tmp=$(mktemp -d)
+  for f in $TG_FILES; do
+    curl -fsSL --connect-timeout 10 --max-time 120 "$TG_RAW/$f?t=$(date +%s)" -o "$tmp/$f" || { rm -rf "$tmp"; red "下载 tgweb 失败：$f"; return 1; }
+  done
+  mkdir -p "$TGD/data"
+  for f in $TG_FILES; do cp -f "$tmp/$f" "$TGD/$f"; done
+  chmod +x "$TGD/tg" "$TGD/tg-domain.sh" "$TGD/install.sh" 2>/dev/null
+  rm -rf "$tmp" "$TGD/.git"  # 以前从别的仓库 clone 的：去掉 .git，以后只从哈哈仓库更新
+  cp "$TGD/tg" /tmp/tg.new && chmod +x /tmp/tg.new && mv /tmp/tg.new /usr/local/bin/tg
+  cp "$TGD/tg-domain.sh" /tmp/tg-domain.new && chmod +x /tmp/tg-domain.new && mv /tmp/tg-domain.new /usr/local/bin/tg-domain
+}
 tg_installed() { [ -f "$TGD/docker-compose.yml" ]; }
 tg_running() { tg_installed && command -v docker >/dev/null && [ -n "$(cd "$TGD" && docker compose ps -q --status running 2>/dev/null)" ]; }
 tg_envv() { grep -E "^$1=" "$TGD/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r'; }
@@ -487,23 +500,13 @@ tg_install() {  # 安装/补全 tgweb：跳过 api_id/api_hash；不碰 nginx（
   fi
   systemctl enable --now docker >/dev/null 2>&1 || true
   docker compose version >/dev/null 2>&1 || apt-get install -y docker-compose-plugin >/dev/null 2>&1 || { red "docker compose 不可用"; return 1; }
-  if [ ! -d "$TGD/.git" ]; then
-    if [ -d "$TGD" ] && [ -n "$(ls -A "$TGD" 2>/dev/null)" ]; then
-      local bak="$TGD.bak.$(date +%Y%m%d%H%M%S)"; mv "$TGD" "$bak"
-      git clone -q "$TG_REPO" "$TGD" || { mv "$bak" "$TGD"; red "下载 tgweb 失败"; return 1; }
-      [ -f "$bak/.env" ] && cp "$bak/.env" "$TGD/.env"; [ -d "$bak/data" ] && mkdir -p "$TGD/data" && cp -r "$bak/data/." "$TGD/data/"
-    else
-      git clone -q "$TG_REPO" "$TGD" || { red "下载 tgweb 失败"; return 1; }
-    fi
-  fi
+  tg_installed || tg_fetch || return 1
   [ -f "$TGD/.env" ] || printf 'TG_API_ID=\nTG_API_HASH=\nTG_PARALLEL=2\n' > "$TGD/.env"
   chmod 600 "$TGD/.env"
   [ -n "$(tg_envv WEB_USERNAME)" ] || tg_setv WEB_USERNAME "u$(tg_rand 15)"
   [ -n "$(tg_envv WEB_PASSWORD)" ] || tg_setv WEB_PASSWORD "$(tg_rand 32)"
   [ -n "$(tg_envv WEB_PATH)" ] || tg_setv WEB_PATH "$(tg_rand 24)"
   [ "$(tg_envv TG_STREAM_ENC)" = auto ] || tg_setv TG_STREAM_ENC auto  # 明文/加密都能放，由哈哈设置页的加密开关决定
-  cp "$TGD/tg" /usr/local/bin/tg 2>/dev/null && chmod +x /usr/local/bin/tg
-  cp "$TGD/tg-domain.sh" /usr/local/bin/tg-domain 2>/dev/null && chmod +x /usr/local/bin/tg-domain
   skyblue "构建并启动 tgweb（第一次要几分钟）..."
   (cd "$TGD" && docker compose up -d --build) >/tmp/tgweb_build.log 2>&1 || { red "tgweb 启动失败，日志：/tmp/tgweb_build.log"; return 1; }
   green "tgweb 已启动：网页左上角配置框选 tgweb；api_id/api_hash 在 ys 选 14 里设置"
@@ -560,7 +563,7 @@ tg_menu() {
     echo
     case "$c" in
       1) tg_install; pause ;;
-      2) tg_installed && { tg update; cp "$TGD/tg" /usr/local/bin/tg 2>/dev/null; } || red "未安装"; pause ;;
+      2) if tg_installed; then tg_fetch && skyblue "重新构建 tgweb..." && (cd "$TGD" && docker compose up -d --build) >/tmp/tgweb_build.log 2>&1 && green "tgweb 已更新" || red "更新失败，日志：/tmp/tgweb_build.log"; else red "未安装"; fi; pause ;;
       3) tg_toggle; pause ;;
       4) tg_installed && tg_set_api TG_API_ID || red "未安装"; pause ;;
       5) tg_installed && tg_set_api TG_API_HASH || red "未安装"; pause ;;

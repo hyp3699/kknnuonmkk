@@ -1,0 +1,996 @@
+#!/bin/bash
+# tg - 视频库的服务器快捷命令（终端用，不是网页）
+# 用法：
+#   tg                打开交互菜单
+#   tg status         只看当前配置状态（api_hash 只显示掩码，不显示完整值）
+#   tg set-id 12345   设置 api_id
+#   tg set-hash xxx   设置 api_hash
+#   tg del            删除 api 配置（清空 api_id / api_hash）
+#   tg reset-auth [user|password|both] [新值]  重置网页账号/密码（不传参数进选择菜单；新值留空就随机生成 12-24 位）
+#   tg show-auth     查看当前网页账号和密码（只在服务器终端显示，不要发到聊天里）
+#   tg reset-path [路径]  重置访问路径（不给参数就自动生成24位字母数字路径）
+#   tg show-path      查看当前访问路径和完整地址（只在服务器终端显示）
+#   tg set-parallel [1-4]  设置并行下载数（默认 2，最大 4）
+#   tg show-parallel  查看当前并行下载数
+#   tg sync-session     同步 session 到私有备份仓库（现输仓库和 Token，用完删掉不保存）
+#   tg restore-session  从私有备份仓库恢复 session（现输仓库和 Token，用完删掉不保存）
+#   tg domain [域名]  绑定/更换域名（不给域名就列出已有证书选一个）
+#   tg uninstall      全部卸载（会提示输入 yes 确认）
+#   tg restart        重启服务
+#   tg update         拉取最新代码并重新构建（已装过的再跑一键安装也能强制更新）
+#   tg help           帮助
+# 改完 api_id / api_hash / 删除后会自动重启服务，不用再手动 docker compose。
+# api_hash 不走网页，只在服务器终端里输入，终端输入时不回显。
+APP_DIR="${TG_APP_DIR:-/root/telegram-stream}"
+if [ ! -d "$APP_DIR" ] && [ -d "$HOME/telegram-stream" ]; then
+  APP_DIR="$HOME/telegram-stream"
+fi
+ENV_FILE="$APP_DIR/.env"
+COMPOSE_FILE="$APP_DIR/docker-compose.yml"
+
+get_val() {
+  # 从 .env 里取某个键，不用 source，避免特殊字符出问题
+  grep -E "^$1=" "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
+
+set_val() {
+  # $1=键 $2=值，用 python 改写 .env，保留其它行，键不存在就追加
+  local key="$1" val="$2"
+  mkdir -p "$(dirname "$ENV_FILE")"
+  touch "$ENV_FILE"
+  KEY="$key" VAL="$val" ENV_FILE="$ENV_FILE" python3 - << 'PY'
+import os
+key, val, path = os.environ["KEY"], os.environ["VAL"], os.environ["ENV_FILE"]
+lines = []
+found = False
+if os.path.exists(path):
+    with open(path) as f:
+        lines = f.read().splitlines()
+out = []
+for line in lines:
+    if line.startswith(key + "="):
+        if not found:
+            out.append(f"{key}={val}")
+            found = True
+        # 重复行直接丢掉
+    else:
+        out.append(line)
+if not found:
+    out.append(f"{key}={val}")
+with open(path, "w") as f:
+    f.write("\n".join(out) + "\n")
+os.chmod(path, 0o600)
+PY
+}
+
+# ---------- 网页账号 / 密码：随机生成 ----------
+# 这两样要在手机登录页上手打，所以生成规则定死：12-24 位，数字 / 小写 / 大写 / 特殊符号各至少一个。
+# 特殊符号只从 !@%^&*-_=+.,:?~ 里取：docker compose 解析无引号的 .env 时会把
+# $ # ' " \ 和空白认错，导致容器里拿到的和显示的不一样；剩下这几个既安全，手机键盘也好打。
+# install.sh 里有同名同内容的函数：两边必须一字不差，改一处就要同步另一处
+#（tests/test_web_auth.py 会直接比对两边的函数体）。
+gen_auth_value() {
+  python3 - << 'PY'
+import secrets
+SYMBOLS = "!@%^&*-_=+.,:?~"
+LOWER = "abcdefghijklmnopqrstuvwxyz"
+UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+DIGITS = "0123456789"
+ALL = LOWER + UPPER + DIGITS + SYMBOLS
+n = 12 + secrets.randbelow(13)          # 12..24 位，每次都不一样
+chars = [secrets.choice(LOWER), secrets.choice(UPPER), secrets.choice(DIGITS), secrets.choice(SYMBOLS)]
+chars += [secrets.choice(ALL) for _ in range(n - 4)]
+secrets.SystemRandom().shuffle(chars)   # 四类必选位不能固定排在前四位
+print("".join(chars))
+PY
+}
+
+# 手工输入的账号/密码里有没有 .env 认错的字符（$ # ' " \ 和空白）；有就返回 0。
+_bad_env_char() {
+  python3 -c 'import sys; v=sys.argv[1]; bad=[chr(36),chr(35),chr(39),chr(34),chr(92)]; sys.exit(0 if any(c in v for c in bad) or any(c.isspace() for c in v) else 1)' "$1"
+}
+
+mask_hash() {
+  local h="$1"
+  if [ -z "$h" ] || [ "$h" = "placeholder" ]; then
+    echo "未配置"
+  elif [ "${#h}" -le 8 ]; then
+    echo "****"
+  else
+    echo "${h:0:4}****${h: -4}"
+  fi
+}
+
+# 访问路径开关：WEB_PATH_ENABLED 没写或不是 0/false/off/no 都算开启（默认开启）。
+path_enabled() {
+  case "$(get_val WEB_PATH_ENABLED 2>/dev/null | tr 'A-Z' 'a-z')" in
+    0|false|off|no) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# 实际生效的路径：关闭时为空
+effective_web_path() {
+  if path_enabled; then get_val WEB_PATH 2>/dev/null; fi
+}
+
+show_status() {
+  local dom=""
+  if [ -f /etc/nginx/conf.d/tgweb-domain.conf ]; then
+    dom=$(awk '$1=="server_name"{sub(/;$/,"",$2); print $2; exit}' /etc/nginx/conf.d/tgweb-domain.conf 2>/dev/null)
+  fi
+  if [ -n "$dom" ]; then
+    echo "域名：$dom"
+  else
+    echo "域名：未绑定（用 tg domain 绑定）"
+  fi
+  local _wp
+  _wp="$(get_val WEB_PATH 2>/dev/null)"
+  if ! path_enabled; then
+    echo "访问路径：已关闭（直接用域名打开；用 tg path-on 重新开启）"
+    echo "完整地址：$(web_url "")"
+  elif [ -n "$_wp" ]; then
+    echo "访问路径：/$_wp"
+    echo "完整地址：$(web_url "$_wp")"
+  else
+    echo "访问路径：未设置（用 tg reset-path 生成24位路径）"
+  fi
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "配置文件不存在：$ENV_FILE"
+    echo "api_id：未配置"
+    echo "api_hash：未配置"
+    return
+  fi
+  local id hash
+  id="$(get_val TG_API_ID)"
+  hash="$(get_val TG_API_HASH)"
+  if [ -z "$id" ] || [ "$id" = "0" ]; then
+    echo "api_id：未配置"
+  else
+    echo "api_id：$id"
+  fi
+  echo "api_hash：$(mask_hash "$hash")"
+  local par
+  par="$(get_val TG_PARALLEL)"
+  if [ -z "$par" ]; then
+    echo "并行下载数：2（默认）"
+  else
+    echo "并行下载数：$par"
+  fi
+  local _wu _wpw
+  _wu="$(get_val WEB_USERNAME)"
+  _wpw="$(get_val WEB_PASSWORD)"
+  if [ -z "$_wpw" ]; then
+    echo "网页登录：未设置（用 tg reset-auth 设置账号密码）"
+  elif [ -z "$_wu" ]; then
+    echo "网页登录：只设了密码（登录页账号留空即可；用 tg reset-auth 加一个账号）"
+  else
+    echo "网页登录：账号已设置（密码用 tg show-auth 查看）"
+  fi
+  if [ -f "$APP_DIR/data/tg.session" ]; then
+    echo "登录 session：已存在（data/tg.session）"
+    _mode="$(stat -c %a "$APP_DIR/data/tg.session" 2>/dev/null || echo "?")"
+    if [ "$_mode" != "600" ]; then
+      chmod 600 "$APP_DIR/data/tg.session" 2>/dev/null || true
+      echo "注意：session 文件权限原来是 $_mode，已改成 600（只有 root 能读，拿走它就不用验证码能登你的号，别外传备份）。"
+    fi
+  else
+    echo "登录 session：不存在（还没在网页上登录过）"
+  fi
+}
+
+restart_service() {
+  if [ -n "$TG_NO_RESTART" ]; then
+    echo "（测试模式，跳过重启）"
+    return 0
+  fi
+  if [ ! -f "$COMPOSE_FILE" ]; then
+    echo "找不到 $COMPOSE_FILE，改完配置后请手动重启服务。"
+    return 1
+  fi
+  (cd "$APP_DIR" && docker compose up -d) || {
+    echo "重启失败：请确认你是用 root 身份运行，并且 Docker 已安装。"
+    return 1
+  }
+  echo "服务已重启。"
+}
+
+do_update() {
+  # 更新：只动 git 跟踪的文件，.env 和 data/ 里的 session 是未跟踪文件，不会被 reset 动到。
+  # 本地改过跟踪文件时先 stash 起来（不带 -u，不动未跟踪文件），更新完如果需要可以用 git stash pop 找回来。
+  if [ ! -d "$APP_DIR/.git" ]; then
+    echo "安装目录 $APP_DIR 不是 git 仓库，没法用 tg update 更新。"
+    echo "请用一键安装重新装一次（已有目录会备份后全新克隆，.env 和 data 会拷回来）。"
+    return 1
+  fi
+  local branch old_sha new_sha stashed=0
+  branch="$(git -C "$APP_DIR" symbolic-ref refs/remotes/origin/HEAD --short 2>/dev/null | sed 's|^origin/||')"
+  if [ -z "$branch" ] || ! git -C "$APP_DIR" rev-parse --verify "origin/$branch" >/dev/null 2>&1; then
+    branch="main"
+  fi
+  old_sha="$(git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || echo "?")"
+  echo "当前版本：$old_sha，正在从远端拉取 $branch …"
+  if ! git -C "$APP_DIR" fetch origin; then
+    echo "拉取失败，服务没动，请检查网络后再试。"
+    return 1
+  fi
+  new_sha="$(git -C "$APP_DIR" rev-parse --short "origin/$branch" 2>/dev/null || echo "?")"
+  if [ "$old_sha" = "$new_sha" ]; then
+    echo "已经是最新版（$new_sha），不用更新代码，仍会重新安装脚本并重建服务。"
+  else
+    if [ -n "$(git -C "$APP_DIR" status --porcelain 2>/dev/null | grep -v '^??' || true)" ]; then
+      # stash 成功才算暂存住了：原来是 stash push 后面跟 || true，不管成没成
+      # 都把 stashed 标成 1，万一 stash 真失败了，reset 会把本地改动直接丢掉，
+      # 还谎称“已暂存到 git stash”。现在 stash 失败就直接停，改动一点不动。
+      if git -C "$APP_DIR" stash push -m "tg update backup $old_sha" 2>/dev/null; then
+        stashed=1
+      else
+        echo "本地改动暂存失败，停止更新，改动没有动。"
+        return 1
+      fi
+    fi
+    if ! git -C "$APP_DIR" reset --hard "origin/$branch"; then
+      # reset 失败时把刚暂存的改动弹回来，才是真的“服务没动”，不然工作区
+      # 已经是干净的旧版，用户的改动只剩在 stash 里，还得自己去找。
+      if [ "$stashed" = "1" ]; then
+        git -C "$APP_DIR" stash pop 2>/dev/null || true
+      fi
+      echo "强制更新失败，本地改动已还原，服务没动。"
+      return 1
+    fi
+    echo "已更新：$old_sha -> $new_sha"
+    if [ "$stashed" = "1" ]; then
+      echo "注意：本地改动已暂存到 git stash，在 $APP_DIR 里用 git stash pop 可以找回来。"
+    fi
+  fi
+  # 更新 tg/tg-domain 脚本：正在运行的 tg 本身不能用 cp 直接覆盖（会改正在读的文件），
+  # 先拷到临时文件再 mv 过去，mv 换 inode，正在运行的旧文件读完这一轮不受影响。
+  if [ -f "$APP_DIR/tg" ]; then
+    cp "$APP_DIR/tg" /tmp/tg.new && chmod +x /tmp/tg.new && mv /tmp/tg.new /usr/local/bin/tg 2>/dev/null || echo "注意：/usr/local/bin/tg 没更新成功，请手动拷 $APP_DIR/tg 过去。"
+  fi
+  if [ -f "$APP_DIR/tg-domain.sh" ]; then
+    cp "$APP_DIR/tg-domain.sh" /tmp/tg-domain.new && chmod +x /tmp/tg-domain.new && mv /tmp/tg-domain.new /usr/local/bin/tg-domain 2>/dev/null || echo "注意：/usr/local/bin/tg-domain 没更新成功，请手动拷 $APP_DIR/tg-domain.sh 过去。"
+  fi
+  # 升级上来的老用户 .env 里只有 WEB_PASSWORD、没有 WEB_USERNAME：不用做任何事就能继续用
+  # （登录页账号留空），这里只温和提醒一句可以加个账号，不去改 .env、不强制重启。
+  if [ -f "$ENV_FILE" ] && [ -n "$(get_val WEB_PASSWORD)" ] && [ -z "$(get_val WEB_USERNAME)" ]; then
+    echo "提示：新版支持网页账号，你现在只设了密码——登录页账号留空、只填密码就能进；想加个账号就运行 tg reset-auth（直接回车会自动生成）。"
+  fi
+  if [ -n "$TG_NO_RESTART" ]; then
+    echo "（测试模式，跳过重建）"
+    return 0
+  fi
+  if [ ! -f "$COMPOSE_FILE" ]; then
+    echo "找不到 $COMPOSE_FILE，代码已更新，改完配置后请手动重启服务。"
+    return 1
+  fi
+  (cd "$APP_DIR" && docker compose up -d --build) || {
+    echo "重建失败：请确认你是用 root 身份运行，并且 Docker 已安装。"
+    return 1
+  }
+  _migrate_nginx_port
+  echo "更新完成，服务已重建。"
+  echo "提示：默认端口已是 9393。用 Cloudflare 隧道的，把隧道的服务地址改成 localhost:9393。"
+}
+
+# 默认端口从 8000 改成 9393 后，旧版 tg-domain 生成的反代配置还指着 8000，更新后要跟着改，
+# 否则 HTTPS 站点 502。只改 tgweb 自己的配置文件；nginx -t 不过就原样还原。
+_migrate_nginx_port() {
+  command -v nginx >/dev/null 2>&1 || return 0
+  local f changed=()
+  for f in /etc/nginx/conf.d/tgweb-domain.conf /etc/nginx/conf.d/tgweb-domain-*.conf /etc/nginx/sites-available/video; do
+    [ -f "$f" ] || continue
+    local need=0
+    grep -q "127.0.0.1:8000" "$f" 2>/dev/null && need=1
+    # 同时补上清空 CF-Connecting-IP 的一行：程序现在认这个头，nginx 不清空的话，直连 nginx 的人能伪造 IP 绕过登录限流。
+    if grep -q 'proxy_set_header X-Real-IP' "$f" 2>/dev/null && ! grep -qi 'CF-Connecting-IP' "$f" 2>/dev/null; then need=1; fi
+    if [ "$need" = "1" ]; then
+      cp "$f" "$f.bak-8000" || continue
+      sed -i 's#127\.0\.0\.1:8000#127.0.0.1:9393#g' "$f"
+      if ! grep -qi 'CF-Connecting-IP' "$f"; then
+        sed -i '/proxy_set_header X-Real-IP/a\        proxy_set_header CF-Connecting-IP "";' "$f"
+      fi
+      changed+=("$f")
+    fi
+  done
+  [ "${#changed[@]}" -eq 0 ] && return 0
+  if nginx -t 2>/dev/null; then
+    systemctl reload nginx 2>/dev/null || nginx -s reload 2>/dev/null || true
+    for f in "${changed[@]}"; do rm -f "$f.bak-8000"; done
+    echo "Nginx 反代配置已更新（端口 9393，清空 CF-Connecting-IP）。"
+  else
+    for f in "${changed[@]}"; do mv -f "$f.bak-8000" "$f"; done
+    echo "注意：Nginx 配置检查没通过，反代端口没改，请手动把 127.0.0.1:8000 改成 127.0.0.1:9393。"
+  fi
+}
+
+do_path_on() {
+  if path_enabled && [ -n "$(get_val WEB_PATH)" ]; then
+    echo "访问路径本来就是开启的：$(web_url "$(get_val WEB_PATH)")"
+    return 0
+  fi
+  set_val WEB_PATH_ENABLED 1
+  if [ -z "$(get_val WEB_PATH)" ]; then
+    # 还没有路径就顺手生成一个（do_reset_web_path 会负责重启）
+    do_reset_web_path ""
+    return
+  fi
+  echo "访问路径已开启：$(web_url "$(get_val WEB_PATH)")"
+  echo "注意：不带路径的地址现在会 404。"
+  restart_service
+}
+
+do_path_off() {
+  if ! path_enabled; then
+    echo "访问路径本来就是关闭的：$(web_url "")"
+    return 0
+  fi
+  local confirm="${1:-}"
+  if [ "$confirm" != "yes" ]; then
+    echo "关闭后直接用域名就能打开登录页，只剩网页密码一道防线，扫描器也更容易找到。"
+    echo "用 Cloudflare 隧道时，建议配合 Cloudflare Access 再加一层验证。"
+    read -r -p "确认关闭访问路径吗？(y/N)： " confirm
+    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+      echo "已取消。"
+      return 1
+    fi
+  fi
+  set_val WEB_PATH_ENABLED 0
+  echo "访问路径已关闭，现在用 $(web_url "") 打开（原路径保留，tg path-on 可恢复）。"
+  restart_service
+}
+
+do_set_id() {
+  local id="$1"
+  if ! [[ "$id" =~ ^[0-9]+$ ]]; then
+    echo "api_id 必须是纯数字，例如 12345678。"
+    return 1
+  fi
+  set_val TG_API_ID "$id"
+  echo "api_id 已保存。"
+  restart_service
+}
+
+do_set_hash() {
+  local hash="$1"
+  if [ -z "$hash" ]; then
+    echo "api_hash 不能为空。"
+    return 1
+  fi
+  set_val TG_API_HASH "$hash"
+  echo "api_hash 已保存（终端里不回显完整值）。"
+  restart_service
+}
+
+web_url() {
+  local path="$1" dom="" ip=""
+  if [ -f /etc/nginx/conf.d/tgweb-domain.conf ]; then
+    dom=$(awk '$1=="server_name"{sub(/;$/,"",$2); print $2; exit}' /etc/nginx/conf.d/tgweb-domain.conf 2>/dev/null)
+  fi
+  if [ -n "$dom" ]; then
+    if [ -n "$path" ]; then echo "https://$dom/$path"; else echo "https://$dom"; fi
+    return
+  fi
+  # 没有绑域名时，优先用已有 HTTPS 站点的 server_name IP（云服务器 hostname -I 给的是内网 IP，外网打不开）
+  ip=$(grep -h "server_name" /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf 2>/dev/null | awk '{print $2}' | tr -d ';' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+  if [ -z "$ip" ]; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  [ -z "$ip" ] && ip="服务器IP"
+  if [ -n "$path" ]; then echo "https://$ip/$path"; else echo "https://$ip"; fi
+}
+
+show_web_path() {
+  local wp
+  wp="$(get_val WEB_PATH)"
+  if ! path_enabled; then
+    echo "访问路径：已关闭，直接用 $(web_url "") 打开。"
+    [ -n "$wp" ] && echo "保存的路径 /$wp 仍保留，tg path-on 开启后恢复原地址。"
+    return 0
+  fi
+  if [ -z "$wp" ]; then
+    echo "访问路径：未设置（直接用 IP/域名就能打开，强烈建议用 tg reset-path 生成一个24位路径）。"
+  else
+    echo "访问路径：/$wp"
+    echo "完整地址：$(web_url "$wp")"
+    echo "注意：这个路径是访问地址的一部分，只在服务器终端里显示，不要公开分享。"
+  fi
+}
+
+do_reset_web_path() {
+  local path="$1"
+  if [ -n "$path" ]; then
+    echo "注意：命令行里写的路径会留在 shell 历史里，下次请不带参数让它自动生成。"
+    if ! [[ "$path" =~ ^[A-Za-z0-9_-]{1,64}$ ]]; then
+      echo "路径只能含字母、数字、下划线、横线，1-64位。"
+      return 1
+    fi
+    case "$path" in
+      api|stream|thumb|photo|docs|favicon.ico|openapi.json)
+        echo "路径不能用 $path，这个名字已经被应用本身占用了。"
+        return 1
+        ;;
+    esac
+  else
+    path="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+    if [ "${#path}" != "24" ]; then
+      echo "生成随机路径失败，请重试。"
+      return 1
+    fi
+  fi
+  set_val WEB_PATH "$path"
+  if ! path_enabled; then
+    echo "访问路径已重置为 /$path，但路径功能目前是关闭的，用 tg path-on 开启后才生效。"
+    restart_service
+    return
+  fi
+  echo "访问路径已重置：/$path"
+  echo "完整地址：$(web_url "$path")"
+  echo "注意：旧地址现在会 404，必须用新地址重新打开。"
+  restart_service
+}
+
+show_web_auth() {
+  local user pw
+  user="$(get_val WEB_USERNAME)"
+  pw="$(get_val WEB_PASSWORD)"
+  if [ -z "$user" ]; then
+    echo "网页账号：未设置（登录页账号留空、只填密码就能进；用 tg reset-auth 生成或设置一个账号）"
+  else
+    echo "网页账号：$user"
+  fi
+  if [ -z "$pw" ]; then
+    echo "网页密码：未设置（任何人打开页面都不用登录，强烈建议用 tg reset-auth 设一个）。"
+  else
+    echo "网页密码：$pw"
+    if [ -z "$user" ]; then
+      echo "（还没设账号，登录页账号留空即可；想加账号用 tg reset-auth）"
+    fi
+    echo "注意：账号和密码只在服务器终端里显示，不要发到聊天里、不要截图发给别人。"
+  fi
+}
+
+# 写入账号：$1=新账号（空=随机生成） $2=1 表示来自命令行参数。只改 WEB_USERNAME，不动密码。
+_apply_web_username() {
+  local user="$1" from_arg="${2:-0}" gen=0
+  if [ -z "$user" ]; then
+    user="$(gen_auth_value)"
+    gen=1
+  fi
+  if [ -z "$user" ]; then
+    echo "生成随机账号失败，请重试。"
+    return 1
+  fi
+  if _bad_env_char "$user"; then
+    echo "账号不能含美元符、井号、单引号、双引号、空格、反斜杠，否则 .env 会被 docker compose 认错，导致实际账号和显示的不一样。请换一个不含这些字符的账号。"
+    return 1
+  fi
+  if [ "$from_arg" = "1" ]; then
+    echo "注意：命令行里写的账号会留在 shell 历史里，下次请不带参数交互输入。"
+  fi
+  set_val WEB_USERNAME "$user"
+  if [ "$gen" = "1" ]; then
+    echo "网页账号（随机生成 12-24 位，请记下来）：$user"
+  else
+    echo "网页账号已保存：$user"
+  fi
+  WEB_AUTH_CHANGED=1
+}
+
+# 写入密码：$1=新密码（空=随机生成） $2=1 表示来自命令行参数。只改 WEB_PASSWORD，不动账号。
+_apply_web_password() {
+  local pw="$1" from_arg="${2:-0}" gen=0
+  if [ -z "$pw" ]; then
+    pw="$(gen_auth_value)"
+    gen=1
+  fi
+  if [ -z "$pw" ]; then
+    echo "生成随机密码失败，请重试。"
+    return 1
+  fi
+  if _bad_env_char "$pw"; then
+    echo "密码不能含美元符、井号、单引号、双引号、空格、反斜杠，否则 .env 会被 docker compose 认错，导致实际密码和显示的不一样。请换一个不含这些字符的密码。"
+    return 1
+  fi
+  if [ "$from_arg" = "1" ]; then
+    echo "注意：命令行里写的密码会留在 shell 历史里，下次请不带参数交互输入。"
+  fi
+  if [ "$gen" = "0" ] && [ "${#pw}" -lt 12 ]; then
+    echo "注意：这个密码不到 12 位，很容易被猜到。建议直接回车，让它随机生成 12-24 位。"
+  fi
+  set_val WEB_PASSWORD "$pw"
+  if [ "$gen" = "1" ]; then
+    echo "网页密码（随机生成 12-24 位，请记下来）：$pw"
+  else
+    echo "网页密码已保存。"
+  fi
+  WEB_AUTH_CHANGED=1
+}
+
+# 交互取新账号：可回显（方便核对），直接回车=随机生成。
+_prompt_web_username() {
+  local user=""
+  read -r -p "新网页账号（直接回车随机生成 12-24 位）： " user || true
+  _apply_web_username "$user" 0
+}
+
+# 交互取新密码：输入不回显；直接回车=随机生成，跳过二次确认。
+_prompt_web_password() {
+  local pw="" pw2=""
+  read -r -s -p "新网页密码（输入不显示，直接回车随机生成 12-24 位）： " pw || true
+  echo ""
+  if [ -z "$pw" ]; then
+    _apply_web_password "" 0
+    return
+  fi
+  read -r -s -p "再输一次确认： " pw2 || true
+  echo ""
+  if [ "$pw" != "$pw2" ]; then
+    echo "两次输入不一致，已取消。"
+    return 1
+  fi
+  _apply_web_password "$pw" 0
+}
+
+# 重置网页账号 / 密码：
+#   tg reset-auth                  进选择：只改账号 / 只改密码 / 两者都改
+#   tg reset-auth user [新账号]     只改账号（不带新账号就交互输入，直接回车随机生成）
+#   tg reset-auth password [新密码] 只改密码（同上）
+#   tg reset-auth both             账号和密码依次改，最后只重启一次
+# 旧的 tg reset-password / reset-pw 仍然可用：带一个参数就按“只改密码”处理，不带参数进选择菜单。
+do_reset_web_auth() {
+  local what="${1:-}" value="${2:-}" from_arg=0
+  if [ -n "$value" ]; then from_arg=1; fi
+  if [ -z "$what" ]; then
+    echo "要重置什么？"
+    echo "  1) 只重置账号"
+    echo "  2) 只重置密码"
+    echo "  3) 账号和密码一起重置"
+    echo "  0) 取消"
+    read -r -p "选一个 [0-3]： " what || true
+  fi
+  case "$what" in
+    1|user|username|account) what="user" ;;
+    2|password|passwd|pw) what="password" ;;
+    3|both|all) what="both" ;;
+    0|cancel|"") echo "已取消。"; return 1 ;;
+    *) echo "没有这个选项，已取消。"; return 1 ;;
+  esac
+  WEB_AUTH_CHANGED=0
+  if [ "$what" = "both" ]; then
+    if [ "$from_arg" = "1" ]; then
+      echo "一起重置时逐项输入：账号可回显、密码不回显，直接回车都是随机生成。"
+    fi
+    _prompt_web_username || return 1
+    _prompt_web_password || return 1
+  elif [ "$what" = "user" ]; then
+    if [ "$from_arg" = "1" ]; then
+      _apply_web_username "$value" 1 || return 1
+    else
+      _prompt_web_username || return 1
+    fi
+  else
+    if [ "$from_arg" = "1" ]; then
+      _apply_web_password "$value" 1 || return 1
+    else
+      _prompt_web_password || return 1
+    fi
+  fi
+  if [ "$WEB_AUTH_CHANGED" != "1" ]; then
+    echo "没有改动。"
+    return 1
+  fi
+  echo "注意：旧的网页登录 Cookie 会失效，浏览器里要重新输入新的账号和密码才能进。"
+  restart_service
+}
+
+show_parallel() {
+  local par
+  par="$(get_val TG_PARALLEL)"
+  if [ -z "$par" ]; then
+    echo "并行下载数：2（默认）"
+  else
+    echo "并行下载数：$par"
+  fi
+  echo "说明：1 就是单连接（改之前那样），2 默认，全局最多 4，再多容易被 Telegram 限流。"
+}
+
+do_set_parallel() {
+  local n="$1"
+  if [ -z "$n" ]; then
+    read -r -p "并行下载数（1-4，默认 2）： " n
+    if [ -z "$n" ]; then n="2"; fi
+  fi
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt 4 ]; then
+    echo "并行下载数只能是 1-4，默认 2，超过 4 不接受。"
+    return 1
+  fi
+  set_val TG_PARALLEL "$n"
+  echo "并行下载数已设为 $n，重启后生效。"
+  restart_service
+}
+
+# 从 .env 里删掉一个键（同步/恢复用完后删仓库和 Token 用，不保存到服务器）。
+# 旧版本曾经把仓库和 Token 存进 .env，跑一次新的同步/恢复就会把旧的也删掉。
+del_val() {
+  local key="$1"
+  if [ ! -f "$ENV_FILE" ]; then return 0; fi
+  KEY="$key" ENV_FILE="$ENV_FILE" python3 - << 'PY'
+import os
+key, path = os.environ["KEY"], os.environ["ENV_FILE"]
+if not os.path.exists(path):
+    raise SystemExit(0)
+with open(path) as f:
+    lines = f.read().splitlines()
+out = [line for line in lines if not line.startswith(key + "=")]
+with open(path, "w") as f:
+    if out:
+        f.write("\n".join(out) + "\n")
+os.chmod(path, 0o600)
+PY
+}
+
+_clear_backup_config() {
+  del_val GITHUB_BACKUP_REPO
+  del_val GITHUB_BACKUP_TOKEN
+}
+
+# 同步/恢复时现输仓库和 Token：仓库正常输入，Token 不回显，都不写进 .env，不进命令行历史。
+# 格式不对或 Token 为空就直接取消，不会往下走。
+_prompt_backup_config() {
+  local _repo _tok
+  read -r -p "备份仓库（格式 owner/repo，必须是私有仓库）： " _repo
+  if ! [[ "$_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+    echo "备份仓库格式不对，应该是 owner/repo，例如 hyp3365/tgweb-backup。"
+    return 1
+  fi
+  read -r -s -p "GitHub Token（输入时不显示，只给这个备份仓库 Contents 读写权限的细粒度 Token）： " _tok
+  echo ""
+  if [ -z "$_tok" ]; then
+    echo "Token 不能为空，已取消。"
+    return 1
+  fi
+  BACKUP_REPO="$_repo"
+  BACKUP_TOKEN="$_tok"
+}
+
+# 查备份仓库：输出两行 private(true/false) 和 default_branch，失败时打印简短原因（不含 Token）并返回非 0。
+# Token 不进命令行：写进临时 curl 配置文件（600 权限），curl -K 读它，ps 里看不到 Token。
+_github_backup_repo_info() {
+  local repo="$1" tok="$2" tmpdir="$3" body http
+  printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/vnd.github+json"\nheader = "X-GitHub-Api-Version: 2022-11-28"\n' "$tok" > "$tmpdir/curl.conf"
+  chmod 600 "$tmpdir/curl.conf"
+  body="$(curl -s -K "$tmpdir/curl.conf" -w "\n%{http_code}" "https://api.github.com/repos/$repo" 2>/dev/null)"
+  http="$(echo "$body" | tail -1)"
+  body="$(echo "$body" | sed '$d')"
+  if [ "$http" = "401" ]; then echo "GitHub Token 无效或已过期（401），请检查 Token 和仓库权限。"; return 1; fi
+  if [ "$http" = "404" ]; then echo "备份仓库不存在，或者 Token 没有这个仓库的权限（404），请检查仓库名和 Token 权限。"; return 1; fi
+  if [ "$http" != "200" ]; then echo "查备份仓库失败（HTTP $http），请检查网络，稍后再试。"; return 1; fi
+  echo "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if d.get('private') else 'false'); print(d.get('default_branch') or 'main')" 2>/dev/null
+}
+
+do_sync_session() {
+  local repo tok sess tmpdir body http priv branch sha b64
+  # 先删掉旧版本可能存进 .env 的仓库和 Token，新的同步/恢复都不保存
+  _clear_backup_config
+  sess="$APP_DIR/data/tg.session"
+  if [ ! -f "$sess" ]; then
+    echo "本地 session 不存在（$sess），还没在网页上登录过，没什么可同步的。"
+    return 1
+  fi
+  command -v curl >/dev/null 2>&1 || { echo "找不到 curl，请先装 curl。"; return 1; }
+  BACKUP_REPO=""; BACKUP_TOKEN=""
+  if ! _prompt_backup_config; then return 1; fi
+  repo="$BACKUP_REPO"; tok="$BACKUP_TOKEN"
+  tmpdir="$(mktemp -d)"
+  chmod 700 "$tmpdir"
+  body="$(_github_backup_repo_info "$repo" "$tok" "$tmpdir")"
+  if [ $? -ne 0 ]; then echo "$body"; rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1; fi
+  priv="$(echo "$body" | sed -n '1p')"
+  branch="$(echo "$body" | sed -n '2p')"
+  if [ "$priv" != "true" ]; then
+    echo "这个仓库不是私有的，不能同步 session，换成私有仓库再试。"
+    rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1
+  fi
+  # 停容器，保证 session 文件完整落盘；同步完再重启，播放会短暂断一下，和其他 tg 重启一样
+  if [ -f "$COMPOSE_FILE" ]; then
+    (cd "$APP_DIR" && docker compose down) || { echo "停服务失败，已取消同步，服务没动。"; rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1; }
+  fi
+  body="$(curl -s -K "$tmpdir/curl.conf" -w "\n%{http_code}" "https://api.github.com/repos/$repo/contents/tg.session?ref=$branch" 2>/dev/null)"
+  http="$(echo "$body" | tail -1)"
+  body="$(echo "$body" | sed '$d')"
+  sha=""
+  if [ "$http" = "200" ]; then sha="$(echo "$body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null)"; fi
+  b64="$(base64 -w0 "$sess" 2>/dev/null || base64 "$sess" | tr -d '\n')"
+  if [ -n "$sha" ]; then
+    python3 -c "import json,sys; print(json.dumps({'message':'sync session','content':sys.argv[1],'sha':sys.argv[2],'branch':sys.argv[3]}))" "$b64" "$sha" "$branch" > "$tmpdir/payload.json"
+  else
+    python3 -c "import json,sys; print(json.dumps({'message':'sync session','content':sys.argv[1],'branch':sys.argv[2]}))" "$b64" "$branch" > "$tmpdir/payload.json"
+  fi
+  body="$(curl -s -K "$tmpdir/curl.conf" -w "\n%{http_code}" -X PUT -H "Content-Type: application/json" -d @"$tmpdir/payload.json" "https://api.github.com/repos/$repo/contents/tg.session" 2>/dev/null)"
+  http="$(echo "$body" | tail -1)"
+  rm -rf "$tmpdir"; unset tok repo b64 sha BACKUP_REPO BACKUP_TOKEN; _clear_backup_config
+  if [ -f "$COMPOSE_FILE" ]; then (cd "$APP_DIR" && docker compose up -d) 2>/dev/null || echo "警告：同步后重启服务失败，请手动跑 tg restart。"; fi
+  if [ "$http" = "201" ] || [ "$http" = "200" ]; then
+    echo "session 已同步到私有仓库 $repo，仓库和 Token 已经删掉，没有保存到服务器。"
+    return 0
+  else
+    echo "同步失败（HTTP $http），请检查 Token 权限和仓库名，服务已重启，仓库和 Token 已经删掉，没有保存到服务器。"
+    return 1
+  fi
+}
+
+do_restore_session() {
+  local repo tok tmpdir body http priv branch
+  _clear_backup_config
+  command -v curl >/dev/null 2>&1 || { echo "找不到 curl，请先装 curl。"; return 1; }
+  BACKUP_REPO=""; BACKUP_TOKEN=""
+  if ! _prompt_backup_config; then return 1; fi
+  repo="$BACKUP_REPO"; tok="$BACKUP_TOKEN"
+  tmpdir="$(mktemp -d)"
+  chmod 700 "$tmpdir"
+  body="$(_github_backup_repo_info "$repo" "$tok" "$tmpdir")"
+  if [ $? -ne 0 ]; then echo "$body"; rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1; fi
+  priv="$(echo "$body" | sed -n '1p')"
+  branch="$(echo "$body" | sed -n '2p')"
+  if [ "$priv" != "true" ]; then
+    echo "这个仓库不是私有的，不能从这里恢复 session，换成私有仓库再试。"
+    rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1
+  fi
+  printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/vnd.github.raw"\n' "$tok" > "$tmpdir/curl-raw.conf"
+  chmod 600 "$tmpdir/curl-raw.conf"
+  http="$(curl -s -K "$tmpdir/curl-raw.conf" -o "$tmpdir/tg.session" -w "%{http_code}" "https://api.github.com/repos/$repo/contents/tg.session?ref=$branch" 2>/dev/null)"
+  if [ "$http" = "401" ]; then echo "GitHub Token 无效或已过期（401）。"; rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1; fi
+  if [ "$http" = "404" ]; then echo "备份仓库里没有 tg.session，先在旧服务器上跑 tg sync-session 同步一次。"; rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1; fi
+  if [ "$http" != "200" ]; then echo "下载备份失败（HTTP $http）。"; rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1; fi
+  if ! head -c 16 "$tmpdir/tg.session" | grep -q "SQLite format 3"; then
+    echo "下载的文件不是 session 文件，恢复已取消，现有 session 没动。"
+    rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1
+  fi
+  if [ -f "$COMPOSE_FILE" ]; then
+    (cd "$APP_DIR" && docker compose down) || { echo "停服务失败，已取消恢复。"; rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config; return 1; }
+  fi
+  mkdir -p "$APP_DIR/data"
+  if [ -f "$APP_DIR/data/tg.session" ]; then
+    cp "$APP_DIR/data/tg.session" "$APP_DIR/data/tg.session.bak-$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+    echo "现有 session 已备份到 data/tg.session.bak-时间戳，恢复出问题可以手动换回去。"
+  fi
+  cp "$tmpdir/tg.session" "$APP_DIR/data/tg.session"
+  chmod 600 "$APP_DIR/data/tg.session"
+  rm -rf "$tmpdir"; unset tok repo BACKUP_REPO BACKUP_TOKEN; _clear_backup_config
+  if [ -f "$COMPOSE_FILE" ]; then (cd "$APP_DIR" && docker compose up -d) 2>/dev/null || echo "警告：恢复后重启服务失败，请手动跑 tg restart。"; fi
+  echo "session 已从私有仓库 $repo 恢复，仓库和 Token 已经删掉，没有保存到服务器，打开网页输网页密码，应该直接显示已登录，不用收验证码。"
+}
+
+do_del() {
+  set_val TG_API_ID "0"
+  set_val TG_API_HASH "placeholder"
+  echo "api 配置已删除（api_id 清空，api_hash 恢复为占位符）。"
+  echo "注意：网页上的登录 session 还在 data/tg.session 里，"
+  echo "如果换了另一套 api 凭证后登录异常，再把那个 session 文件删掉重新登录。"
+  restart_service
+}
+
+do_domain() {
+  local script=""
+  if [ -f "$APP_DIR/tg-domain.sh" ]; then
+    script="$APP_DIR/tg-domain.sh"
+  elif [ -f /usr/local/bin/tg-domain ]; then
+    script="/usr/local/bin/tg-domain"
+  else
+    echo "找不到域名工具 tg-domain.sh，请先用一键安装重新装一次。"
+    return 1
+  fi
+  bash "$script" "$@"
+}
+
+do_uninstall() {
+  local confirm=""
+  if [ "${1:-}" = "yes" ]; then
+    confirm="yes"
+  else
+    echo "全部卸载会删除："
+    echo "  容器和镜像、$APP_DIR（含 .env、登录 session、代码）"
+    echo "  /usr/local/bin/tg、/usr/local/bin/tg-domain"
+    echo "  Nginx 域名配置 /etc/nginx/conf.d/tgweb-domain.conf"
+    echo "  Nginx 里反代 127.0.0.1:9393（或旧版 8000）的 video 站点（如果有）"
+    echo "  注意：Docker 本身、证书（/root/cert）、其他服务不会动。"
+    read -r -p "确认全部卸载吗？输入 yes 确认（其他输入取消）： " confirm
+  fi
+  if [ "$confirm" != "yes" ]; then
+    echo "已取消。"
+    return 1
+  fi
+  if [ -z "$APP_DIR" ] || [ "$APP_DIR" = "/" ]; then
+    echo "安装目录不对，已取消。"
+    return 1
+  fi
+  echo "正在卸载……"
+  if [ -f "$COMPOSE_FILE" ] && command -v docker >/dev/null 2>&1; then
+    (cd "$APP_DIR" && docker compose down --rmi all -v 2>/dev/null || docker compose down 2>/dev/null) || true
+  fi
+  if command -v docker >/dev/null 2>&1; then
+    docker rm -f telegram-stream-tg-stream-1 2>/dev/null || true
+    docker rmi telegram-stream-tg-stream 2>/dev/null || true
+  fi
+  rm -f /etc/nginx/conf.d/tgweb-domain.conf
+  # 旧版 HTTP 反代也顺带清掉：以前只删域名配置，残留的 tgweb.conf 还在反代旧端口，
+  # 卸载后 nginx 一 reload 就会去连一个已经不存在的服务。
+  rm -f /etc/nginx/conf.d/tgweb.conf
+  for f in /etc/nginx/sites-available/video /etc/nginx/sites-enabled/video; do
+    if [ -f "$f" ] && grep -qE "127\.0\.0\.1:(8000|9393)" "$f" 2>/dev/null; then
+      rm -f "$f"
+    fi
+  done
+  if command -v nginx >/dev/null 2>&1; then
+    nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
+  fi
+  rm -rf "$APP_DIR"
+  rm -f /usr/local/bin/tg /usr/local/bin/tg-domain
+  echo "已全部卸载。"
+}
+
+show_help() {
+  echo "tg - 视频库服务器快捷命令"
+  echo "  tg              交互菜单"
+  echo "  tg status       查看当前配置（hash 只显示掩码）"
+  echo "  tg set-id 12345 设置 api_id"
+  echo "  tg set-hash xxx 设置 api_hash"
+  echo "  tg del          删除 api 配置"
+  echo "  tg reset-auth [user|password|both] [新值]  重置网页账号/密码（不传参数进选择菜单；新值留空就随机生成 12-24 位）"
+  echo "  tg show-auth      查看当前网页账号和密码"
+  echo "  （旧的 tg reset-password / tg show-password 仍然可用）"
+  echo "  tg reset-path [路径]  重置访问路径（不给参数就自动生成24位字母数字）"
+  echo "  tg show-path      查看当前访问路径和完整地址"
+  echo "  tg path-on        开启访问路径（默认开启）"
+  echo "  tg path-off [yes] 关闭访问路径，直接用域名访问（带 yes 跳过确认）"
+  echo "  tg set-parallel [1-4]  设置并行下载数（默认 2，最大 4）"
+  echo "  tg show-parallel  查看当前并行下载数"
+  echo "  tg sync-session     同步 session 到私有备份仓库（现输仓库和 Token，用完删掉）"
+  echo "  tg restore-session  从私有备份仓库恢复 session（现输仓库和 Token，用完删掉）"
+  echo "  tg domain [域名]  绑定/更换域名（不给域名就列出已有证书选一个）"
+  echo "  tg uninstall    全部卸载（会提示输入 yes 确认）"
+  echo "  tg restart      重启服务"
+  echo "  tg update       拉取最新代码并重新构建"
+  echo "  tg help         帮助"
+}
+
+pause_for_key() {
+  echo ""
+  read -n 1 -s -r -p "按任意键返回菜单..." _key
+  echo ""
+}
+
+menu() {
+  while true; do
+    echo ""
+    echo "===== 视频库配置 ====="
+    show_status
+    echo ""
+    echo "1) 设置 api_id"
+    echo "2) 设置 api_hash"
+    echo "3) 删除 api 配置"
+    echo "4) 重置账号密码"
+    echo "5) 查看账号密码"
+    echo "6) 重启服务"
+    echo "7) 绑定/更换域名"
+    echo "8) 卸载（全部删除）"
+    echo "9) 重置访问路径"
+    echo "10) 查看访问路径"
+    echo "11) 设置并行下载数（1-4，默认 2）"
+    echo "12) 同步 session 到备份仓库"
+    echo "13) 从备份仓库恢复 session"
+    echo "14) 更新到最新版"
+    if path_enabled; then
+      echo "15) 关闭访问路径（当前：开启）"
+    else
+      echo "15) 开启访问路径（当前：关闭）"
+    fi
+    echo "0) 退出"
+    read -r -p "选一个 [0-15]： " choice
+    case "$choice" in
+      1)
+        read -r -p "api_id： " v
+        do_set_id "$v"
+        ;;
+      2)
+        read -r -s -p "api_hash（输入时不显示）： " v
+        echo ""
+        do_set_hash "$v"
+        ;;
+      3)
+        read -r -p "确认删除 api 配置吗？(y/N)： " confirm
+        if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+          do_del
+        else
+          echo "已取消。"
+        fi
+        ;;
+      4)
+        do_reset_web_auth ""
+        ;;
+      5)
+        show_web_auth
+        ;;
+      6)
+        restart_service
+        ;;
+      7)
+        do_domain
+        ;;
+      9)
+        do_reset_web_path ""
+        ;;
+      10)
+        show_web_path
+        ;;
+      11)
+        do_set_parallel ""
+        ;;
+      12)
+        do_sync_session
+        ;;
+      13)
+        do_restore_session
+        ;;
+      14)
+        do_update
+        ;;
+      15)
+        if path_enabled; then do_path_off; else do_path_on; fi
+        ;;
+      8)
+        do_uninstall
+        if [ $? -eq 0 ]; then
+          echo "已卸载，退出。"
+          break
+        fi
+        ;;
+      0|"")
+        echo "退出。"
+        break
+        ;;
+      *)
+        echo "没有这个选项，选 0-15。"
+        ;;
+    esac
+    case "$choice" in
+      1|2|3|4|5|6|7|8|9|10|11|12|13|14|15)
+        pause_for_key
+        ;;
+    esac
+  done
+}
+
+# 从旧版 tg 执行 tg update 时，跑的是旧脚本，里面没有端口迁移；所以新脚本每次运行都顺手检查一次
+# （只在 root、且确实还有指向 8000 的 tgweb 配置时才动），任何一条 tg 命令都能把反代改到 9393。
+if [ "$(id -u)" = "0" ] && [ "${1:-}" != "uninstall" ]; then
+  _migrate_nginx_port || true
+fi
+
+case "${1:-}" in
+  status) show_status ;;
+  set-id) do_set_id "${2:-}" ;;
+  set-hash) if [ -n "${2:-}" ]; then echo "注意：命令行里写的密钥会留在 shell 历史里，下次请不带参数交互输入。"; fi; do_set_hash "${2:-}" ;;
+  del) do_del ;;
+  reset-auth|reset-account) do_reset_web_auth "${2:-}" "${3:-}" ;;
+  show-auth|show-account) show_web_auth ;;
+  # 旧别名：带一个新密码就按“只改密码”处理，不带参数进选择菜单
+  reset-password|reset-pw) if [ -n "${2:-}" ]; then do_reset_web_auth password "${2}"; else do_reset_web_auth; fi ;;
+  show-password|view-password|show-pw|view-pw) show_web_auth ;;
+  reset-path) do_reset_web_path "${2:-}" ;;
+  show-path|view-path|show-p) show_web_path ;;
+  path-on|enable-path) do_path_on ;;
+  path-off|disable-path) do_path_off "${2:-}" ;;
+  set-parallel) do_set_parallel "${2:-}" ;;
+  show-parallel|view-parallel) show_parallel ;;
+  sync-session|backup-session) do_sync_session ;;
+  restore-session) do_restore_session ;;
+  domain) do_domain "${@:2}" ;;
+  uninstall) do_uninstall "${2:-}" ;;
+  restart) restart_service ;;
+  update) do_update ;;
+  help|-h|--help) show_help ;;
+  "") menu ;;
+  *) echo "未知命令：$1"; show_help; exit 1 ;;
+esac

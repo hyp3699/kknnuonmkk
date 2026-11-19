@@ -1,0 +1,10 @@
+# 上限定死大版本：以前是 >= 不封顶，重装时拉到新大版本可能直接破坏接口，
+# 特别是 Telethon：app.py 评论功能用的 _get_comment_data 是 Telethon 1.x 的内部方法，
+# 2.x 很可能改名或删掉，锁在 1.x 内，升大版本前先在测试环境验证。
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+telethon>=1.36,<2
+cryptg
+# 加密流用的 AES-CTR（app.py 的 _ctr_xor）。python:3.12-slim 上装的是 manylinux 轮子，
+# 不需要 gcc / libssl-dev，构建时间基本不变。版本只封大版本，和上面几条一样。
+cryptography>=42,<51

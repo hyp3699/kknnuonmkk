@@ -1,0 +1,26 @@
+services:
+  tg-stream:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9393:9393"
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      TG_API_ID: "${TG_API_ID}"
+      TG_API_HASH: "${TG_API_HASH}"
+      TG_SESSION: "data/tg.session"
+      WEB_USERNAME: "${WEB_USERNAME:-}"
+      WEB_PASSWORD: "${WEB_PASSWORD:-}"
+      WEB_PATH: "${WEB_PATH:-}"
+      WEB_PATH_ENABLED: "${WEB_PATH_ENABLED:-1}"
+      TG_PARALLEL: "${TG_PARALLEL:-2}"
+      # 加密流开关：默认 strict 只准加密（/stream 直接 403，不回落明文）；auto 不支持 SW 时回落明文；off 关闭
+      TG_STREAM_ENC: "${TG_STREAM_ENC:-strict}"
+      # 会话密钥的根（可选）：不填就每次启动随机生成，重启后重新登录一次即可
+      TG_BLOB_SECRET: "${TG_BLOB_SECRET:-}"
