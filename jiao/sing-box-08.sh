@@ -10240,6 +10240,20 @@ ensure_nft_env() {
     if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_input'; then
         nft add rule inet filter input jump script_input comment "Jump-to-Script" 2>/dev/null || { red "错误：添加 jump script_input 失败"; _env_fail=1; }
     fi
+    # 旧版用 nft insert 把 jump script_blocked 插到 input 链最前面，排在 lo 放行之前：
+    # 在防火墙里关掉某端口后，本机 nginx → 127.0.0.1:该端口 也会被 drop（反代一直加载）。
+    # 把它挪到最后一条 System-* 规则后面。
+    local _lo_line _bj_line _anchor _bh
+    _lo_line=$(nft list chain inet filter input 2>/dev/null | grep -n 'comment "System-lo"' | head -1 | cut -d: -f1)
+    _bj_line=$(nft list chain inet filter input 2>/dev/null | grep -n 'jump script_blocked' | head -1 | cut -d: -f1)
+    if [ -n "$_lo_line" ] && [ -n "$_bj_line" ] && [ "$_bj_line" -lt "$_lo_line" ]; then
+        _anchor=$(nft -a list chain inet filter input 2>/dev/null | awk '/comment "System-(lo|State|ICMPv4|ICMPv6)"/ { for (i=1;i<=NF;i++) if ($i=="handle") h=$(i+1) } END { print h }')
+        for _bh in $(nft -a list chain inet filter input 2>/dev/null | awk '/jump script_blocked/ { for (i=1;i<=NF;i++) if ($i=="handle") print $(i+1) }'); do
+            nft delete rule inet filter input handle "$_bh" 2>/dev/null
+        done
+        nft add rule inet filter input position "$_anchor" jump script_blocked comment "Jump-to-Blocked" 2>/dev/null ||
+            nft add rule inet filter input jump script_blocked comment "Jump-to-Blocked" 2>/dev/null || _env_fail=1
+    fi
     # 修复历史遗留顺序：旧脚本用 nft insert 把 jump script_input 插到了 input 链最前面，
     # 导致 jump script_blocked 在它后面，拦截规则永远晚于放行规则（被拦截的 IP/端口
     # 只要也在放行列表里就会先放行）。如果 jump script_input 在 jump script_blocked
@@ -11193,7 +11207,7 @@ iptables_ssl() {
                 fi
                 nft add chain inet filter script_blocked 2>/dev/null
                 if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
-                    nft insert rule inet filter input jump script_blocked 2>/dev/null
+                    ensure_nft_env >/dev/null 2>&1
                 fi
                 for proto in "${proto_list[@]}"; do
                     while read -r h; do
@@ -11324,7 +11338,7 @@ iptables_ssl() {
                         local target_handle="${rule_handles[$sel_idx]}"
                         nft add chain inet filter script_blocked 2>/dev/null
                         if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
-                            nft insert rule inet filter input jump script_blocked 2>/dev/null
+                            ensure_nft_env >/dev/null 2>&1
                         fi
                         if [ -n "$target_handle" ]; then
                             nft delete rule inet filter script_input handle "$target_handle" 2>/dev/null
@@ -11465,7 +11479,7 @@ if [ "${ip_choice}" == "4" ]; then
 fi
 nft add chain inet filter script_blocked 2>/dev/null
 if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
-    nft insert rule inet filter input jump script_blocked 2>/dev/null
+    ensure_nft_env >/dev/null 2>&1
 fi
 while read -r h; do
     [ -z "$h" ] && continue
@@ -11586,7 +11600,7 @@ local add_failed=0
 		    ensure_he_protocol41
             nft add chain inet filter script_blocked 2>/dev/null
             if ! nft list chain inet filter input 2>/dev/null | grep -q 'jump script_blocked'; then
-                nft insert rule inet filter input jump script_blocked comment "Jump-to-Blocked" 2>/dev/null
+                ensure_nft_env >/dev/null 2>&1
             fi
             local ssh_ports=""
             if command -v sshd &>/dev/null; then
