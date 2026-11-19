@@ -41,6 +41,65 @@ const CDN_COOLDOWN = 60 * 1000;
 let cdnState = { pxs: 'off', cdns: [], pt: '' };
 const cdnBad = new Map();   // 域名 -> 冷却到期时间
 
+// cdnState 只放内存里的坑：安卓上 SW 闲置几分钟（或切后台）会被系统杀掉，续播 / 拖进度条时
+// 再唤醒就是一个全新的实例，cdnState 变回初始的 off——用户明明选了 CDN，却悄悄退回主域名，
+// 角标上的域名也一起没了。所以往 CacheStorage 里存一份，新实例第一次发 blob 请求前读回来。
+// 页面通过 tg_cdn 推过来的配置永远优先：只要页面推过（cdnBooted = true），绝不用旧缓存覆盖。
+const CDN_CACHE = 'tgweb-cdn-v1';
+const CDN_STATE_KEY = '/_tgweb_cdn_state';
+let cdnBooted = false;      // 内存里的 cdnState 可不可信（页面推过 / 已经读过缓存）
+let cdnBooting = null;      // 正在读缓存的那一次（并发进来共用，不重复读）
+let cdnPersist = null;      // 最近一次写/删缓存（消息事件里用 waitUntil 挡住，SW 被立刻回收也不会丢）
+
+function cdnStateDefault() { return { pxs: 'off', cdns: [], pt: '' }; }
+
+// 把当前 cdnState 写进 CacheStorage。Node 单测里没有 caches，直接跳过（不影响别的逻辑）。
+function saveCdnState() {
+  try {
+    if (typeof caches === 'undefined' || !caches || typeof caches.open !== 'function' || typeof Response !== 'function') return Promise.resolve();
+    const snap = JSON.stringify({ pxs: cdnState.pxs, cdns: cdnState.cdns, pt: cdnState.pt });
+    cdnPersist = caches.open(CDN_CACHE).then(function (c) {
+      return c.put(CDN_STATE_KEY, new Response(snap, { headers: { 'Content-Type': 'application/json' } }));
+    }).catch(function () { /* 无痕 / 配额满：内存里还有，不影响这次播放 */ });
+    return cdnPersist;
+  } catch (e) { return Promise.resolve(); }
+}
+
+function dropCdnState() {
+  try {
+    if (typeof caches === 'undefined' || !caches || typeof caches.open !== 'function') return Promise.resolve();
+    cdnPersist = caches.open(CDN_CACHE).then(function (c) { return c.delete(CDN_STATE_KEY); }).catch(function () { /* 忽略 */ });
+    return cdnPersist;
+  } catch (e) { return Promise.resolve(); }
+}
+
+// SW 被回收过（新实例、内存还是初始值）时，第一次挑域名前调一次：
+// 只在还没被页面推过配置的时候恢复一次；恢复途中页面推了新配置，也不覆盖它。
+function ensureCdnState() {
+  if (cdnBooted) return Promise.resolve();
+  if (cdnBooting) return cdnBooting;
+  cdnBooting = (async function () {
+    try {
+      if (typeof caches !== 'undefined' && caches && typeof caches.open === 'function') {
+        const c = await caches.open(CDN_CACHE);
+        const r = await c.match(CDN_STATE_KEY);
+        if (r && !cdnBooted) {
+          const d = await r.json();
+          if (d && !cdnBooted) {
+            cdnState = {
+              pxs: String(d.pxs || 'off'),
+              cdns: Array.isArray(d.cdns) ? d.cdns.filter(function (x) { return x && x.url; }) : [],
+              pt: String(d.pt || '')
+            };
+          }
+        }
+      }
+    } catch (e) { /* 读不出来就用内存里的（默认只走主域名），绝不能让续播卡死 */ }
+    if (!cdnBooted) cdnBooted = true;
+  })().then(function () { cdnBooting = null; });
+  return cdnBooting;
+}
+
 // 候选域名，按优先顺序；'' = 主域名。和哈哈里 pxBases() 的规则一致。
 function cdnList(st) {
   const s = (st && st.pxs) || 'off';
@@ -320,6 +379,7 @@ function abortError() {
 async function* segmentPlaintext(ctx, state, start, end) {
   const want = end - start + 1;
   const body = JSON.stringify({ c: ctx.channel, m: ctx.msg, u: ctx.username || null, o: start, e: end });
+  await ensureCdnState();   // SW 闲置被系统回收过：先把上次的 CDN 配置读回来，再挑域名
   const st = cdnState;
   const multi = cdnList(st).length > 1;   // 有备选域名才需要换
   const tried = [];
@@ -363,7 +423,10 @@ async function* segmentPlaintext(ctx, state, start, end) {
         resp = r;
       }
     }
-    if (resp) break;
+    // 拿到能用的响应：不管是不是第一跳、不管 base 是 CDN 还是主域名，都告诉页面实际走的哪个域名。
+    // 页面每次起播都会先把角标上的域名清空（tgCdnActive = ''），只靠失败分支发通知的话，
+    // 选中的 CDN 第一次就成功时角标永远看不到“· 经 xxx”；切回 off 时老名字也会一直留着。
+    if (resp) { notifyCdn(base); break; }
     // 这个域名不行：拉黑 60 秒，换下一个（试过的不再试）；实在没得换就拿主域名再试一次，最后才报错。
     cdnBad.set(base, nowMs() + CDN_COOLDOWN);
     tried.push(base);
@@ -521,11 +584,19 @@ function handleSwMessage(event) {
     };
     // 换了走法 / 换了票据 / 显式要求：清冷却，新选择要能立刻试（不然刚拉黑的域名 60 秒内不会被选）
     if (d.badReset || prev.pxs !== cdnState.pxs || prev.pt !== cdnState.pt) cdnBad.clear();
+    cdnBooted = true;     // 页面推的是最新的，之后绝不能再拿缓存里的旧配置覆盖它
+    saveCdnState();       // SW 闲置被杀掉后还能接着走这个域名
     return true;
   }
   if (d.type === 'badReset') { cdnBad.clear(); return true; }
   if (d.type !== 'tgweb-logout') return false;
   resetCaches();
+  // 退出网页登录：CDN 走法和票据也一起清（票据对的是刚退出的那个会话），持久化的那份一并删掉，
+  // 免得 SW 重启后又把上一个账号的票据读回来。下次登录哈哈会重新 tgSync() 推配置。
+  cdnState = cdnStateDefault();
+  cdnBad.clear();
+  cdnBooted = true;
+  dropCdnState();
   return true;
 }
 
@@ -545,6 +616,7 @@ function notifyPage(code, message) {
 
 // ---------- Service Worker 接线 ----------
 async function handleMedia(request) {
+  await ensureCdnState();   // 新实例第一条 /media/ 就先把 CDN 配置读回来
   const url = new URL(request.url);
   const rest = url.pathname.slice((BASE + '/media/').length);
   const parts = rest.split('/');
@@ -599,6 +671,11 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function' &
   // 页面退出网页登录时会 postMessage({type:'tgweb-logout'})：把会话密钥和元数据缓存清掉。
   self.addEventListener('message', function (event) {
     handleSwMessage(event);
+    // tg_cdn / tgweb-logout 的 CacheStorage 写是异步的，算进这次消息的生命周期里：
+    // 不然刚发完消息 SW 就被系统回收，那份持久化根本没落地，续播时又退回主域名。
+    if (typeof event.waitUntil === 'function' && cdnPersist) {
+      try { event.waitUntil(cdnPersist); } catch (e) { /* 忽略 */ }
+    }
   });
 }
 
@@ -622,6 +699,11 @@ if (typeof module !== 'undefined' && module.exports) {
     handleMedia: handleMedia,
     notifyPage: notifyPage,
     notifyCdn: notifyCdn,
+    saveCdnState: saveCdnState,
+    ensureCdnState: ensureCdnState,
+    dropCdnState: dropCdnState,
+    cdnStateDefault: cdnStateDefault,
+    getCdnBooted: function () { return cdnBooted; },
     resetCaches: resetCaches,
     handleSwMessage: handleSwMessage,
     cdnList: cdnList,

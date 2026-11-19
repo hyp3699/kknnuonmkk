@@ -229,7 +229,9 @@ const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"
 const NAMES={};let CUR=[];
 let TGON=false;
 async function loadCfgs(){
-  let cs=[];const tq=api('/api/tg/status').then(d=>!!d.on,()=>false);
+  // ?f=1：强制服务器实时探一次 tgweb（服务器只缓存“在运行”，“不在运行”每次都重新探），
+  // 不然刚重启/刚更新的那十几秒里，这里拿到的还是缓存的 false，LS.tg 被清成 '0'，选项直接不见了。
+  let cs=[];const tq=api('/api/tg/status?f=1').then(d=>!!d.on,()=>false);
   try{cs=await api('/api/configs')}catch(e){}
   TGON=await tq;  // tgweb 在运行才显示
   $('#cfg').innerHTML=cs.map(c=>`<option value="${esc(c.id)}">${esc(c.builtin?'jjoo':c.name)}</option>`).join('')+(TGON?'<option value="__tg">tgweb</option>':'');
@@ -256,9 +258,12 @@ async function loadSites(){
 }
 async function init(){
   await encLoad();  // 先拿到加密会话（/api/enc 才下发 ys_sid）：CDN 票据要按这个会话签，不能和 getCdns 并发
+  // 不等采集站：loadSites/loadCats 慢的时候（默认就是 tgweb 模式），用户点播 tgweb 时 CDNS 和 pt 还是空的，
+  // 第一条加密请求就签不出票据。这里 encLoad 一完就先把 CDN 配置拉下来，和下面的 loadCfgs/loadSites 并行。
+  // （#tgf 还没建好也不要紧：它的 onload 和 tg_need_cdn 都会再触发 tgSync()。）
+  getCdns().then(()=>{pxBtn();tgSync()});
   await loadCfgs();
   if(await loadSites()) await loadCats();
-  getCdns().then(()=>{pxBtn();tgSync()});
   route();
 }
 $('#cfg').onchange=async()=>{const v=$('#cfg').value;

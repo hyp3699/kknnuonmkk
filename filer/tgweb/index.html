@@ -1156,7 +1156,10 @@ function fmtSwipe(sec){
   return s >= 60 ? Math.floor(s / 60) + '分' + String(s % 60).padStart(2, '0') + '秒' : s + '秒';
 }
 function swipeExcluded(target, x, y){
-  if (target && target.closest && (target.closest('#playerProgress') || target.closest('.modal-close'))) return true;
+  // #encBadge 也要排掉：它贴在屏幕最右上角，竖屏高视频时正好落在 <video> 区域里，
+  // 不排的话会被当成“在画面上按下”，touchstart 上 e.preventDefault() 把随后的 click 吞掉，
+  // 安卓手机点角标就打不开哈哈的 🌐「视频走哪里」。它自己 pointer-events:auto，只吃点击、不吃滑动。
+  if (target && target.closest && (target.closest('#playerProgress') || target.closest('.modal-close') || target.closest('#encBadge'))) return true;
   const p = document.getElementById('player');
   const r = p.getBoundingClientRect();
   return !!(r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && y > r.bottom - 48);
@@ -2267,6 +2270,18 @@ function tgPlainFailover(){
     try { window.parent.postMessage({ type:'tg_need_cdn' }, location.origin); } catch(e){}
   }
   if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('controllerchange', ()=>{ tgCdnSend(); });
+  // 页面一加载就先问一次新版 sw.js：以前只在 playVideo() 里注册，而且已经有 controller 时
+  // 直接放行、只把 register/update 丢到后台，tg update 之后第一次播常常还在用旧 SW
+  // （角标通知、CDN 挑域名、失败回退全是旧逻辑）。updateViaCache:'none' 让浏览器每次都
+  // 去服务器问 sw.js 有没有变；新 SW skipWaiting 后 controllerchange 会紧跟着触发上面的 tgCdnSend()。
+  // 地址栏停在没尾部斜杠的路径时不在 scope 里（playVideo 会先跳过去），这里不白注册。
+  if ('serviceWorker' in navigator && window.isSecureContext && !(WEB_BASE && window.location.pathname === WEB_BASE)) {
+    try {
+      navigator.serviceWorker.register(WEB_BASE + '/sw.js', { scope: WEB_BASE + '/', updateViaCache: 'none' })
+        .then(reg => { if (reg && typeof reg.update === 'function') reg.update().catch(()=>{}); })
+        .catch(()=>{});
+    } catch(e) {}
+  }
   // 兜底：独立部署时没这个接口，静默忽略（不改变原来的行为）
   setTimeout(()=>{ if (tgCdnGot) return; api('/api/cdns').then(d=>{
     if (tgCdnGot || !d || !Array.isArray(d.cdns) || !d.cdns.length) return;
