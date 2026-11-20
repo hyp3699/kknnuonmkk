@@ -1609,7 +1609,165 @@ _CHUNK = 512 * 1024  # Telethon 的 request_size 默认就是 512KB，对齐这�
 _head_cache = _BytesLRU(50 * 1024 * 1024)
 
 
+# 分块硬盘缓存（哈哈加）：看过的 512KB 块存 data/chunkcache，往回拖/重看不用再从 Telegram 下；
+# 总量上限 TG_CACHE_MB（默认 500MB，所有视频共用），满了删最久没用的。0 = 关闭。
+# 预读：每交出一块就在后台把后面 TG_PREFETCH 块（默认 8 块 = 4MB）先下好放缓存，同一块不会重复下。
+_CC_DIR = os.path.join(os.path.dirname(SESSION_PATH) or "data", "chunkcache")
+try:
+    _CC_MAX = max(0, int(os.environ.get("TG_CACHE_MB", "500"))) * 1024 * 1024
+except ValueError:
+    _CC_MAX = 500 * 1024 * 1024
+try:
+    _PREFETCH = max(0, min(32, int(os.environ.get("TG_PREFETCH", "8"))))
+except ValueError:
+    _PREFETCH = 8
+_cc_index = OrderedDict()  # 文件名 -> 大小，按最近使用排序
+_cc_size = 0
+_cc_pending = {}  # (doc_id, chunk_start) -> Task，同一块只下一次
+_prefetch_sem = asyncio.Semaphore(2)
+import threading as _thr
+_cc_lock = _thr.Lock()
+
+
+def _cc_init():
+    global _cc_size
+    if not _CC_MAX:
+        return
+    try:
+        os.makedirs(_CC_DIR, exist_ok=True)
+        fs = []
+        for n in os.listdir(_CC_DIR):
+            fp = os.path.join(_CC_DIR, n)
+            try:
+                st = os.stat(fp)
+                fs.append((st.st_mtime, n, st.st_size))
+            except OSError:
+                pass
+        for _, n, sz in sorted(fs):
+            _cc_index[n] = sz
+            _cc_size += sz
+        _cc_evict()
+    except OSError:
+        pass
+
+
+def _cc_evict():
+    global _cc_size
+    while _cc_size > _CC_MAX and _cc_index:
+        n, sz = _cc_index.popitem(last=False)
+        _cc_size -= sz
+        try:
+            os.remove(os.path.join(_CC_DIR, n))
+        except OSError:
+            pass
+
+
+def _cc_name(doc_id, chunk_start):
+    return "%s_%d" % (doc_id, chunk_start // _CHUNK)
+
+
+def _cc_get(name):
+    with _cc_lock:
+        return _cc_get_l(name)
+
+
+def _cc_get_l(name):
+    if name not in _cc_index:
+        return None
+    try:
+        with open(os.path.join(_CC_DIR, name), "rb") as f:
+            data = f.read()
+        _cc_index.move_to_end(name)
+        return data
+    except OSError:
+        global _cc_size
+        _cc_size -= _cc_index.pop(name, 0)
+        return None
+
+
+def _cc_put(name, data):
+    with _cc_lock:
+        _cc_put_l(name, data)
+
+
+def _cc_put_l(name, data):
+    global _cc_size
+    if not _CC_MAX or name in _cc_index:
+        return
+    try:
+        tmp = os.path.join(_CC_DIR, name + ".tmp")
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, os.path.join(_CC_DIR, name))
+        _cc_index[name] = len(data)
+        _cc_size += len(data)
+        _cc_evict()
+    except OSError:
+        pass
+
+
+_cc_init()
+
+
+def _doc_id(media):
+    d = getattr(media, "document", None) or media
+    return getattr(d, "id", None)
+
+
 async def _download_one_chunk(client, media, total, chunk_start, chunk_len):
+    # 先查硬盘缓存/正在下的同一块；整块（或文件最后一块）才进缓存，首块小探测从缓存整块里裁
+    did = _doc_id(media) if _CC_MAX else None
+    if did is None:
+        return await _download_one_chunk_raw(client, media, total, chunk_start, chunk_len)
+    name = _cc_name(did, chunk_start)
+    data = await asyncio.to_thread(_cc_get, name)
+    if data is not None and len(data) >= chunk_len:
+        return data[:chunk_len]
+    full = min(_CHUNK, total - chunk_start)
+    key = (did, chunk_start)
+    t = _cc_pending.get(key)
+    if t is None:
+        t = asyncio.ensure_future(_cc_fetch(client, media, total, chunk_start, full, name))
+        _cc_pending[key] = t
+        t.add_done_callback(lambda _t, k=key: _cc_pending.pop(k, None))
+    # shield：浏览器断开取消的是我们这次等待，块照样下完进缓存（预读和别的请求可能也在等它）
+    data = await asyncio.shield(t)
+    return data[:chunk_len]
+
+
+async def _cc_fetch(client, media, total, chunk_start, full, name):
+    data = await _download_one_chunk_raw(client, media, total, chunk_start, full)
+    if len(data) == full:
+        await asyncio.to_thread(_cc_put, name, data)
+    return data
+
+
+def _prefetch(client, media, total, after):
+    # after = 刚交出那块之后的下一个对齐位置；在后台把后面几块先下进缓存
+    if not _CC_MAX or not _PREFETCH:
+        return
+    did = _doc_id(media)
+    if did is None:
+        return
+    p = (after // _CHUNK) * _CHUNK
+    for _ in range(_PREFETCH):
+        if p >= total:
+            break
+        key = (did, p)
+        if key not in _cc_pending and _cc_name(did, p) not in _cc_index:
+            async def run(p=p, key=key):
+                async with _prefetch_sem:
+                    if key in _cc_pending or _cc_name(did, p) in _cc_index:
+                        return
+                    try:
+                        await _download_one_chunk(client, media, total, p, min(_CHUNK, total - p))
+                    except BaseException:
+                        pass
+            asyncio.ensure_future(run())
+        p += _CHUNK
+
+
+async def _download_one_chunk_raw(client, media, total, chunk_start, chunk_len):
     # 只取一个 512KB 对齐块：调用方保证 chunk_start 是 512KB 倍数（首块除外，首块在调用方对齐后自己裁掉前面的 skip），
     # 这样 Telethon 不用走 Generic 的“每块多下 512KB 再裁”路线，实测单连接几百 KB/s 时这点很关键。
     # 全局信号量在这里拿：4 个任务占满时，后来的窗口要等，不会无限制并发去撞 FloodWait。
@@ -1759,6 +1917,8 @@ async def _parallel_gen(client, media, total, start, end, channel_id=None, msg_i
             # 这一块交出去了，窗口空出一个名额，立刻补发下一块（如果还有的话）
             del in_flight[idx]
             next_to_yield += 1
+            # 预读：从当前窗口之后开始（窗口里的块本来就在下）
+            _prefetch(client, cur_media, total, specs[idx][0] + _CHUNK * (PARALLEL + 1))
             if next_to_issue < len(specs):
                 _issue(next_to_issue)
                 next_to_issue += 1
