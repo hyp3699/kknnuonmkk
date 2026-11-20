@@ -1611,16 +1611,16 @@ _head_cache = _BytesLRU(50 * 1024 * 1024)
 
 # 分块硬盘缓存（哈哈加）：看过的 512KB 块存 data/chunkcache，往回拖/重看不用再从 Telegram 下；
 # 总量上限 TG_CACHE_MB（默认 500MB，所有视频共用），满了删最久没用的。0 = 关闭。
-# 预读：每交出一块就在后台把后面 TG_PREFETCH 块（默认 8 块 = 4MB）先下好放缓存，同一块不会重复下。
+# 预读：每交出一块就在后台把后面 TG_PREFETCH 块（默认 16 块 = 8MB）先下好放缓存，同一块不会重复下。
 _CC_DIR = os.path.join(os.path.dirname(SESSION_PATH) or "data", "chunkcache")
 try:
     _CC_MAX = max(0, int(os.environ.get("TG_CACHE_MB", "500"))) * 1024 * 1024
 except ValueError:
     _CC_MAX = 500 * 1024 * 1024
 try:
-    _PREFETCH = max(0, min(32, int(os.environ.get("TG_PREFETCH", "8"))))
+    _PREFETCH = max(0, min(32, int(os.environ.get("TG_PREFETCH", "16"))))
 except ValueError:
-    _PREFETCH = 8
+    _PREFETCH = 16
 _cc_index = OrderedDict()  # 文件名 -> 大小，按最近使用排序
 _cc_size = 0
 _cc_pending = {}  # (doc_id, chunk_start) -> Task，同一块只下一次
