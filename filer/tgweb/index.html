@@ -389,6 +389,10 @@ function showApp(){
   document.getElementById('app').classList.remove('hidden');
 }
 function showView(name){
+  ['channelsView','channelView','chatView','commentsView'].forEach(id=>{
+    const el = document.getElementById(id);
+    if (el && !el.classList.contains('hidden') && id !== name) viewScroll[id] = window.scrollY;
+  });
   ['loginView','channelsView','channelView','checkingView','chatView','commentsView'].forEach(id=>{
     document.getElementById(id).classList.toggle('hidden', id !== name);
   });
@@ -454,9 +458,61 @@ function currentViewKind(){
   if (!document.getElementById('channelView').classList.contains('hidden')) return 'video';
   return 'chat';
 }
+// 返回不刷新：离开聊天/视频页前把整页内容、滚动位置、分页状态存一份快照，
+// 返回时直接把快照放回去，不再重新请求、不再“正在加载…”、不跳到最底/最顶。
+// 聊天页回来后照常每 3 秒轮询，新消息会接着出现。
+var viewScroll = {};
+function snapView(){
+  const kind = currentViewKind();
+  const y = window.scrollY;
+  if (kind === 'video') {
+    const w = document.getElementById('loadMoreWrap');
+    return {kind, id: currentChannelId, y, html: document.getElementById('videos').innerHTML,
+      wrapHidden: w.classList.contains('hidden'), btn: document.getElementById('loadMoreBtn').textContent,
+      videoOffset, videoHasMore};
+  }
+  const w = document.getElementById('chatLoadMoreWrap');
+  return {kind: 'chat', id: currentChannelId, y, html: document.getElementById('chatMessages').innerHTML,
+    wrapHidden: w.classList.contains('hidden'), btn: document.getElementById('chatLoadMoreBtn').textContent,
+    chatOldestId, chatHasMore, chatDisplayedIds: new Set(chatDisplayedIds), chatMsgHash: Object.assign({}, chatMsgHash),
+    chatNewestId, chatSearching, chatSearchQ, chatSearchOffset, chatSearchHasMore,
+    searchVal: (document.getElementById('chatSearchInput')||{}).value || '',
+    clearHidden: document.getElementById('clearChatSearchBtn').classList.contains('hidden'),
+    nextHidden: document.getElementById('chatSearchNextWrap').classList.contains('hidden')};
+}
+function restoreView(sn, title, username){
+  if (!sn || !sn.html) return false;
+  currentChannelId = sn.id; currentChannelTitle = title || ''; currentChannelUsername = username || '';
+  updateJoinButtons(); hideSearchResults();
+  if (sn.kind === 'video') {
+    document.getElementById('channelTitle').textContent = title || '频道';
+    document.getElementById('videos').innerHTML = sn.html;
+    videoOffset = sn.videoOffset; videoHasMore = sn.videoHasMore;
+    document.getElementById('loadMoreWrap').classList.toggle('hidden', sn.wrapHidden);
+    const b = document.getElementById('loadMoreBtn'); b.disabled = false; b.textContent = sn.btn;
+    showView('channelView');
+  } else {
+    currentChatChannelId = sn.id;
+    document.getElementById('chatTitle').textContent = title || '频道';
+    document.getElementById('chatMessages').innerHTML = sn.html;
+    document.getElementById('chatLoadMoreWrap').classList.toggle('hidden', sn.wrapHidden);
+    const b = document.getElementById('chatLoadMoreBtn'); b.disabled = false; b.textContent = sn.btn;
+    chatOldestId = sn.chatOldestId; chatHasMore = sn.chatHasMore; chatDisplayedIds = sn.chatDisplayedIds;
+    chatMsgHash = sn.chatMsgHash; chatNewestId = sn.chatNewestId;
+    chatSearching = sn.chatSearching; chatSearchQ = sn.chatSearchQ; chatSearchOffset = sn.chatSearchOffset; chatSearchHasMore = sn.chatSearchHasMore;
+    const csi = document.getElementById('chatSearchInput'); if (csi) csi.value = sn.searchVal;
+    document.getElementById('clearChatSearchBtn').classList.toggle('hidden', sn.clearHidden);
+    document.getElementById('chatSearchNextWrap').classList.toggle('hidden', sn.nextHidden);
+    hideChatNewMsgBar();
+    showView('chatView');
+  }
+  const y = sn.y; window.scrollTo({top: y, behavior: 'auto'});
+  requestAnimationFrame(()=>window.scrollTo({top: y, behavior: 'auto'}));
+  return true;
+}
 function pushNavStack(){
   if (!currentChannelId) return;
-  navStack.push({id: currentChannelId, title: currentChannelTitle, username: currentChannelUsername, view: currentViewKind()});
+  navStack.push({id: currentChannelId, title: currentChannelTitle, username: currentChannelUsername, view: currentViewKind(), snap: snapView()});
 }
 // 滑动返回不再直接关闭网页：tgweb 是单页应用，以前内部跳转（聊天、视频、评论）
 // 根本不写浏览器历史，所以手机上从屏幕边缘一滑、浏览器一返回，整个网页就退出了。
@@ -1455,13 +1511,20 @@ function backToChannelsDirect(){
   // 否则返回一次又 push 一次，历史永远减不下去。
   if (navStack.length) {
     const prev = navStack.pop();
+    if (prev.snap && prev.snap.id === prev.id && restoreView(prev.snap, prev.title, prev.username)) return;
     if (prev.view === 'video') { loadVideos(prev.id, prev.title, prev.username, {push:false}); }
     else { loadChat(prev.id, prev.title, prev.username, {push:false}); }
     return;
   }
   currentChannelId = null;
+  const hadList = document.getElementById('channels').children.length > 0;
   showView('channelsView');
-  loadChannels();
+  if (hadList) {
+    // 全部频道列表已经有了：回到原来的位置，后台悄悄更新列表，位置不动
+    const y = viewScroll.channelsView || 0;
+    window.scrollTo({top: y, behavior: 'auto'});
+    loadChannels().then(()=>{ if (!document.getElementById('channelsView').classList.contains('hidden')) window.scrollTo({top: y, behavior: 'auto'}); });
+  } else loadChannels();
 }
 function backToChannels(){
   // 有内部历史时走浏览器返回，让 popstate 去执行 backToChannelsDirect，
@@ -1902,12 +1965,14 @@ let commentDiscChannelId = null;
 let commentOldestId = 0;
 let commentHasMore = false;
 let commentReturnTo = 'chatView';
+let commentSnap = null;
 async function openComments(channelId, msgId){
   commentChannelId = channelId;
   commentMsgId = msgId;
   commentDiscChannelId = null;
   commentOldestId = 0;
   commentHasMore = false;
+  commentSnap = (!document.getElementById('chatView').classList.contains('hidden') || !document.getElementById('channelView').classList.contains('hidden')) && currentChannelId ? snapView() : null;
   // 记住从哪来的：聊天页、视频页、还是搜索结果页，返回时回到原来那页
   if (!document.getElementById('chatView').classList.contains('hidden')) commentReturnTo = 'chatView';
   else if (!document.getElementById('channelView').classList.contains('hidden')) commentReturnTo = 'channelView';
@@ -1925,6 +1990,8 @@ async function openComments(channelId, msgId){
 }
 function backFromCommentsDirect(){
   closePlayer();
+  const sn = commentSnap; commentSnap = null;
+  if (sn && sn.id === currentChannelId && restoreView(sn, currentChannelTitle, currentChannelUsername)) return;
   if (commentReturnTo === 'channelView' && currentChannelId) { showView('channelView'); }
   else if (currentChannelId) { loadChat(currentChannelId, currentChannelTitle, currentChannelUsername, {push:false}); }
   else { showView('channelsView'); loadChannels(); }
