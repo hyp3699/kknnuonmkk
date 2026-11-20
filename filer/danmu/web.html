@@ -611,7 +611,7 @@ function play(fi,ei,t0){
 const adOn=()=>LS.noad!=='0';let ADCUT={n:0,s:0};
 function segSig(u){let x=String(u||'');const m=x.match(/^\/px\?u=([^&#]+)/)||x.match(/^\/px\?x=[^#]*#u=(.+)$/);if(m){try{x=decodeURIComponent(m[1])}catch(e){}}
   try{x=new URL(x,location.href).pathname}catch(e){}  // 只看路径，不看域名（正片常分在几个 CDN 域名上）
-  const i=x.lastIndexOf('/'),dir=x.slice(0,i),f=x.slice(i+1);
+  const i=x.lastIndexOf('/'),f=x.slice(i+1),dir=x.slice(0,i).split('/').filter(Boolean).slice(-4).join('/');  // 只比最后 4 层目录：同一片分在两个 CDN 上时前缀不同（/202611/… 与 /yyv14/202611/…）
   const dot=f.lastIndexOf('.'),base=dot>0?f.slice(0,dot):f,ext=dot>0?f.slice(dot+1):'';
   return {sig:dir+'|'+ext.toLowerCase(),len:base.length}}
 function adStrip(txt){
