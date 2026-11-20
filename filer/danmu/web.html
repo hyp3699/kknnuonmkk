@@ -611,25 +611,32 @@ function play(fi,ei,t0){
 const adOn=()=>LS.noad!=='0';let ADCUT={n:0,s:0};
 function segSig(u){let x=String(u||'');const m=x.match(/^\/px\?u=([^&#]+)/)||x.match(/^\/px\?x=[^#]*#u=(.+)$/);if(m){try{x=decodeURIComponent(m[1])}catch(e){}}
   try{x=new URL(x,location.href).pathname}catch(e){}  // 只看路径，不看域名（正片常分在几个 CDN 域名上）
-  const i=x.lastIndexOf('/'),f=x.slice(i+1),dir=x.slice(0,i).split('/').filter(Boolean).slice(-4).join('/');  // 只比最后 4 层目录：同一片分在两个 CDN 上时前缀不同（/202611/… 与 /yyv14/202611/…）
+  const i=x.lastIndexOf('/'),f=x.slice(i+1),dir=x.slice(0,i).split('/').filter(Boolean);
   const dot=f.lastIndexOf('.'),base=dot>0?f.slice(0,dot):f,ext=dot>0?f.slice(dot+1):'';
-  return {sig:dir+'|'+ext.toLowerCase(),len:base.length}}
+  const sq=base.match(/^(\D*)\d+$/);  // 0.ts、index123.ts 这种顺序编号：文件名长短会随编号变
+  return {dir,ext:ext.toLowerCase(),sig:dir.join('/')+'|'+ext.toLowerCase(),len:base.length,np:sq?sq[1]:null}}
+// 同一片分在几个 CDN 上，路径前缀可能不同（/202611/… 与 /yyv14/202611/…）：末尾至少 2 层（最多比 4 层）目录相同就算同一个
+function sameDir(a,b){if(a.ext!==b.ext)return false;if(a.sig===b.sig)return true;
+  const k=Math.min(4,a.dir.length,b.dir.length);if(k<2)return false;
+  return a.dir.slice(-k).join('/')===b.dir.slice(-k).join('/')}
 function adStrip(txt){
   if(!adOn()||typeof txt!=='string'||txt.indexOf('#EXTINF')<0||txt.indexOf('#EXT-X-DISCONTINUITY')<0||/#EXT-X-PLAYLIST-TYPE:EVENT|#EXT-X-STREAM-INF/i.test(txt))return txt;
-  const L=txt.split(/\r?\n/),head=[],blocks=[];let cur=null,tail=[],key='';
+  const L=txt.split(/\r?\n/),head=[],blocks=[];let cur=null,tail=[],key='',map='';
   for(const ln of L){const t=ln.trim();
     if(!cur&&!/^#EXTINF|^#EXT-X-DISCONTINUITY$|^#EXT-X-KEY|^#EXT-X-MAP/.test(t)&&!(t&&!t.startsWith('#'))){if(t==='#EXT-X-ENDLIST')tail.push(ln);else head.push(ln);continue}
-    if(t==='#EXT-X-DISCONTINUITY'){if(cur&&cur.segs.length)blocks.push(cur);cur={lines:[],segs:[],dur:0,durs:[],key};continue}
+    if(t==='#EXT-X-DISCONTINUITY'){if(cur&&cur.segs.length)blocks.push(cur);cur={lines:[],segs:[],dur:0,durs:[],key,map};continue}
     if(t==='#EXT-X-ENDLIST'){tail.push(ln);continue}
-    if(!cur)cur={lines:[],segs:[],dur:0,durs:[],key};
+    if(!cur)cur={lines:[],segs:[],dur:0,durs:[],key,map};
     if(t.startsWith('#EXT-X-KEY'))key=ln;
+    if(t.startsWith('#EXT-X-MAP'))map=ln;
     cur.lines.push(ln);
     if(t.startsWith('#EXTINF')){const d=parseFloat(t.slice(8))||0;cur.dur+=d;cur.durs.push(d)}
     else if(t&&!t.startsWith('#'))cur.segs.push(t)}
   if(cur&&cur.segs.length)blocks.push(cur);
   if(blocks.length<2)return txt;
   const total=blocks.reduce((a,b)=>a+b.dur,0);
-  const sigDur={};blocks.forEach(b=>{const g=segSig(b.segs[0]);b.sig=g.sig;b.len=g.len;sigDur[b.sig]=(sigDur[b.sig]||0)+b.dur});
+  const cans=[];blocks.forEach(b=>{const g=segSig(b.segs[0]);b.len=g.len;b.np=g.np;let c=cans.find(x=>sameDir(x,g));if(!c){c=g;cans.push(g)}b.sig=c.sig});
+  const sigDur={};blocks.forEach(b=>sigDur[b.sig]=(sigDur[b.sig]||0)+b.dur);
   const main=Object.keys(sigDur).sort((a,b)=>sigDur[b]-sigDur[a])[0];
   // 同一段（第一个分片地址一模一样）在一个视频里出现两次以上，又不是正片目录：一定是插播
   const fc={};blocks.forEach(b=>fc[b.segs[0]]=(fc[b.segs[0]]||0)+1);
@@ -642,7 +649,8 @@ function adStrip(txt){
     const keep=blocks.filter(b=>!b.ad),cs=total-keep.reduce((a,b)=>a+b.dur,0);
     if(!keep.length||cs>total*0.7||cs>600)return txt;
     return adOut(head,keep,tail,blocks.length-keep.length,cs)}
-  const ml=blocks.filter(b=>b.sig===main).sort((a,b)=>b.dur-a.dur)[0].len;  // 正片文件名长度
+  const mb=blocks.filter(b=>b.sig===main).sort((a,b)=>b.dur-a.dur)[0];  // 正片文件名长度（顺序编号的站不比长短）
+  const lenOff=b=>Math.abs(b.len-mb.len)>3&&!(mb.np!==null&&b.np===mb.np);
   const AD=/\/(adjump|ad|ads|guanggao)\//i,LONG=120;
   // 同一次转码的片段时长会反复出现；广告是另一次转码，时长几乎对不上正片
   const MDS=new Set();blocks.forEach(b=>{if(b.sig===main&&b.dur>=LONG)b.durs.forEach(x=>MDS.add(x.toFixed(3)))});
@@ -650,7 +658,7 @@ function adStrip(txt){
   const md=blocks.map(b=>b.dur).sort((a,b)=>a-b)[blocks.length>>1],fewCuts=md>=60;  // 正片本身切成很多小段的站（如意、西瓜）不用“夹在中间”这条
   blocks.forEach((b,i)=>{
     if(b.dur>LONG||b.dur>=total*0.45)return;
-    if(b.sig!==main||Math.abs(b.len-ml)>3||AD.test(b.segs[0])){b.ad=1;return}  // 另一目录/文件名长短明显不同：插进来的
+    if(b.sig!==main||lenOff(b)||AD.test(b.segs[0])){b.ad=1;return}  // 另一目录/文件名长短明显不同：插进来的
     // 同目录同文件名样子：只有“很短 + 前后都夹着长正片”才算（非凡这类把广告切进同一目录）
     const p=blocks[i-1],n=blocks[i+1];
     if(fewCuts&&b.dur<=35&&p&&n&&p.dur>=LONG&&n.dur>=LONG&&p.sig===main&&n.sig===main&&Math.abs(p.len-b.len)<=3&&durOv(b)<0.2)b.ad=1});
@@ -661,7 +669,14 @@ function adStrip(txt){
   return adOut(head,keep,tail,cut,cs)}
 function adOut(head,keep,tail,cut,cs){
   ADCUT={n:cut,s:Math.round(cs)};
-  const out=[...head];let lk='';keep.forEach((b,i)=>{if(i)out.push('#EXT-X-DISCONTINUITY');if(b.key&&b.key!==lk&&!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY')))out.push(b.key);out.push(...b.lines);b.lines.forEach(x=>{if(x.trim().startsWith('#EXT-X-KEY'))lk=x});if(!b.lines.some(x=>x.trim().startsWith('#EXT-X-KEY'))&&b.key)lk=b.key});out.push(...tail);
+  // 每段开头补上它该用的 KEY / MAP（原来写在被删掉的广告段或片头段里的，不能跟着丢）
+  const out=[...head];let lk='',lm='';const has=(b,p)=>{for(const x of b.lines){const t=x.trim();if(t.startsWith(p))return true;if(t&&!t.startsWith('#'))return false}return false};  // 第一个分片之前有没有自己的
+  keep.forEach((b,i)=>{if(i)out.push('#EXT-X-DISCONTINUITY');
+    if(b.map&&b.map!==lm&&!has(b,'#EXT-X-MAP'))out.push(b.map);
+    if(b.key&&b.key!==lk&&!has(b,'#EXT-X-KEY'))out.push(b.key);
+    out.push(...b.lines);
+    lk=b.key;lm=b.map;b.lines.forEach(x=>{const t=x.trim();if(t.startsWith('#EXT-X-KEY'))lk=x;if(t.startsWith('#EXT-X-MAP'))lm=x})});
+  out.push(...tail);
   return out.join('\n')}
 function adLoader(){const B=Hls.DefaultConfig.loader;
   return class extends B{constructor(c){super(c);this._hc=c}abort(){this._l2&&this._l2.abort();super.abort()}destroy(){this._l2&&this._l2.destroy();super.destroy()}
@@ -776,11 +791,12 @@ function load(u,t0,px,kind,xs){
     return false};
   WDT=setTimeout(()=>{if(lg!==LG||V.readyState>=1)return;  // 20 秒没连上算失败
     if(!toPx(t0,'直连超时，改用代理…'))fail('连接超时')},20000);
-  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);const ok=isF?fsrc.startsWith('/pv/'):src.startsWith('/px?x=');
+  let stShow=null;
+  const start=()=>{if(lg!==LG)return;clearTimeout(WDT);stShow=()=>{const ok=isF?fsrc.startsWith('/pv/'):src.startsWith('/px?x=');
     const pvOn=isF&&fsrc.startsWith('/pv/');
     // 加密 mp4 这一段实际走的域名：SW 报上来的优先（还没报、又选了指定 CDN 就先写它的名字）；主域名不加后缀
     const via=pvOn?(PVGOT?(PVB?pxNameOf(PVB):''):(pxSel().startsWith('c:')?pxName():'')):(px?pxName():'');
-    const ek=ok?'🔒已加密 ':(ENC.on?'⚠️没加密（'+(!ENC.ok?'服务器缺加密组件':!ENCK?'浏览器不支持':isF?'mp4 解密组件没就绪，刷新一下':'出错')+'） ':'');setSt(ek+(px&&!ok?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:'')+(via?' · 经 '+via:''));if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
+    const ek=ok?'🔒已加密 ':(ENC.on?'⚠️没加密（'+(!ENC.ok?'服务器缺加密组件':!ENCK?'浏览器不支持':isF?'mp4 解密组件没就绪，刷新一下':'出错')+'） ':'');setSt(ek+(px&&!ok?why+'播放':'')+(ADCUT.n?(px?'，':'')+`已去掉广告 ${ADCUT.n} 段（${ADCUT.s} 秒）`:'')+(via?' · 经 '+via:''))};stShow();if(t0>5)V.currentTime=t0;V.play().catch(()=>{})};
   const asFile=()=>{isF=true;
     const go=()=>{if(lg!==LG)return;V.src=pxu(fsrc);V.onloadedmetadata=start;
       V.onerror=()=>{if(lg!==LG)return;
@@ -796,6 +812,7 @@ function load(u,t0,px,kind,xs){
     ADCUT={n:0,s:0};const AL=adLoader();hls=new Hls({loader:AL,pLoader:AL,maxBufferLength:bufLen(),maxMaxBufferLength:Math.max(600,bufLen()*2),maxBufferSize:Math.max(60,bufLen())*1e6});const h=hls;
     h.loadSource(pxu(src));h.attachMedia(V);
     h.on(Hls.Events.MANIFEST_PARSED,start);
+    let adShown=0;h.on(Hls.Events.LEVEL_LOADED,()=>{if(lg!==LG||!stShow||ADCUT.n===adShown)return;adShown=ADCUT.n;stShow()});  // 主列表套子列表的站：子列表拉回来才去广告，状态栏补上“已去掉广告”
     h.on(Hls.Events.ERROR,(e,d)=>{if(!d.fatal||lg!==LG)return;
       if(kind==='try'&&(d.details===Hls.ErrorDetails.MANIFEST_PARSING_ERROR)){h.destroy();if(hls===h)hls=null;kind='file';asFile();return}  // 不是 m3u8，当普通视频
       if(!toPx(lastT||t0,'直连失败，改用代理…')){
