@@ -331,8 +331,8 @@ a.kb-btn{display:block}
        先隐藏，等 playVideo 拿到 useEnc 后由 updateEncBadge() 写准确结果。 -->
   <div id="encBadge" class="enc-badge hidden"></div>
   <!-- 播放器离屏幕底部距离：顶部 − / ＋ 调，记在本机 -->
-  <div id="posCtl" class="modal-close" style="top:10px;bottom:auto;left:10px;transform:none;display:flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(17,17,17,.85);border:1px solid #444;border-radius:10px;color:#ddd;font-size:13px;white-space:nowrap">
-    <span>离底</span><button onclick="stepPlayerPos(-5)" style="margin:0;padding:4px 12px">−</button><span id="posVal" style="min-width:34px;text-align:center">35%</span><button onclick="stepPlayerPos(5)" style="margin:0;padding:4px 12px">＋</button>
+  <div id="posCtl" class="modal-close" style="bottom:16px;left:auto;right:auto;transform:none;display:flex;align-items:center;gap:4px;padding:0;background:none;border:none;white-space:nowrap">
+    <button onclick="stepPlayerPos(-1)" style="margin:0;padding:7px 12px;font-size:14px">−</button><span id="posVal" style="min-width:30px;text-align:center;color:#ddd;font-size:13px">35%</span><button onclick="stepPlayerPos(1)" style="margin:0;padding:7px 12px;font-size:14px">＋</button>
   </div>
   <div class="modal-btns">
     <button id="favBtn" class="modal-close fav-btn" onclick="toggleFav()">☆ 收藏</button>
@@ -2664,6 +2664,7 @@ function favUpdateBtn(){
   const b = document.getElementById('favBtn'); if (!b) return;
   const on = !!(favCur && favs.some(f=>f.c===favCur.c && f.m===favCur.m));
   b.classList.toggle('on', on); b.textContent = on ? '★ 已收藏' : '☆ 收藏';
+  if (typeof tgPosCtlPlace === 'function') tgPosCtlPlace();
 }
 async function toggleFav(){
   if (!favCur) return;
@@ -2734,7 +2735,7 @@ function tgPlaceBox(){
   const box = modal && modal.querySelector('.modal-box');
   if (!box) return;
   const mobile = matchMedia('(pointer: coarse) and (orientation: portrait), (max-width: 768px) and (orientation: portrait)').matches;
-  const pc = document.getElementById('posCtl'); if (pc) pc.style.display = mobile ? 'flex' : 'none';
+  const pc = document.getElementById('posCtl'); if (pc) { pc.style.display = mobile ? 'flex' : 'none'; tgPosCtlPlace(); }
   if (!mobile) { modal.style.paddingBottom = ''; return; }
   const pct = tgPos();
   const pv = document.getElementById('posVal'); if (pv) pv.textContent = pct + '%';
@@ -2754,12 +2755,20 @@ window.addEventListener('resize', ()=>{ if (!document.getElementById('playerModa
   playVideo = function(){ const r = _pv.apply(this, arguments); tgPlaceBox(); return r; };
 })();
 
-// 播放器离屏幕底部距离（2.5.8）：播放器顶部 − / ＋，每次 5%，范围 0%~70%，默认 35%，
+// 播放器离屏幕底部距离（2.5.8，2.5.9 移到底部收藏左边、每次 1%）：− / ＋，范围 0%~70%，默认 35%，
 // 记在本机（localStorage tgPlayerPos）。竖屏视频上面放不下时仍会自动往下移到刚好露全。
 function tgPos(){ const v = Number(localStorage.getItem('tgPlayerPos')); return isFinite(v) && localStorage.getItem('tgPlayerPos') !== null ? Math.max(0, Math.min(70, v)) : 35; }
 function stepPlayerPos(d){
   localStorage.setItem('tgPlayerPos', String(Math.max(0, Math.min(70, tgPos() + d))));
   tgPlaceBox();
+}
+
+// − / ＋ 单独定位在“收藏/关闭”那组按钮的左边，不放进那组里，收藏和关闭的位置不动。
+function tgPosCtlPlace(){
+  const pc = document.getElementById('posCtl'), g = document.querySelector('#playerModal .modal-btns');
+  if (!pc || !g || pc.style.display === 'none') return;
+  const r = g.getBoundingClientRect(); if (!r.width) return;
+  pc.style.right = (window.innerWidth - r.left + 8) + 'px';
 }
 </script><div id="clearHistModal" class="hidden" style="position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)hideClearHistory()">
   <div style="background:var(--card,#1e1e1e);color:inherit;border-radius:14px;padding:18px;width:min(86vw,360px)">
