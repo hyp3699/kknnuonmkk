@@ -23,7 +23,7 @@ from telethon import TelegramClient
 from telethon.errors import FileReferenceExpiredError, FloodWaitError, SessionPasswordNeededError
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.contacts import SearchRequest
-from telethon.tl.functions.messages import ImportChatInviteRequest
+from telethon.tl.functions.messages import ImportChatInviteRequest, DeleteHistoryRequest
 from telethon.tl.types import Channel, Chat, User, DocumentAttributeFilename, DocumentAttributeVideo, PeerChannel, InputMessagesFilterVideo
 
 API_ID = int(os.environ.get("TG_API_ID", "0") or 0)
@@ -826,6 +826,33 @@ async def join(request: Request, body: JoinIn):
 class LeaveIn(BaseModel):
     channel_id: int
     username: str | None = None
+
+
+class ClearIn(BaseModel):
+    channel_id: int
+    username: str | None = None
+    revoke: bool = False
+
+
+@app.post("/api/clear-history")
+async def clear_history(request: Request, body: ClearIn):
+    # 清空消息（像 TG 客户端的“清空历史记录”）：只清记录，对话保留在列表里。
+    # 只给机器人和私聊用；revoke=True 时私聊对方那边也一起删（机器人不支持，忽略）。
+    check_web_auth(request)
+    client = await require_login()
+    entity = await _channel_entity(client, body.channel_id, body.username)
+    if not isinstance(entity, User):
+        raise HTTPException(status_code=400, detail="只有机器人和私聊可以清空消息，频道/群组请用长按删除")
+    revoke = bool(body.revoke) and not getattr(entity, "bot", False)
+    try:
+        for _ in range(100):
+            r = await client(DeleteHistoryRequest(peer=entity, max_id=0, just_clear=True, revoke=revoke))
+            if not getattr(r, "offset", 0):
+                break
+    except Exception as e:
+        code, detail = _tg_error(e)
+        raise HTTPException(status_code=code, detail=detail)
+    return {"ok": True}
 
 
 @app.post("/api/leave")

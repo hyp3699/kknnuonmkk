@@ -249,6 +249,7 @@ a.kb-btn{display:block}
     <button class="toggle-btn active">聊天</button>
     <button class="toggle-btn" onclick="switchToVideo()">视频</button>
     <button id="joinBtnChat" class="toggle-btn hidden" onclick="joinCurrentChannel()">加入</button>
+    <button id="clearHistBtn" class="toggle-btn hidden" onclick="showClearHistory()">清空消息</button>
   </div>
   <div class="row" style="padding:8px 10px">
   <input id="chatSearchInput" placeholder="在频道里搜索消息…" style="flex:1">
@@ -351,7 +352,34 @@ let currentChannelId = null;
 let currentChannelTitle = '';
 let currentChannelUsername = '';
 let joinedIds = new Set();
+// 清空消息：只对机器人和私聊显示（像 TG 客户端的“清空历史记录”）
+var chatTypes = {};
+function noteChatTypes(list){ (list||[]).forEach(c=>{ if (c && c.id != null && c.type) chatTypes[c.id] = c.type; }); }
+function showClearHistory(){
+  if (!currentChannelId) return;
+  const t = chatTypes[currentChannelId];
+  document.getElementById('clearHistTitle').textContent = '清空消息：' + (currentChannelTitle || ('#' + currentChannelId));
+  document.getElementById('clearHistRevokeRow').classList.toggle('hidden', t !== 'private');
+  document.getElementById('clearHistRevoke').checked = false;
+  const ok = document.getElementById('clearHistOk'); ok.disabled = false; ok.textContent = '清空';
+  document.getElementById('clearHistModal').classList.remove('hidden');
+}
+function hideClearHistory(){ document.getElementById('clearHistModal').classList.add('hidden'); }
+async function doClearHistory(){
+  const ok = document.getElementById('clearHistOk');
+  ok.disabled = true; ok.textContent = '正在清空…';
+  try{
+    await api('/api/clear-history',{method:'POST', body:JSON.stringify({channel_id: currentChannelId, username: currentChannelUsername || null, revoke: document.getElementById('clearHistRevoke').checked})});
+    hideClearHistory();
+    document.getElementById('chatMessages').innerHTML = '<div class="muted">消息已清空。</div>';
+    document.getElementById('chatLoadMoreWrap').classList.add('hidden');
+    chatOldestId = 0; chatHasMore = false; chatDisplayedIds = new Set(); chatMsgHash = {}; chatNewestId = 0;
+    if (typeof hideChatNewMsgBar === 'function') hideChatNewMsgBar();
+  }catch(e){ ok.disabled = false; ok.textContent = '清空'; alert(e.message); }
+}
 function updateJoinButtons(){
+  const cb = document.getElementById('clearHistBtn');
+  if (cb) { const t = chatTypes[currentChannelId]; cb.classList.toggle('hidden', !(currentChannelId && (t === 'bot' || t === 'private'))); }
   const show = currentChannelId && !joinedIds.has(currentChannelId);
   ['joinBtnVideo','joinBtnChat'].forEach(id=>{
     const b = document.getElementById(id);
@@ -675,6 +703,7 @@ document.addEventListener('touchcancel', ()=>{ edgeSwipeActive = false; edgeSwip
 async function openChannelLink(username, msgId){
   try{
     const d = await api('/api/resolve?username='+encodeURIComponent(username));
+    noteChatTypes([d]);
     if (currentChannelId && currentChannelId !== d.id) pushNavStack();
     await loadChat(d.id, d.title||username, d.username||username);
     if (msgId) await jumpToChatMessage(Number(msgId));
@@ -732,6 +761,7 @@ async function openTmeLink(url){
         let title = '', username = '';
         try{
           const d = await api('/api/channels');
+          noteChatTypes(d.channels);
           const found = (d.channels || []).find(c => c.id === cid);
           if (found) { title = found.title || ''; username = found.username || ''; }
         }catch(e){}
@@ -979,6 +1009,7 @@ async function doSearch(){
   try{
     const d = await api('/api/search?q='+encodeURIComponent(q));
     searchResultsCache = d.results || [];
+    noteChatTypes(searchResultsCache);
     searchPage = 0;
     renderSearchPage();
   }catch(e){ alert(e.message); await refreshStatus(); }
@@ -995,6 +1026,7 @@ async function loadChannels(){
   try{
     const d = await api('/api/channels');
     joinedIds = new Set(d.channels.map(c=>c.id));
+    noteChatTypes(d.channels);
     document.getElementById('channels').innerHTML = d.channels.length ? d.channels.map(c=>
       `<div class="channel-card" data-id="${c.id}" data-title="${esc(c.title)}" data-username="${esc(c.username||'')}" data-type="${esc(c.type||'channel')}"><b>${esc(c.title)}</b>${c.type==='bot'?' <span class="muted">bot</span>':''}<br>
        <span class="muted">${c.username?'@'+esc(c.username):''}</span></div>`).join('')
@@ -2587,4 +2619,15 @@ searchEl.addEventListener('contextmenu', e=>{
   showChannelDelete(Number(item.dataset.id), item.dataset.title || '', item.dataset.username || '', item.dataset.type || 'channel');
 });
 refreshStatus();
-</script></body></html>
+</script><div id="clearHistModal" class="hidden" style="position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)hideClearHistory()">
+  <div style="background:var(--card,#1e1e1e);color:inherit;border-radius:14px;padding:18px;width:min(86vw,360px)">
+    <b id="clearHistTitle">清空消息</b>
+    <p class="muted" id="clearHistHint" style="margin:10px 0">将删除这个对话里的全部消息，对话本身保留在列表里。此操作不能撤销。</p>
+    <label id="clearHistRevokeRow" class="hidden" style="display:block;margin:8px 0"><input type="checkbox" id="clearHistRevoke"> 同时为对方删除</label>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">
+      <button onclick="hideClearHistory()">取消</button>
+      <button id="clearHistOk" style="background:#d33;color:#fff" onclick="doClearHistory()">清空</button>
+    </div>
+  </div>
+</div>
+</body></html>
