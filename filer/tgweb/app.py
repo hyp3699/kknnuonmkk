@@ -855,6 +855,53 @@ async def clear_history(request: Request, body: ClearIn):
     return {"ok": True}
 
 
+_FAV_PATH = os.path.join(os.path.dirname(SESSION_PATH) or "data", "favorites.json")
+_FAV_MAX = 2000
+
+
+def _fav_read():
+    try:
+        with open(_FAV_PATH, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, list) else []
+    except Exception:
+        return []
+
+
+def _fav_write(items):
+    os.makedirs(os.path.dirname(_FAV_PATH) or ".", exist_ok=True)
+    tmp = _FAV_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False)
+    os.replace(tmp, _FAV_PATH)
+
+
+@app.get("/api/favs")
+async def favs_get(request: Request):
+    # 收藏的视频：只存链接和显示用的标题，不存视频本身
+    check_web_auth(request)
+    return {"favs": _fav_read()}
+
+
+@app.post("/api/favs")
+async def favs_post(request: Request):
+    check_web_auth(request)
+    body = await request.json()
+    try:
+        c, m = int(body.get("c")), int(body.get("m"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="参数错误")
+    items = [x for x in _fav_read() if not (x.get("c") == c and x.get("m") == m)]
+    if body.get("action") == "add":
+        u = str(body.get("u") or "")[:64]
+        link = f"https://t.me/{u}/{m}" if u else f"https://t.me/c/{c}/{m}"
+        items.insert(0, {"c": c, "m": m, "u": u, "ct": str(body.get("ct") or "")[:120],
+                         "t": str(body.get("t") or "")[:200], "l": link, "at": int(time.time())})
+        items = items[:_FAV_MAX]
+    _fav_write(items)
+    return {"ok": True, "favs": items}
+
+
 @app.post("/api/leave")
 async def leave_channel(request: Request, body: LeaveIn):
     # 删除频道/群组/机器人：全部频道列表里三种都会出现，所以这里不分类型，

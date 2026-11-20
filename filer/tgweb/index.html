@@ -117,11 +117,22 @@ a.kb-btn{display:block}
    横竖屏不是看手机方向，而是看视频本身尺寸：JS 在 loadedmetadata 时按
    videoHeight > videoWidth 给框加 portrait-video 类，竖屏才走贴底那条，
    横屏和正方形都不加，还是原来抬半框的位置。 */
+/* 2.5.6 改：不再用 translateY(-50%) 按框高往上抬——框高要等视频加载出来才知道，
+   刚打开时视频还没尺寸、框矮，进度条在下面；加载出来框变高、整框又往上抬一截，
+   竖屏视频更是被抬出屏幕顶上挡住半截。现在播放器框底部固定贴在离屏幕底 15% 的位置，
+   进度条从打开到加载完都在同一个地方不动，视频只往上长；视频最高 = 屏幕高 - 底部 15% - 进度条，
+   竖屏视频也完整显示在屏幕里，不会被顶出去。 */
 @media (pointer: coarse) and (orientation: portrait), (max-width: 768px) and (orientation: portrait) {
-  .modal{align-items:flex-end}
-  .modal-box{transform:translateY(calc(-50% - 62px))}
-  .modal-box.portrait-video{transform:none}
+  .modal{align-items:flex-end;padding-bottom:15vh;padding-bottom:15dvh}
+  .modal-box{transform:none}
+  .modal-box video{max-height:calc(85vh - 72px);max-height:calc(85dvh - 72px)}
 }
+.fav-btn{left:auto;right:calc(50% + 48px);transform:none}
+.fav-btn.on{color:#FFD700;border-color:#FFD700}
+#favList .fav-item{border-bottom:1px solid #333;padding:10px 0}
+#favList .fav-item .t{font-weight:700;word-break:break-all}
+#favList .fav-item .l{font-size:12px;color:#8ab4f8;word-break:break-all;margin:3px 0}
+#favList .fav-item button{margin:4px 6px 0 0;padding:5px 10px;font-size:13px}
 .seek-feedback{position:absolute;top:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,.65);color:#fff;padding:10px 16px;border-radius:20px;font-size:16px;pointer-events:none;opacity:0;transition:opacity .2s;z-index:2}
 .seek-feedback.show{opacity:1}
 .modal-box video{width:100%;max-height:80vh;max-height:80dvh;background:#000;border-radius:12px;touch-action:none;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
@@ -173,7 +184,7 @@ a.kb-btn{display:block}
 <div class="wrap">
 <div class="topbar">
   <span id="status" class="muted" style="font-size:12px;line-height:1.4">正在检查登录状态…</span>
-  <span><button id="logoutBtn" class="hidden" onclick="logout()">退出账号</button><button onclick="webLogout()">退出网页登录</button></span>
+  <span><button id="favOpenBtn" onclick="showFavs()">⭐ 收藏</button><button id="logoutBtn" class="hidden" onclick="logout()">退出账号</button><button onclick="webLogout()">退出网页登录</button></span>
 </div>
 
 <!-- 网页账号密码通过后，先进入这个检查页，再决定去登录页还是频道页 -->
@@ -317,7 +328,16 @@ a.kb-btn{display:block}
        初始状态绝不能写“🔒 加密传输”：那会让播放器卡住时屏上挂着一个假结论。
        先隐藏，等 playVideo 拿到 useEnc 后由 updateEncBadge() 写准确结果。 -->
   <div id="encBadge" class="enc-badge hidden"></div>
+  <button id="favBtn" class="modal-close fav-btn" onclick="toggleFav()">☆ 收藏</button>
   <button class="modal-close" onclick="closePlayerViaBack()">× 关闭</button>
+</div>
+
+<!-- 收藏的视频：服务器保存（data/favorites.json），多设备同步 -->
+<div id="favModal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.8);display:flex;align-items:center;justify-content:center;z-index:205;padding:12px" onclick="if(event.target===this)hideFavs()">
+  <div style="background:#111;border:1px solid #333;border-radius:12px;padding:16px;max-width:520px;width:100%;max-height:82vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><b>收藏的视频</b><button onclick="hideFavs()">× 关闭</button></div>
+    <div id="favList" style="overflow:auto;flex:1">正在加载…</div>
+  </div>
 </div>
 
 <!-- 退出账号确认：必须输入 api_id 才能退出 -->
@@ -2619,6 +2639,84 @@ searchEl.addEventListener('contextmenu', e=>{
   showChannelDelete(Number(item.dataset.id), item.dataset.title || '', item.dataset.username || '', item.dataset.type || 'channel');
 });
 refreshStatus();
+
+// ===== 收藏视频（2.5.6）：播放器里点“☆ 收藏”，把视频的 t.me 链接和标题存到服务器；
+// 顶栏“⭐ 收藏”打开列表，可直接播放、打开原消息、复制链接、取消收藏。
+var favs = [], favCur = null, favPrev = null;
+function favLink(c, m, u){ return u ? `https://t.me/${u}/${m}` : `https://t.me/c/${c}/${m}`; }
+function favTitleOf(m){
+  const el = document.querySelector(`.chat-msg[data-msg-id="${m}"]`);
+  if (el) return el.textContent.trim().replace(/\s+/g,' ').slice(0,80);
+  const b = [...document.querySelectorAll('.video-card')].find(x=>x.innerHTML.indexOf(`playVideo(${currentChannelId},${m})`)>=0);
+  const t = b && b.querySelector('.video-title');
+  return t ? t.textContent.trim().slice(0,80) : '';
+}
+async function favLoad(){ try{ const d = await api('/api/favs'); favs = d.favs || []; }catch(e){} return favs; }
+function favUpdateBtn(){
+  const b = document.getElementById('favBtn'); if (!b) return;
+  const on = !!(favCur && favs.some(f=>f.c===favCur.c && f.m===favCur.m));
+  b.classList.toggle('on', on); b.textContent = on ? '★ 已收藏' : '☆ 收藏';
+}
+async function toggleFav(){
+  if (!favCur) return;
+  const on = favs.some(f=>f.c===favCur.c && f.m===favCur.m);
+  try{
+    const d = await api('/api/favs',{method:'POST', body:JSON.stringify(on ? {action:'del', c:favCur.c, m:favCur.m} : Object.assign({action:'add'}, favCur))});
+    favs = d.favs || favs;
+  }catch(e){ alert(e.message); }
+  favUpdateBtn();
+}
+function favRender(){
+  const box = document.getElementById('favList');
+  if (!favs.length) { box.innerHTML = '<div class="muted">还没有收藏。播放视频时点下面的“☆ 收藏”。</div>'; return; }
+  box.innerHTML = favs.map((f,i)=>`<div class="fav-item"><div class="t">${esc(f.t || ('视频 #' + f.m))}</div>
+    <div class="muted" style="font-size:12px">${esc(f.ct || '')}${f.at ? ' · ' + new Date(f.at*1000).toLocaleString() : ''}</div>
+    <div class="l">${esc(f.l)}</div>
+    <button onclick="favPlay(${i})">▶ 播放</button><button onclick="favOpen(${i})">打开原消息</button><button onclick="favCopy(${i})">复制链接</button><button onclick="favDel(${i})">取消收藏</button></div>`).join('');
+}
+async function showFavs(){
+  document.getElementById('favModal').classList.remove('hidden');
+  document.getElementById('favList').textContent = '正在加载…';
+  await favLoad(); favRender();
+}
+function hideFavs(){ document.getElementById('favModal').classList.add('hidden'); }
+function favPlay(i){
+  const f = favs[i]; if (!f) return;
+  hideFavs();
+  favPrev = {id: currentChannelId, title: currentChannelTitle, username: currentChannelUsername};
+  currentChannelId = f.c; currentChannelTitle = f.ct || ''; currentChannelUsername = f.u || '';
+  playVideo(f.c, f.m);
+}
+function favOpen(i){ const f = favs[i]; if (!f) return; hideFavs(); if (currentChannelId) pushNavStack(); openTmeLink(f.l); }
+function favCopy(i){
+  const f = favs[i]; if (!f) return;
+  const done = ()=>alert('已复制：' + f.l);
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(f.l).then(done, ()=>prompt('复制链接', f.l));
+  else prompt('复制链接', f.l);
+}
+async function favDel(i){
+  const f = favs[i]; if (!f) return;
+  try{ const d = await api('/api/favs',{method:'POST', body:JSON.stringify({action:'del', c:f.c, m:f.m})}); favs = d.favs || []; }catch(e){ alert(e.message); }
+  favRender();
+}
+(function(){
+  const _play = playVideo;
+  playVideo = async function(channelId, msgId){
+    favCur = {c: Number(channelId), m: Number(msgId), u: currentChannelUsername || '', ct: currentChannelTitle || '',
+      t: favTitleOf(msgId), l: favLink(channelId, msgId, currentChannelUsername)};
+    if (favPrev === null || favPrev.id !== currentChannelId) { /* 普通播放 */ }
+    favUpdateBtn();
+    if (!favs.length) favLoad().then(favUpdateBtn);
+    return _play.apply(this, arguments);
+  };
+  const _close = closePlayer;
+  closePlayer = function(){
+    const r = _close.apply(this, arguments);
+    if (favPrev) { currentChannelId = favPrev.id; currentChannelTitle = favPrev.title; currentChannelUsername = favPrev.username; favPrev = null; }
+    favCur = null;
+    return r;
+  };
+})();
 </script><div id="clearHistModal" class="hidden" style="position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)hideClearHistory()">
   <div style="background:var(--card,#1e1e1e);color:inherit;border-radius:14px;padding:18px;width:min(86vw,360px)">
     <b id="clearHistTitle">清空消息</b>
