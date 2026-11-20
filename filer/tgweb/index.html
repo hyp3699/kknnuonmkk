@@ -123,11 +123,13 @@ a.kb-btn{display:block}
    进度条从打开到加载完都在同一个地方不动，视频只往上长；视频最高 = 屏幕高 - 底部 15% - 进度条，
    竖屏视频也完整显示在屏幕里，不会被顶出去。 */
 @media (pointer: coarse) and (orientation: portrait), (max-width: 768px) and (orientation: portrait) {
-  .modal{align-items:flex-end;padding-bottom:15vh;padding-bottom:15dvh}
+  .modal{align-items:flex-end;padding-bottom:35vh;padding-bottom:35dvh}
   .modal-box{transform:none}
-  .modal-box video{max-height:calc(85vh - 72px);max-height:calc(85dvh - 72px)}
+  .modal-box video{max-height:calc(100vh - 140px);max-height:calc(100dvh - 140px)}
 }
-.fav-btn{left:auto;right:calc(50% + 48px);transform:none}
+/* 收藏和关闭并排放在底部中间 */
+.modal-btns{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:101;display:flex;gap:10px}
+.modal-btns .modal-close{position:static;transform:none;white-space:nowrap}
 .fav-btn.on{color:#FFD700;border-color:#FFD700}
 #favList .fav-item{border-bottom:1px solid #333;padding:10px 0}
 #favList .fav-item .t{font-weight:700;word-break:break-all}
@@ -328,8 +330,10 @@ a.kb-btn{display:block}
        初始状态绝不能写“🔒 加密传输”：那会让播放器卡住时屏上挂着一个假结论。
        先隐藏，等 playVideo 拿到 useEnc 后由 updateEncBadge() 写准确结果。 -->
   <div id="encBadge" class="enc-badge hidden"></div>
-  <button id="favBtn" class="modal-close fav-btn" onclick="toggleFav()">☆ 收藏</button>
-  <button class="modal-close" onclick="closePlayerViaBack()">× 关闭</button>
+  <div class="modal-btns">
+    <button id="favBtn" class="modal-close fav-btn" onclick="toggleFav()">☆ 收藏</button>
+    <button class="modal-close" onclick="closePlayerViaBack()">× 关闭</button>
+  </div>
 </div>
 
 <!-- 收藏的视频：服务器保存（data/favorites.json），多设备同步 -->
@@ -2716,6 +2720,31 @@ async function favDel(i){
     favCur = null;
     return r;
   };
+})();
+
+// ===== 播放器位置（2.5.7）：手机竖着拿时，播放器框底默认离屏幕底 35%（进度条在屏幕中下部）。
+// 视频加载出尺寸后算一下：上面放得下就不动；竖屏视频太高放不下，才把框往下移，
+// 刚好让整段视频露出来，最低到 72px（给底部收藏/关闭按钮留位置）。
+function tgPlaceBox(){
+  const modal = document.getElementById('playerModal'), p = document.getElementById('player');
+  const box = modal && modal.querySelector('.modal-box');
+  if (!box) return;
+  const mobile = matchMedia('(pointer: coarse) and (orientation: portrait), (max-width: 768px) and (orientation: portrait)').matches;
+  if (!mobile) { modal.style.paddingBottom = ''; return; }
+  const vh = window.innerHeight, ideal = vh * 0.35, minPb = 72;
+  const prog = document.getElementById('playerProgress');
+  const extra = (prog ? prog.offsetHeight + 10 : 52) + 8;
+  if (!p.videoWidth || !p.videoHeight) { modal.style.paddingBottom = ideal + 'px'; return; }
+  const maxV = vh - minPb - extra;
+  const vH = Math.min(box.clientWidth * p.videoHeight / p.videoWidth, maxV);
+  modal.style.paddingBottom = Math.max(minPb, Math.min(ideal, vh - vH - extra)) + 'px';
+}
+document.getElementById('player').addEventListener('loadedmetadata', tgPlaceBox);
+document.getElementById('player').addEventListener('resize', tgPlaceBox);
+window.addEventListener('resize', ()=>{ if (!document.getElementById('playerModal').classList.contains('hidden')) tgPlaceBox(); });
+(function(){
+  const _pv = playVideo;
+  playVideo = function(){ const r = _pv.apply(this, arguments); tgPlaceBox(); return r; };
 })();
 </script><div id="clearHistModal" class="hidden" style="position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)hideClearHistory()">
   <div style="background:var(--card,#1e1e1e);color:inherit;border-radius:14px;padding:18px;width:min(86vw,360px)">
