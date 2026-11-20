@@ -554,7 +554,7 @@ tg_menu() {
     green "5. 设置 api_hash"
     green "6. 删除 api 配置"
     green "7. 查看配置状态"
-    green "8. 设置并行下载数（1-4，默认 4）"
+    green "8. 设置并行下载数（当前 $(tg_envv TG_PARALLEL | grep -E '^[1-4]$' || echo 4)，可选 1-4）"
     green "9. 同步 session 到备份仓库"
     green "10. 从备份仓库恢复 session"
     green "11. 重启"
