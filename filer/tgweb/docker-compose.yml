@@ -19,7 +19,7 @@ services:
       WEB_PASSWORD: "${WEB_PASSWORD:-}"
       WEB_PATH: "${WEB_PATH:-}"
       WEB_PATH_ENABLED: "${WEB_PATH_ENABLED:-1}"
-      TG_PARALLEL: "${TG_PARALLEL:-2}"
+      TG_PARALLEL: "${TG_PARALLEL:-4}"
       # 加密流开关：默认 strict 只准加密（/stream 直接 403，不回落明文）；auto 不支持 SW 时回落明文；off 关闭
       TG_STREAM_ENC: "${TG_STREAM_ENC:-strict}"
       # 会话密钥的根（可选）：不填就每次启动随机生成，重启后重新登录一次即可

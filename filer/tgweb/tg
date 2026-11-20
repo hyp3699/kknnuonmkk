@@ -10,7 +10,7 @@
 #   tg show-auth     查看当前网页账号和密码（只在服务器终端显示，不要发到聊天里）
 #   tg reset-path [路径]  重置访问路径（不给参数就自动生成24位字母数字路径）
 #   tg show-path      查看当前访问路径和完整地址（只在服务器终端显示）
-#   tg set-parallel [1-4]  设置并行下载数（默认 2，最大 4）
+#   tg set-parallel [1-4]  设置并行下载数（默认 4，最大 4）
 #   tg show-parallel  查看当前并行下载数
 #   tg sync-session     同步 session 到私有备份仓库（现输仓库和 Token，用完删掉不保存）
 #   tg restore-session  从私有备份仓库恢复 session（现输仓库和 Token，用完删掉不保存）
@@ -153,7 +153,7 @@ show_status() {
   local par
   par="$(get_val TG_PARALLEL)"
   if [ -z "$par" ]; then
-    echo "并行下载数：2（默认）"
+    echo "并行下载数：4（默认）"
   else
     echo "并行下载数：$par"
   fi
@@ -588,21 +588,21 @@ show_parallel() {
   local par
   par="$(get_val TG_PARALLEL)"
   if [ -z "$par" ]; then
-    echo "并行下载数：2（默认）"
+    echo "并行下载数：4（默认）"
   else
     echo "并行下载数：$par"
   fi
-  echo "说明：1 就是单连接（改之前那样），2 默认，全局最多 4，再多容易被 Telegram 限流。"
+  echo "说明：1 就是单连接（改之前那样），4 默认，全局最多 4，再多容易被 Telegram 限流。"
 }
 
 do_set_parallel() {
   local n="$1"
   if [ -z "$n" ]; then
-    read -r -p "并行下载数（1-4，默认 2）： " n
-    if [ -z "$n" ]; then n="2"; fi
+    read -r -p "并行下载数（1-4，默认 4）： " n
+    if [ -z "$n" ]; then n="4"; fi
   fi
   if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt 4 ]; then
-    echo "并行下载数只能是 1-4，默认 2，超过 4 不接受。"
+    echo "并行下载数只能是 1-4，默认 4，超过 4 不接受。"
     return 1
   fi
   set_val TG_PARALLEL "$n"
@@ -844,7 +844,7 @@ show_help() {
   echo "  tg show-path      查看当前访问路径和完整地址"
   echo "  tg path-on        开启访问路径（默认开启）"
   echo "  tg path-off [yes] 关闭访问路径，直接用域名访问（带 yes 跳过确认）"
-  echo "  tg set-parallel [1-4]  设置并行下载数（默认 2，最大 4）"
+  echo "  tg set-parallel [1-4]  设置并行下载数（默认 4，最大 4）"
   echo "  tg show-parallel  查看当前并行下载数"
   echo "  tg sync-session     同步 session 到私有备份仓库（现输仓库和 Token，用完删掉）"
   echo "  tg restore-session  从私有备份仓库恢复 session（现输仓库和 Token，用完删掉）"
@@ -877,7 +877,7 @@ menu() {
     echo "8) 卸载（全部删除）"
     echo "9) 重置访问路径"
     echo "10) 查看访问路径"
-    echo "11) 设置并行下载数（1-4，默认 2）"
+    echo "11) 设置并行下载数（1-4，默认 4）"
     echo "12) 同步 session 到备份仓库"
     echo "13) 从备份仓库恢复 session"
     echo "14) 更新到最新版"

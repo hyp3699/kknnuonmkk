@@ -73,16 +73,22 @@ def _clamp_parallel(v):
     try:
         n = int(v)
     except Exception:
-        return 2
+        return 4
     return max(1, min(4, n))
 
 
-# 并行下载数：全局设置，默认 2，tg set-parallel 最多改到 4（再多容易 FloodWait）。
+# 并行下载数：全局设置，默认 4，tg set-parallel 最多改到 4（再多容易 FloodWait）。
+# 默认值从 2 调到 4：Telegram 单连接只有几百 KB/s，单连接慢了整段起播都慢；
+# 4 条并行在 2 核 2G 的机器上也不吃力，实测启动快一倍左右（FloodWait 仍受下面的全局名额约束）。
 # 读启动时的环境变量，改完要重启容器才生效，和 WEB_USERNAME / WEB_PASSWORD / WEB_PATH 一样。
-PARALLEL = _clamp_parallel(os.environ.get("TG_PARALLEL", "2"))
-# 全局并发下载任务封顶也是 4：一个视频用满 4 个时，别的视频要等当前窗口放出名额，
+PARALLEL = _clamp_parallel(os.environ.get("TG_PARALLEL", "4"))
+# 全局并发下载任务封顶：一个视频用满自己的窗口时，别的视频要等当前窗口放出名额，
 # 避免多个视频同时播时总并发超标。缩略图/图片是小文件单次下载，不占这个名额，否则 30 张图会把视频饿死。
-_download_sem = asyncio.Semaphore(4)
+# 不能写死成 4：<video> 起播时会同时开好几条（0-2MB 取 moov + 几条还没用的探测），
+# 这些探测很快就会被浏览器取消、但取消前已经占着名额，4 个槽位一满，真正要 moov 的那条
+# 排在后面一直等——表现就是“点了播放要等很久才出画面”。按并行数放宽到至少 6 个
+# （默认并行 4 时就是 8 个）。
+_download_sem = asyncio.Semaphore(max(6, PARALLEL * 2))
 _web_sessions: dict = {}  # token -> expiry timestamp，cookie 本身不再是密码的哈希，泄露也推不出密码
 _web_attempts: dict = {}  # ip -> [失败时间戳]，10 分钟内 5 次失败就限流 10 分钟
 # Telegram 登录限流，和网页账号密码限流分开记：发验证码、验证码、二次密码各算一次，
@@ -1645,7 +1651,7 @@ async def _refresh_media(client, channel_id, msg_id, username=None):
 
 
 async def _parallel_gen(client, media, total, start, end, channel_id=None, msg_id=None, username=None):
-    # 滑动窗口并行下，不再是“分组”：窗口 = 并行数 × 512KB（默认 2 → 1MB，改到 4 → 2MB），
+    # 滑动窗口并行下，不再是“分组”：窗口 = 并行数 × 512KB（默认 4 → 2MB，最小 1 → 512KB），
     # 始终保持并行数个块在下载，最前面一块一交给浏览器就立刻补发下一块，不用等整组都回来。
     # 以前是分组：并行 2 时 A 快 B 慢，A 交出后要等 B 回来才开始下 C，C 的下载和 B 的等待是串行的；
     # 现在 A 一交出 C 就开始和 B 并行下，B 交出后 D 也立刻开始，组与组之间那个完整往返的空档没了。
@@ -1695,12 +1701,41 @@ async def _parallel_gen(client, media, total, start, end, channel_id=None, msg_i
             idx = next_to_yield
             flood_retries = 0
             ref_retries = 0
+            transient_retries = 0
             while True:
                 try:
                     data = await in_flight[idx]
+                    # 空块/短块 = 这一块没下全（Telegram 那头连接被瞬断，迭代器提前结束），
+                    # 也按瞬断处理：原位重试这一块，而不是直接断流。
+                    if len(data) < specs[idx][1]:
+                        data = b""
+                        if transient_retries >= 2:
+                            raise RuntimeError("Telegram 返回空数据块，流中断")
+                        transient_retries += 1
+                        # 短退避：手机上一闪而过的断线，0.4s/1.2s 基本就恢复了；
+                        # 绝不吃掉 CancelledError（浏览器断开时要立刻停，接着白下就浪费流量）
+                        try:
+                            await asyncio.sleep(0.4 if transient_retries == 1 else 1.2)
+                        except asyncio.CancelledError:
+                            raise
+                        _issue(idx)
+                        continue
                     break
                 except asyncio.CancelledError:
                     raise
+                except (asyncio.TimeoutError, TimeoutError, OSError, ConnectionError):
+                    # 翻页/跳尾读 moov 时单块下载经常被上游瞬断一次（读超时、连接重置）。
+                    # 以前这里直接往外抛，整段流就断了，SW 只能重开一段，角标还会闪一下“加密失败”。
+                    # 现在原位重试同一块，最多 2 次（0.4s、1.2s），还不行才真报错。
+                    if transient_retries >= 2:
+                        raise
+                    transient_retries += 1
+                    try:
+                        await asyncio.sleep(0.4 if transient_retries == 1 else 1.2)
+                    except asyncio.CancelledError:
+                        raise
+                    _issue(idx)
+                    continue
                 except FloodWaitError as e:
                     secs = getattr(e, "seconds", None)
                     if secs is not None and secs <= 30 and flood_retries < 3:
@@ -1870,7 +1905,23 @@ async def blob(request: Request, body: BlobIn):
         buf = bytearray()
         emitted = 0
         try:
-            async for piece in _parallel_gen(client, media, total, frame_start, stop - 1,
+            # 起播头缓存（同 /stream 的那份）：<video> 每次探测/跳尾读 moov/回开头都是从这里要数据，
+            # 以前 /api/blob 完全不看缓存，每一段都要重新走一遍 Telegram，于是“加载很慢”。
+            # 帧 0 的 counter 从 0 算，跟这里内存加密用的 0 完全一致；head 只会是 512KB（整块）
+            # 或整个小文件，所以第 0 帧正好是 head 里的一段，缓存里的一帧不多不少。
+            head = _head_cache.get((body.c, body.m)) if frame_start == 0 else None
+            if head:
+                take_head = min(stop, len(head))
+                if take_head > 0:
+                    ct = _ctr_xor(head[:take_head], key, nf, 0)
+                    yield len(ct).to_bytes(4, "big") + ct
+                    emitted += take_head
+                    pos_node += take_head
+                    need = min(ENC_FRAME, stop - pos_node)
+                if pos_node >= stop:
+                    # 整段都在缓存里：零等待、不走 Telegram、不占 _download_sem 名额
+                    return
+            async for piece in _parallel_gen(client, media, total, pos_node, stop - 1,
                                              channel_id=body.c, msg_id=body.m, username=body.u):
                 buf.extend(piece)
                 while len(buf) >= need and need > 0:
@@ -1969,7 +2020,7 @@ async def stream(request: Request, channel_id: int, msg_id: int, username: str |
         return StreamingResponse(gen_cached(), status_code=206 if range_header else 200,
                                  media_type=mime, headers=headers)
 
-    # 正常路径也走并行：单连接只有几百 KB/s，并行 2 默认就能翻倍左右，改到 4 最多翻 4 倍（受 Telegram 单连接限速和服务器带宽制约）。
+    # 正常路径也走并行：单连接只有几百 KB/s，默认并行 4 最多能翻 4 倍（原来默认 2 只翻倍；受 Telegram 单连接限速和服务器带宽制约）。
     # 注意 Content-Length 还是按 length 算，并行生成器保证回的字节数正好是 length，不多不少。
     gen = _parallel_gen(client, media, total, start, end, channel_id=channel_id, msg_id=msg_id, username=username)
     if range_header:

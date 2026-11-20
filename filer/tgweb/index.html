@@ -2181,15 +2181,22 @@ function showEncErr(){
   if (!b) return;
   b.classList.remove('hidden');
   b.classList.add('plain');
-  b.textContent = '⚠ 加密失败' + (lastEncErr ? ': ' + lastEncErr : '');
+  // 没收到 SW 报的具体错误就是“慢”，不是“失败”：手机上 30 多秒才解出首帧很常见（Telegram
+  // 那边单块下载就慢、Cloudflare 还要过一道），这时候写“加密失败”就是纯误报。
+  b.textContent = lastEncErr ? ('⚠ 加密失败: ' + lastEncErr) : '⚠ 加密超时（加载慢，仍在等待）';
 }
 function clearEncWatch(){
   if (encWatchTimer) { clearTimeout(encWatchTimer); encWatchTimer = null; }
 }
 // 起播超时保护：加密流有时候就是一条字节都解不出来（SW 被换掉、边缘节点把 POST
 // 拦成了 HTML、服务端重启…），<video> 又不会报错，就这么一直停在就绪态 0～1，
-// 屏上只有“🔒 加密传输”。等 15 秒还没解出可播帧：auto 模式自动回落明文，
-// strict 模式不再默默卡死，直接把 SW 报上来的原因贴到角标上。
+// 屏上只有“🔒 加密传输”。等 35 秒还没解出可播帧：auto 模式自动回落明文，
+// strict 模式不再默默卡死，把 SW 报上来的原因（或“只是在慢慢加载”）贴到角标上。
+//
+// 为什么不是 15 秒：真实手机上一次起播（先取密钥+元数据，再从 Telegram 拉 512KB 首帧）
+// 十几到三十多秒都算正常，15 秒一到就报“加密失败”，等一会儿又自己播起来，角标就在
+// 🔒 / ⚠ 之间反复跳。现在只要 SW 还在发进展心跳（tgweb-progress）就重新计时，
+// 真的没数据才报，而且没收到具体错误时只写“加密超时（加载慢，仍在等待）”。
 //
 // 这个定时器只盯“初次起播”：loadeddata / canplay / playing 一响就把 encStarted 置真
 // 并把它清掉，所以起播成功之后再拖进度条、再重新缓冲，都不会被它误伤。
@@ -2216,7 +2223,13 @@ function armEncWatch(session){
     p.src = src.replace('/media/', '/stream/');
     p.play().catch(()=>{});
     updateEncBadge('加密超时已回落');
-  }, 15000);
+  }, 35000);
+}
+// SW 说“还在传数据”（进展心跳 / 换了域名拿到响应）时调它：起播阶段就把超时重新计时。
+// encWatchTimer 已经为 null（已经判过超时、或已经起播）就什么也不做。
+function encKickWatch(){
+  if (!encActive || encStarted || !encWatchTimer) return;
+  armEncWatch(encPlaySession);
 }
 function initEncryptedStream(){
   // 没接管就播的话，/media/ 请求会真发到服务器（404），所以要么等它接管，要么走明文。
@@ -2285,8 +2298,18 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (ev)=>{
     const d = ev && ev.data;
     if (!d) return;
-    // SW 换了域名（这一段落从 CDN 下来了）：角标上写出当前域名
-    if (d.type === 'tgweb-cdn') { tgCdnActive = String(d.base || ''); if (encActive) updateEncBadge(); return; }
+    // SW 换了域名（这一段落从 CDN 下来了）：角标上写出当前域名；能建立流并返回数据就说明
+    // 之前那次失败（如果有）已经过去了，把 lastEncErr 清掉，不能拿旧错误一直挂个 ⚠。
+    if (d.type === 'tgweb-cdn') {
+      tgCdnActive = String(d.base || '');
+      lastEncErr = '';
+      encKickWatch();   // 已经有字节在回：起播超时重新计时
+      if (encActive) updateEncBadge();
+      return;
+    }
+    // SW 的进展心跳（每 1.5 秒一条）：只要还在稳定收字节，就把起播超时往后推。
+    // 手机上加载慢（Telegram 单块就慢、还要过 Cloudflare）不会再被 15 秒的定时器误报成“加密失败”。
+    if (d.type === 'tgweb-progress') { encKickWatch(); return; }
     if (d.type !== 'tgweb-enc-error') return;
     // 拖进度条 / 关播放器时 SW 那条流是被浏览器取消的，不是故障：绝不能拿它覆盖角标。
     if (d.code === 'abort') return;
@@ -2519,7 +2542,11 @@ function markEncStarted(){
   if (!p || p.readyState < 2) return;
   encStarted = true;
   clearEncWatch();
-  if (!lastEncErr) updateEncBadge();   // 角标保持在“🔒 加密传输”
+  // 已经真播起来了：之前那些“慢”的记录都作废，角标回到干净的“🔒 加密传输”。
+  // 老版本的 if (!lastEncErr) 会把上一次超时留下的 lastEncErr 一直留着，下一次真出问题、
+  // 或者重拖进度条时角标就莫名其妙跳成 ⚠。
+  lastEncErr = '';
+  updateEncBadge();
 }
 ['loadeddata', 'canplay', 'playing'].forEach(ev=>{
   document.getElementById('player').addEventListener(ev, markEncStarted);

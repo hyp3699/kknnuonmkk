@@ -504,7 +504,7 @@ tg_install() {  # 安装/补全 tgweb：跳过 api_id/api_hash；不碰 nginx（
   systemctl enable --now docker >/dev/null 2>&1 || true
   docker compose version >/dev/null 2>&1 || apt-get install -y docker-compose-plugin >/dev/null 2>&1 || { red "docker compose 不可用"; return 1; }
   tg_installed || tg_fetch || return 1
-  [ -f "$TGD/.env" ] || printf 'TG_API_ID=\nTG_API_HASH=\nTG_PARALLEL=2\n' > "$TGD/.env"
+  [ -f "$TGD/.env" ] || printf 'TG_API_ID=\nTG_API_HASH=\nTG_PARALLEL=4\n' > "$TGD/.env"
   chmod 600 "$TGD/.env"
   [ -n "$(tg_envv WEB_USERNAME)" ] || tg_setv WEB_USERNAME "u$(tg_rand 15)"
   [ -n "$(tg_envv WEB_PASSWORD)" ] || tg_setv WEB_PASSWORD "$(tg_rand 32)"
@@ -554,7 +554,7 @@ tg_menu() {
     green "5. 设置 api_hash"
     green "6. 删除 api 配置"
     green "7. 查看配置状态"
-    green "8. 设置并行下载数（1-4，默认 2）"
+    green "8. 设置并行下载数（1-4，默认 4）"
     green "9. 同步 session 到备份仓库"
     green "10. 从备份仓库恢复 session"
     green "11. 重启"

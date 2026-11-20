@@ -149,18 +149,36 @@ function cdnInit(ctx, base, body) {
   return init;
 }
 
-// 换了域名就告诉页面，角标上能看出这一段是从哪个域名来的
-function notifyCdn(base) {
+// 给所有被控制的页面发一条消息（SW 控制台在手机上看不到，页面才是用户能看到的地方）
+function postToClients(msg) {
   try {
     if (typeof self === 'undefined' || !self.clients || typeof self.clients.matchAll !== 'function') return;
     const p = self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     if (!p || typeof p.then !== 'function') return;
     p.then(function (list) {
       (list || []).forEach(function (c) {
-        try { c.postMessage({ type: 'tgweb-cdn', base: base }); } catch (e) { /* 忽略 */ }
+        try { c.postMessage(msg); } catch (e) { /* 忽略 */ }
       });
     }).catch(function () { /* 忽略 */ });
   } catch (e) { /* 忽略 */ }
+}
+
+// 换了域名就告诉页面，角标上能看出这一段是从哪个域名来的
+function notifyCdn(base) {
+  postToClients({ type: 'tgweb-cdn', base: base });
+}
+
+// 进展心跳：只要加密流还在稳定收字节，就每 1.5 秒跟页面说一声。
+// 页面收到它就把“起播超时”往后推——加载慢不再被当成“⚠ 加密失败”（老版本 15 秒一到就误报）。
+// 同一毫秒里连着解好几帧也只发一条，手机上 postMessage 不刷屏。
+const PROGRESS_MS = 1500;
+let lastProgressAt = 0;
+
+function notifyProgress(force) {
+  const t = nowMs();
+  if (!force && t - lastProgressAt < PROGRESS_MS) return;
+  lastProgressAt = t;
+  postToClients({ type: 'tgweb-progress' });
 }
 
 function nowMs() { return Date.now(); }
@@ -289,14 +307,28 @@ async function getMeta(opts) {
   const cacheKey = o.channel + ':' + o.msg + ':' + (o.username || '');
   const hit = metaCache.get(cacheKey);
   if (!o.noCache && hit && nowMs() - hit.at < META_TTL) return hit;
-  let keys = await getKeys(o);
+  let keys = null;
   let meta = null;
+  // 冷启动时不要先等密钥再发元数据请求：/api/blob-key 和 /api/blob-meta 服务端都只认登录 cookie，
+  // 互不依赖。串行的话每多一次往返就是手机上一段白等（SW 闲置被回收后点播放特别明显）。
+  // 两条一起拉起，拿到响应再用密钥解密。
+  let keysP = getKeys(o);
+  let metaP = null;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const r = await doFetch(base + '/api/blob-meta', {
-      method: 'POST', credentials: 'same-origin', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ c: o.channel, m: o.msg, u: o.username || null })
-    });
+    if (!metaP) {
+      metaP = doFetch(base + '/api/blob-meta', {
+        method: 'POST', credentials: 'same-origin', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ c: o.channel, m: o.msg, u: o.username || null })
+      });
+      // 密钥先失败时这条还在飞：先接住它的异常，别在 Node 里变成未处理的 rejection
+      metaP.catch(function () { /* 下面 await 会再抛出来 */ });
+    }
+    const pair = await Promise.all([keysP, metaP]);
+    keys = pair[0];
+    const r = pair[1];
+    keysP = null;
+    metaP = null;
     if (!r.ok) {
       // 被 Cloudflare 拦下时也可能是一页 HTML：把状态码带出去，页面上能看出是哪一层挂了。
       const e = new Error('blob-meta http ' + r.status);
@@ -310,9 +342,10 @@ async function getMeta(opts) {
       break;
     } catch (err) {
       // 解出来不是 JSON：基本只可能是服务端重启换了密钥（SW 里还是旧钥匙）。
-      // 重取一次密钥再试，不行就真报错。
+      // 重取一次密钥、重发一次元数据请求再试，不行就真报错。
       if (attempt === 0) {
-        keys = await getKeys({ base: base, fetchImpl: doFetch, force: true });
+        keysP = getKeys({ base: base, fetchImpl: doFetch, force: true });
+        keysP.catch(function () { /* 由下面的 await 接住 */ });
         continue;
       }
       throw err;
@@ -324,6 +357,7 @@ async function getMeta(opts) {
   };
   if (metaCache.size > 50) metaCache.clear();
   metaCache.set(cacheKey, out);
+  notifyProgress(true);   // 元数据到了：告诉页面“还在动”，把起播超时重新算
   return out;
 }
 
@@ -348,11 +382,35 @@ async function* framePlaintext(ctx) {
     }
     const want = segEnd - cur + 1;
     let produced = 0;
-    for await (const chunk of segmentPlaintext(ctx, state, cur, segEnd)) {
-      produced += chunk.length;
-      yield chunk;
+    let retried = false;
+    for (;;) {
+      try {
+        for await (const chunk of segmentPlaintext(ctx, state, cur + produced, segEnd)) {
+          produced += chunk.length;
+          yield chunk;
+        }
+        if (!(produced >= want)) throw new Error('加密帧流提前结束');
+        break;
+      } catch (e) {
+        // 这一段没取完（中途断流、502/524、帧流提前结束……）：原位补一次，而不是直接报给页面。
+        // 老版本一断就 notifyPage → 角标从“🔒 加密传输”闪成“⚠ 加密失败”，其实下一帧就能接上。
+        // 只重试一次，而且：
+        //   · abort（拖进度、关播放器）不重试，直接抛；
+        //   · auth / nf（没登录、视频不存在）重试也一样，不白跑；
+        //   · 只有 auto 才拉黑断掉的域名、换下一个；off / n:<id> / c:<id> 原位重试同一个 base，
+        //     绝不退回主域名或别的 CDN。
+        if (e && e.code === 'abort') throw e;
+        if (ctx.signal && ctx.signal.aborted) throw abortError();
+        if (retried) throw e;
+        if (e && (e.code === 'auth' || e.code === 'nf')) throw e;
+        retried = true;
+        const st = cdnState;
+        if (st && st.pxs === 'auto' && cdnList(st).length > 1) {
+          const bad = ctx.lastBase || '';
+          cdnBad.set(bad, nowMs() + CDN_COOLDOWN);
+        }
+      }
     }
-    if (produced < want) throw new Error('加密帧流提前结束');
     cur = segEnd + 1;
   }
 }
@@ -387,6 +445,8 @@ async function* segmentPlaintext(ctx, state, start, end) {
   let base = '';
   if (multi) { const b = cdnPick(st, null); base = b === null ? '' : b; }
   else base = cdnList(st)[0] || '';   // 指定 c:<id> 时直接用它的域名，不经过 cdnBad
+  // 记下这段用的域名：中途断了、auto 要拉黑它时得知道是谁（framePlaintext 里用）
+  ctx.lastBase = base;
   let resp = null;
   let kidRetried = false;
   for (;;) {
@@ -428,7 +488,7 @@ async function* segmentPlaintext(ctx, state, start, end) {
     // 拿到能用的响应：不管是不是第一跳、不管 base 是 CDN 还是主域名，都告诉页面实际走的哪个域名。
     // 页面每次起播都会先把角标上的域名清空（tgCdnActive = ''），只靠失败分支发通知的话，
     // 选中的 CDN 第一次就成功时角标永远看不到“· 经 xxx”；切回 off 时老名字也会一直留着。
-    if (resp) { notifyCdn(base); break; }
+    if (resp) { notifyCdn(base); notifyProgress(true); break; }
     // 不是「自动选择」：不换线路，直接把这个错误抛上去（下一次仍走同一个域名）
     if (!multi) throw err;
     // 这个域名不行：拉黑 60 秒，换下一个（试过的不再试）；实在没得换就拿主域名再试一次，最后才报错。
@@ -438,6 +498,7 @@ async function* segmentPlaintext(ctx, state, start, end) {
     if (nb === null && base) nb = '';   // 候选都试过了：主域名哪怕是刚失败的那个，也再给它一次机会
     if (nb === null) throw err;
     base = nb;
+    ctx.lastBase = base;
     notifyCdn(base);
   }
   if (!resp.body) throw new Error('blob 没有响应体');
@@ -481,6 +542,7 @@ async function* segmentPlaintext(ctx, state, start, end) {
       const ct = await take(len);
       const pt = await aesCtrDecrypt(ct, nonce, pos / 16, keys.key);
       pos += pt.length;
+      notifyProgress();   // 每解出一帧（节流 1.5s）：流在稳定传字节就别让页面当成卡死
       let data = pt;
       if (first) {
         first = false;
@@ -606,16 +668,7 @@ function handleSwMessage(event) {
 
 // 把“为什么播不出来”告诉页面：SW 控制台在手机上看不到，页面才能把原因显示出来。
 function notifyPage(code, message) {
-  try {
-    if (typeof self === 'undefined' || !self.clients || typeof self.clients.matchAll !== 'function') return;
-    const p = self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    if (!p || typeof p.then !== 'function') return;
-    p.then(function (list) {
-      (list || []).forEach(function (c) {
-        try { c.postMessage({ type: 'tgweb-enc-error', code: code, message: message }); } catch (e) { /* 忽略 */ }
-      });
-    }).catch(function () { /* 忽略 */ });
-  } catch (e) { /* 忽略 */ }
+  postToClients({ type: 'tgweb-enc-error', code: code, message: message });
 }
 
 // ---------- Service Worker 接线 ----------
@@ -703,6 +756,9 @@ if (typeof module !== 'undefined' && module.exports) {
     handleMedia: handleMedia,
     notifyPage: notifyPage,
     notifyCdn: notifyCdn,
+    notifyProgress: notifyProgress,
+    postToClients: postToClients,
+    PROGRESS_MS: PROGRESS_MS,
     saveCdnState: saveCdnState,
     ensureCdnState: ensureCdnState,
     dropCdnState: dropCdnState,
