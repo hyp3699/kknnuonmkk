@@ -818,7 +818,7 @@ function showOv(){$('#box').classList.add('ui');clearTimeout(OVT);OVT=setTimeout
 
 function notice(big,small){const e=$('#toast');e.textContent='';const a=document.createElement('div');a.className='a';a.textContent=big;e.append(a);
   if(small!=null){const b=document.createElement('div');b.className='b';b.textContent=small;e.append(b)}clearTimeout(TT);e.style.display='block';e.style.opacity='1';
-  TT=setTimeout(noticeOff,1500)}  // 兜底自动收起：手停了、系统吞了 touchend，最多 1.5 秒也会没
+  TT=setTimeout(noticeOff,900)}  // 兜底自动收起：手停了、系统吞了 touchend，最多 0.9 秒也会没（用户要求，和 tgweb 一致）
 function noticeOff(){const e=$('#toast');e.style.opacity='0';clearTimeout(TT);TT=setTimeout(()=>e.style.display='none',200)}
 function toast(t){notice(t);TT=setTimeout(noticeOff,900)}
 const fmtT=x=>{if(isNaN(x)||x===Infinity)return'LIVE';const h=Math.floor(x/3600),m=Math.floor(x%3600/60),s=Math.floor(x%60);return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}`};
