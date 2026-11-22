@@ -474,12 +474,24 @@ document.addEventListener('click',()=>{$('#npop').style.display='none'});
 getNodes();
 function renderSet(){
   $('#slist').innerHTML=SITES.length?SITES.map(s=>{const t=TEST[s.key];
-    const r=!t?'':t==='…'?'<span class="st">测试中…</span>':`<span class="${t.ok?(t.warn?'warn':'ok'):'bad'}">${esc(t.msg)}${t.ms!=null?' · '+(t.ms/1000).toFixed(1)+'s':''}</span>`;
+    const sec=x=>x.ms!=null?' '+(x.ms/1000).toFixed(1)+'s':'';
+    const r=!t?'':t==='…'?'<span class="st">测试中…</span>':`<span class="${t.d.ok?'ok':t.d.na?'warn':'bad'}">直连${t.d.ok?'✓'+sec(t.d):t.d.na?'：'+esc(t.d.msg):'✗ '+esc(t.d.msg)}</span><br><span class="${t.p.ok?(t.p.warn?'warn':'ok'):'bad'}">代理${t.p.ok?'✓':'✗'} ${esc(t.p.msg||'')}${sec(t.p)}</span>${t.ok?'':'<br><span class="bad">失效</span>'}`;
     return `<div class="si" data-k="${esc(s.key)}"><div class="n"><b>${esc(s.name)}</b><small>${esc(s.api)}</small></div><div class="r">${r}</div><button data-a="t">测试</button><button data-a="d">删除</button></div>`}).join(''):'<div class="msg">没有采集站</div>';
   const bad=SITES.filter(s=>TEST[s.key]&&TEST[s.key]!=='…'&&!TEST[s.key].ok);
   $('#tdel').disabled=!bad.length;$('#tdel').textContent=bad.length?`删除失效(${bad.length})`:'删除失效';
 }
-async function testOne(k){TEST[k]='…';renderSet();try{TEST[k]=await api('/api/test?key='+encodeURIComponent(k))}catch(e){TEST[k]={ok:false,msg:'测试出错'}}renderSet()}
+// 直连测试：手机浏览器直接连站（no-cors，只能判断连不连得上，读不到内容）。
+// https 网页里浏览器不让连 http 站，就改试 https://；还不行算“测不了”，只看代理结果。
+async function directTest(api_){
+  let u=String(api_||'');if(!/^https?:\/\//i.test(u))return {na:1,msg:'测不了'};
+  const mixed=location.protocol==='https:'&&/^http:/i.test(u);if(mixed)u=u.replace(/^http:/i,'https:');
+  const t0=Date.now(),ac=new AbortController(),tm=setTimeout(()=>ac.abort(),8000);
+  try{await fetch(u+(u.includes('?')?'&':'?')+'ac=list&_t='+t0,{mode:'no-cors',cache:'no-store',signal:ac.signal});return {ok:true,ms:Date.now()-t0}}
+  catch(e){return mixed?{na:1,msg:'http 站测不了'}:{ok:false,ms:Date.now()-t0,msg:ac.signal.aborted?'超时':'连不上'}}
+  finally{clearTimeout(tm)}}
+async function testOne(k){TEST[k]='…';renderSet();const s=SITES.find(x=>x.key===k)||{};
+  const [d,p]=await Promise.all([directTest(s.api),api('/api/test?key='+encodeURIComponent(k)).catch(()=>({ok:false,msg:'测试出错'}))]);
+  TEST[k]={ok:!!(d.ok||p.ok),warn:p.ok?p.warn:d.ok,d,p};renderSet()}
 async function delKeys(keys,ask){
   if(!keys.length||!confirm(ask))return;
   const d=await post('/api/site/del',{keys});$('#sst').textContent=`已删除 ${d.n||0} 个（以后自动更新也不会再加回）`;
