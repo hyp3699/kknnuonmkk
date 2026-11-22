@@ -247,7 +247,7 @@ function tgMode(on){
 }
 async function loadSites(){
   $('#site').innerHTML='<option>加载中…</option>';
-  let d={sites:[]};try{d=await api('/api/sites?meta=1&cfg='+encodeURIComponent(LS.cfg))}catch(e){}
+  let d={sites:[]};try{d=await api('/api/sites?meta=1&fresh=1&cfg='+encodeURIComponent(LS.cfg))}catch(e){}
   CUR=d.sites||[];CUR.forEach(s=>NAMES[s.key]=s.name);
   $('#site').innerHTML=CUR.length?CUR.map(s=>`<option value="${esc(s.key)}">${esc(s.name)}</option>`).join(''):'<option value="">无可用站</option>';
   if(!CUR.find(s=>s.key===st.site)) st.site=CUR[0]?.key||'';
