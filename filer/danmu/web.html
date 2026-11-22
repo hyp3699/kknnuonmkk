@@ -41,6 +41,7 @@ button.on{background:#e50914;border-color:#e50914}
 .si .n small{display:block;color:#777;font-size:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .si .r{font-size:12px;max-width:38%;text-align:right}.ok{color:#4caf50}.bad{color:#f55}.warn{color:#e6a23c}
 .si button{padding:5px 8px;font-size:12px}
+.cm{padding:8px 4px;border-bottom:1px solid #222}.cm .n b{font-weight:500}.cm small{display:block;color:#777;font-size:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.cm .i{font-size:12px;margin:3px 0}.cm .a{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.cm .a button,.cm .a select{padding:5px 8px;font-size:12px}.cm select{background:#222;color:#ddd;border:1px solid #444;border-radius:6px}
 #nlink{width:100%;height:64px;font:12px/1.4 monospace;color:#ddd;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:8px}#nodebox{border-top:1px solid #222}
 #npop,#ppop{position:fixed;top:52px;right:8px;z-index:50;width:min(340px,94vw);max-height:70vh;overflow:auto;background:#181818;border:1px solid #333;border-radius:10px;box-shadow:0 6px 24px #000a}
 #benc.on{border-color:#2ecc71;color:#2ecc71}#npop .si,#ppop .si{cursor:pointer}#npop .si.cur b,#ppop .si.cur b{color:#e50914}#ppop{top:12vh;left:12px;right:12px;width:auto;max-height:76vh}#bnode.on{border-color:#e50914}
@@ -127,9 +128,13 @@ button.on{background:#e50914;border-color:#e50914}
 <div id="set" style="display:none">
   <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="benc" title="视频加密">加密:关</button><button id="bnadd">添加节点</button><button id="blogout">退出登录</button><button id="sraw">编辑 jjoo</button></header>
   <div class="sbox">
-    <div class="srow" style="margin-top:8px"><input id="cname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="curl" placeholder="配置地址 http://xxx/tv"><button id="cadd">添加配置</button></div>
-    <div class="st" id="cst"></div>
-    <div id="clist"></div>
+    <div class="srow" style="margin-top:8px"><b style="flex:1">配置</b><button id="ctu" class="on">使用</button><button id="ctm">管理</button></div>
+    <div id="cuse"><div id="clist"></div></div>
+    <div id="cman" style="display:none">
+      <div class="srow" style="margin-top:6px"><input id="cname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="curl" placeholder="配置地址 http://xxx/tv"><button id="cadd">添加配置</button></div>
+      <div class="st" id="cst"></div>
+      <div id="cmlist"></div>
+    </div>
   </div>
   <div class="sbox" id="nodebox" style="display:none">
     <div class="srow"><b style="flex:1">出口节点</b><button id="nclose">收起</button></div>
@@ -147,7 +152,8 @@ button.on{background:#e50914;border-color:#e50914}
     <div id="slist"></div>
   </div>
   <div class="sbox" id="rawbox" style="display:none">
-    <div class="srow"><span class="st">直接修改 jjoo.json（保存前会检查格式，自动备份为 jjoo.json.bak）</span><button id="rsave">保存</button><button id="rcancel">取消</button></div>
+    <div class="srow"><span class="st" id="rdesc" style="flex:1">直接修改 jjoo.json（保存前会检查格式，自动备份为 jjoo.json.bak）</span><button id="rsave">保存</button><button id="rcancel">取消</button></div>
+    <div class="srow" id="rmeta" style="display:none;margin-bottom:6px"><input id="rname" placeholder="名称" style="flex:0 1 32%"><input id="rurl" placeholder="配置地址"></div>
     <textarea id="raw" spellcheck="false"></textarea>
   </div>
 </div>
@@ -378,14 +384,38 @@ async function loadSet(){
   try{SITES=await api('/api/sites?full=1&cfg='+encodeURIComponent(LS.cfg))}catch(e){SITES=[]}
   renderSet();
 }
+let CTAB='u',RAWCID='';
+const EVERY=[[0,'不自动更新'],[6,'每 6 小时'],[12,'每 12 小时'],[24,'每天'],[72,'每 3 天'],[168,'每周']];
+const tfmt=t=>{if(!t)return '没下载过';const d=new Date(t*1000),p=n=>String(n).padStart(2,'0');return `${d.getMonth()+1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
+function ctab(t){CTAB=t;$('#ctu').classList.toggle('on',t==='u');$('#ctm').classList.toggle('on',t==='m');$('#cuse').style.display=t==='u'?'':'none';$('#cman').style.display=t==='m'?'':'none'}
+$('#ctu').onclick=()=>ctab('u');$('#ctm').onclick=()=>ctab('m');
 async function loadCfgList(){
-  $('#clist').innerHTML='<div class="msg">加载配置…</div>';
+  ctab(CTAB);$('#clist').innerHTML='<div class="msg">加载配置…</div>';
   let cs=[];try{cs=await api('/api/configs?count=1')}catch(e){}
-  $('#clist').innerHTML=cs.map(c=>`<div class="si" data-c="${esc(c.id)}"><div class="n"><b>${esc(c.name)}${c.id===LS.cfg?' ✓':''}</b><small>${esc(c.url||'本机 jjoo.json')}</small></div><div class="r"><span class="${c.err?'bad':c.usable?'ok':'warn'}">${esc(c.err||`可用 ${c.usable}/${c.total}`)}</span></div><button data-a="u">使用</button>${c.builtin?'':'<button data-a="d">删除</button>'}</div>`).join('');
+  const st_=c=>`<span class="${c.err?'bad':c.usable?'ok':'warn'}">${esc(c.err||`可用 ${c.usable}/${c.total}`)}</span>`;
+  $('#clist').innerHTML=cs.map(c=>`<div class="si" data-c="${esc(c.id)}"><div class="n"><b>${esc(c.name)}${c.id===LS.cfg?' ✓':''}</b><small>${esc(c.url||'本机 jjoo.json')}</small></div><div class="r">${st_(c)}</div>${c.id===LS.cfg?'<button disabled>使用中</button>':'<button data-a="u">使用</button>'}</div>`).join('');
+  $('#cmlist').innerHTML=cs.map(c=>{const ev=+c.every||0;
+    const sel=`<select data-a="e">${(EVERY.some(x=>x[0]===ev)?EVERY:[...EVERY,[ev,'每 '+ev+' 小时']]).map(x=>`<option value="${x[0]}"${x[0]===ev?' selected':''}>${x[1]}</option>`).join('')}</select>`;
+    return `<div class="cm" data-c="${esc(c.id)}"><div class="n"><b>${esc(c.name)}</b><small>${esc(c.url||'本机 jjoo.json（采集站自动维护，间隔在 ys 4 里设）')}</small></div>
+      <div class="i">${c.builtin?'':'上次更新 '+tfmt(c.updated)+' · '}${st_(c)}${c.perr?` · <span class="bad">上次下载失败：${esc(c.perr)}</span>`:''}</div>
+      <div class="a"><button data-a="r">编辑</button>${c.builtin?'':`<button data-a="p">立即更新</button>${sel}<button data-a="d">删除</button>`}</div></div>`}).join('');
 }
-$('#clist').onclick=async e=>{const b=e.target.closest('button');if(!b)return;const id=b.closest('.si').dataset.c;
-  if(b.dataset.a==='u'){LS.cfg=id;await loadCfgs();if(await loadSites())loadCats();TEST={};loadSet()}
-  else if(confirm('删除这个配置？')){await post('/api/configs/del',{id});if(LS.cfg===id)LS.cfg='jjoo';await loadCfgs();if(await loadSites())loadCats();loadSet()}};
+$('#clist').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.si').dataset.c;
+  LS.cfg=id;LS.tg='0';tgMode(false);await loadCfgs();if(await loadSites())loadCats();TEST={};loadSet()};
+$('#cmlist').onchange=async e=>{const x=e.target.closest('select[data-a="e"]');if(!x)return;const id=x.closest('.cm').dataset.c;
+  const d=await post('/api/configs/set',{id,every:+x.value}).catch(()=>({}));$('#cst').textContent=d.ok?'自动更新已改为：'+x.options[x.selectedIndex].text:(d.msg||'修改失败')};
+$('#cmlist').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.cm').dataset.c,a=b.dataset.a;
+  if(a==='r'){if(id==='jjoo'){$('#sraw').onclick();return}openRaw(id);return}
+  if(a==='p'){b.disabled=true;b.textContent='更新中…';
+    try{const r=await fetch('/api/configs/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});const d=await r.json();
+      $('#cst').textContent=d.ok?`已更新：共 ${d.total} 个站，网页可用 ${d.usable} 个`:(d.msg||'更新失败')}catch(x){$('#cst').textContent='更新失败：'+(x.message||'网络错误')}
+    await loadCfgList();if(id===LS.cfg)refreshSites();return}
+  if(a==='d'&&confirm('删除这个配置？（VPS 上保存的这份也一起删）')){await post('/api/configs/del',{id});if(LS.cfg===id)LS.cfg='jjoo';await loadCfgs();if(await loadSites())loadCats();loadSet()}};
+async function openRaw(id){RAWCID=id;const c=(await api('/api/configs').catch(()=>[])).find(x=>x.id===id)||{};
+  $('#set .sbox').style.display='none';$('#sitebox').style.display='none';$('#rawbox').style.display='block';
+  $('#rdesc').textContent='修改保存在 VPS 上的这份配置，保存后立即生效（自动备份 .bak）。注意：立即更新/自动更新会重新下载覆盖，要保留修改就把自动更新关掉';
+  $('#rmeta').style.display='flex';$('#rname').value=c.name||'';$('#rurl').value=c.url||'';
+  $('#raw').value='加载中…';$('#raw').value=await fetch('/api/configs/raw?id='+encodeURIComponent(id)).then(r=>r.text())}
 $('#cadd').onclick=async()=>{const u=$('#curl').value.trim();if(!u){$('#cst').textContent='先填配置地址';return}
   $('#cadd').disabled=true;$('#cst').textContent='读取配置中…';
   try{const r=await fetch('/api/configs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('#cname').value.trim(),url:u})});if(r.status===401){location.reload();return}let d;try{d=await r.json()}catch(e){d={msg:`服务器返回 HTTP${r.status}，可能还没更新到新版，运行 ys 选 1 更新`}}
@@ -458,10 +488,13 @@ $('#tall').onclick=async()=>{
 };
 $('#tdel').onclick=()=>{const bad=SITES.filter(s=>TEST[s.key]&&TEST[s.key]!=='…'&&!TEST[s.key].ok);
   delKeys(bad.map(s=>s.key),`删除这 ${bad.length} 个失效站？\n`+bad.map(s=>s.name).join('、').slice(0,300))};
-$('#sraw').onclick=async()=>{$('#set .sbox').style.display='none';$('#sitebox').style.display='none';$('#rawbox').style.display='block';$('#raw').value='加载中…';
+$('#sraw').onclick=async()=>{RAWCID='';$('#rmeta').style.display='none';$('#rdesc').textContent='直接修改 jjoo.json（保存前会检查格式，自动备份为 jjoo.json.bak）';$('#set .sbox').style.display='none';$('#sitebox').style.display='none';$('#rawbox').style.display='block';$('#raw').value='加载中…';
   $('#raw').value=await fetch('/api/conf').then(r=>r.text())};
 $('#rcancel').onclick=loadSet;
 $('#rsave').onclick=async()=>{const t=$('#raw').value;try{JSON.parse(t)}catch(e){alert('JSON 格式错误：'+e.message);return}
+  if(RAWCID){const id=RAWCID;await post('/api/configs/set',{id,name:$('#rname').value.trim(),url:$('#rurl').value.trim()}).catch(()=>({}));
+    const d=await post('/api/configs/raw',{id,text:t}).catch(()=>({}));
+    if(d.ok){alert(`已保存，立即生效：共 ${d.total} 个站，网页可用 ${d.usable} 个`);await loadCfgs();loadSet();if(id===LS.cfg)refreshSites()}else alert(d.msg||'保存失败');return}
   const d=await post('/api/conf',{text:t}).catch(()=>({}));if(d.ok){alert('已保存');loadSet();refreshSites()}else alert(d.msg||'保存失败')};
 async function refreshSites(){const cur=st.site;if(await loadSites()&&st.site!==cur)loadCats()}
 

@@ -7,7 +7,7 @@
 支持：腾讯视频(qq) / 爱奇艺(qiyi) / 芒果TV(imgo) / B站番剧(bilibili1) / 优酷(youku)
       巴哈姆特动画疯(baha，台湾动漫) / B站搬运视频(biliv，台综港综等 360 搜不到的节目)
 """
-VERSION = "2.5.22"  # 2.5.22: 配置里删掉的采集站刷新网页就消失（原来添加的配置缓存 30 分钟，GitHub raw 还有 5 分钟缓存）；2.5.21: 去广告三处边界：两 CDN 路径只有 2-3 层也能认出是同一片；0.ts…10000.ts 顺序编号不再因文件名变长误删；删掉的段里有 KEY/MAP 时补给后面的正片；主列表套子列表的站状态栏也显示“已去掉广告”；2.5.20: 去广告修误删：同一片分片放在两个 CDN 域名、路径前缀不同（牛牛 /202611/… 与 /yyv14/202611/…）时，另一半被当广告删掉约 5 分钟，现在只比最后 4 层目录；2.5.19: tgweb 预读默认 8MB；2.5.18: 视频分片硬盘缓存 500MB（哈哈 /px 代理的分片 + tgweb 512KB 块，满了删最久没用的）；tgweb 播放时后台预读后面 4MB；2.5.17: tgweb 缓冲灰条按真实已缓冲的几段画（原来只画到最后一段终点，跳过没加载的地方也显示灰色）；2.5.16: 哈哈播放器滑动提示兜底收起 1.5→0.9 秒；2.5.15: tgweb 滑动提示自动收起 1.2→0.9 秒（用户要求）；2.5.14: tgweb 滑动提示 1.2 秒无触摸自动收起（不靠 touchend）；2.5.13: tgweb 滑动提示松手 0.8 秒兜底收起；2.5.12: tgweb 手机滑动快进只走 touch 事件，修提示时有时无；2.5.11: ys 14 菜单第 8 项显示当前并行下载数（原来写死“默认 2/4”，改完看着像没生效）；2.5.10: tgweb 加密播放“加载慢”与角标 🔒/⚠ 反复跳变：/api/blob 也接起播头缓存（512KB，原来只有明文 /stream 用，探测/跳尾读 moov/回开头不用再重走 Telegram）；下载并发名额按并行数放宽（至少 6，浏览器起播同时开的那几条探测不会把要 moov 的那条挤在后面等）；单块下载瞬断（读超时/连接重置/空块）原位重试 2 次（0.4s、1.2s），不再一断就断流；SW 冷启动时密钥和元数据并行拉；一段流中途断了原位续传 1 次（只有「自动选择」才换域名并拉黑断掉的域名，指定 CDN/直连/节点原位重试绝不回退主域名），重试成功不报错、角标不再无故闪“加密失败”；SW 每 1.5 秒发一次进展心跳，页面起播超时从 15 秒放宽到 35 秒且收到心跳就重新计时，真没数据才写“加密超时（加载慢，仍在等待）”；哈哈反代 tgweb 改成每线程独立 requests.Session（并发拉帧流不再互相抢连接、被对方关掉），/api/blob 返回 X-Blob-S: auth 时自动重登重试一次，客户端断开就关掉上游连接；tgweb 并行下载默认改为 4（原来 2，docker-compose / .env.example / tg / ys 新建 .env 的默认值与提示一起改，tg set-parallel 仍可改 1-4）；2.5.9: tgweb 调播放器位置的 − / ＋ 移到底部收藏左边（收藏、关闭位置不动），去掉“离底”字样，每按一下 1%；2.5.8: tgweb 播放器顶部 − / ＋ 调播放器离屏幕底部距离（每次 5%，0~70%，默认 35%，记在本机）；2.5.7: tgweb 收藏按钮和关闭并排不再挤成竖条；播放器默认上移到框底离屏幕底 35%，竖屏视频上面放不下时才往下移刚好露全；2.5.6: tgweb 播放器位置固定（框底贴离屏幕底 15%，打开到加载完进度条不再往上跳，竖屏视频不再被顶出屏幕挡半截）；tgweb 视频收藏（播放器“☆ 收藏”，顶栏退出账号左边“⭐ 收藏”列表：播放、打开原消息、复制链接、取消收藏，服务器 data/favorites.json 保存）；2.5.5: tgweb 机器人和私聊里加“清空消息”（像 TG 客户端清空历史记录，对话保留；私聊可勾选同时为对方删除）；2.5.4: tgweb 从链接进别的频道、进评论区，返回后原页面不再重新加载（内容、滚动位置、已加载的更早消息都原样恢复，新消息照常轮询出现）；回到全部频道列表也停在原位置；2.5.3: 采集站加密 mp4（/pv/ 由 /pvsw.js 解密）接入 CDN——按 🌐 里选的“视频走哪里”挑域名、走 CDN 带 ?pt= 票据、第一跳成功也把实际域名告诉网页；SW 闲置被系统回收后从 CacheStorage 读回 CDN 配置，退出登录清掉钥匙和票据；只有「自动选择」才自动切换线路——选「直连」「节点」「指定 CDN」播放失败都不再自动切换（采集站 m3u8/mp4 与 tgweb 明文流、加密帧流一致：指定 CDN 失败就报错，不偷着退回主域名）；2.5.2: 修 tgweb 走 CDN 的 5 处 + tgweb 刚启动看不到选项：①角标看不到当前域名——SW 第一跳就成功时不发通知，切回主域名也不清旧名字（现在拿到可用响应就告诉页面实际走的哪个域名）；②SW 闲置被系统回收后丢 CDN 选择，悄悄退回主域名（cdnState 存进 CacheStorage，新实例发请求前读回来；页面推过新配置绝不拿旧缓存覆盖；退出登录一并清掉）；③进 tgweb 页面就先注册并检查新版 sw.js（以前只在播放时注册，更新后第一次播还在用旧 SW）；④角标点不开 🌐——它落在 <video> 区域里被滑动/长按的手势拦截吞了点击；⑤tgweb 模式下 CDN 配置不再等采集站加载完才取（点播时域名和票据已经就绪）；⑥重启/更新 tgweb 后网页十几秒里看不到 tgweb 选项（服务器把“不在运行”也缓存 10 秒，现在不缓存了，网页进页面用 ?f=1 强制实时探）；2.5.1: tgweb 视频也能选 CDN 域名（🌐 里选的走哪里同步给 tgweb，加密流/明文流都按 CDN 走，卡了/失败了自动换下一个域名，角标显示当前走的域名）；修 2.5.0：先取加密会话再取 CDN 票据（否则 PT 签成空会话，CDN 上 401）；指定 CDN 在冷却期内不再被选中；加密 m3u8 分片重连不再丢 #u=；🌐「视频走哪里」弹窗在播放页挪到播放器下方、不再挡住画面；左右滑快进快退/上下滑调音量的提示框最多 1.5 秒自动收起（换集、退出播放页、切后台也一并清理）；2.5.0: 搜索框左边 🌐 也打开同一个“视频走哪里”弹窗；弹窗居中上移、选完自动关；指定 CDN 失败也自动换回主域名；2.4.9: 设置 → 添加节点里可加 CDN 域名（可备注名字，如 CF、AWS）；播放页“代理”弹窗可选 直连/自动/指定节点/指定 CDN，自动时视频卡了或失败按分片无缝换另一个域名；2.4.8: 配了域名并选只允许域名后，哈哈影视用 IP 打开会被拒绝（只管哈哈，服务器 IP 给别的项目用不受影响；撤销 2.4.7 的全局拒绝）；2.4.6: tgweb 代码在哈哈仓库自己保存一份（filer/tgweb），安装和更新只从这里拉；2.4.5: 采集站加密改成 tgweb 那套（AES-256、每次登录一把钥匙、退出作废、每次响应随机 nonce）；tgweb 滑动快进快退提示改成哈哈的样式；2.4.4: 加密开着时全部视频强制加密播放（不管代理开关），mp4 也加密（Service Worker 解密）；2.4.3: 加密播放时状态栏显示“🔒已加密”；2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
+VERSION = "2.5.23"  # 2.5.23: 设置里配置分“使用”和“管理”：远程配置下载后保存在 VPS，可编辑（立即生效）、删除、立即更新、自动更新间隔；添加的配置里也能删失效站；2.5.22: 配置里删掉的采集站刷新网页就消失（原来添加的配置缓存 30 分钟，GitHub raw 还有 5 分钟缓存）；2.5.21: 去广告三处边界：两 CDN 路径只有 2-3 层也能认出是同一片；0.ts…10000.ts 顺序编号不再因文件名变长误删；删掉的段里有 KEY/MAP 时补给后面的正片；主列表套子列表的站状态栏也显示“已去掉广告”；2.5.20: 去广告修误删：同一片分片放在两个 CDN 域名、路径前缀不同（牛牛 /202611/… 与 /yyv14/202611/…）时，另一半被当广告删掉约 5 分钟，现在只比最后 4 层目录；2.5.19: tgweb 预读默认 8MB；2.5.18: 视频分片硬盘缓存 500MB（哈哈 /px 代理的分片 + tgweb 512KB 块，满了删最久没用的）；tgweb 播放时后台预读后面 4MB；2.5.17: tgweb 缓冲灰条按真实已缓冲的几段画（原来只画到最后一段终点，跳过没加载的地方也显示灰色）；2.5.16: 哈哈播放器滑动提示兜底收起 1.5→0.9 秒；2.5.15: tgweb 滑动提示自动收起 1.2→0.9 秒（用户要求）；2.5.14: tgweb 滑动提示 1.2 秒无触摸自动收起（不靠 touchend）；2.5.13: tgweb 滑动提示松手 0.8 秒兜底收起；2.5.12: tgweb 手机滑动快进只走 touch 事件，修提示时有时无；2.5.11: ys 14 菜单第 8 项显示当前并行下载数（原来写死“默认 2/4”，改完看着像没生效）；2.5.10: tgweb 加密播放“加载慢”与角标 🔒/⚠ 反复跳变：/api/blob 也接起播头缓存（512KB，原来只有明文 /stream 用，探测/跳尾读 moov/回开头不用再重走 Telegram）；下载并发名额按并行数放宽（至少 6，浏览器起播同时开的那几条探测不会把要 moov 的那条挤在后面等）；单块下载瞬断（读超时/连接重置/空块）原位重试 2 次（0.4s、1.2s），不再一断就断流；SW 冷启动时密钥和元数据并行拉；一段流中途断了原位续传 1 次（只有「自动选择」才换域名并拉黑断掉的域名，指定 CDN/直连/节点原位重试绝不回退主域名），重试成功不报错、角标不再无故闪“加密失败”；SW 每 1.5 秒发一次进展心跳，页面起播超时从 15 秒放宽到 35 秒且收到心跳就重新计时，真没数据才写“加密超时（加载慢，仍在等待）”；哈哈反代 tgweb 改成每线程独立 requests.Session（并发拉帧流不再互相抢连接、被对方关掉），/api/blob 返回 X-Blob-S: auth 时自动重登重试一次，客户端断开就关掉上游连接；tgweb 并行下载默认改为 4（原来 2，docker-compose / .env.example / tg / ys 新建 .env 的默认值与提示一起改，tg set-parallel 仍可改 1-4）；2.5.9: tgweb 调播放器位置的 − / ＋ 移到底部收藏左边（收藏、关闭位置不动），去掉“离底”字样，每按一下 1%；2.5.8: tgweb 播放器顶部 − / ＋ 调播放器离屏幕底部距离（每次 5%，0~70%，默认 35%，记在本机）；2.5.7: tgweb 收藏按钮和关闭并排不再挤成竖条；播放器默认上移到框底离屏幕底 35%，竖屏视频上面放不下时才往下移刚好露全；2.5.6: tgweb 播放器位置固定（框底贴离屏幕底 15%，打开到加载完进度条不再往上跳，竖屏视频不再被顶出屏幕挡半截）；tgweb 视频收藏（播放器“☆ 收藏”，顶栏退出账号左边“⭐ 收藏”列表：播放、打开原消息、复制链接、取消收藏，服务器 data/favorites.json 保存）；2.5.5: tgweb 机器人和私聊里加“清空消息”（像 TG 客户端清空历史记录，对话保留；私聊可勾选同时为对方删除）；2.5.4: tgweb 从链接进别的频道、进评论区，返回后原页面不再重新加载（内容、滚动位置、已加载的更早消息都原样恢复，新消息照常轮询出现）；回到全部频道列表也停在原位置；2.5.3: 采集站加密 mp4（/pv/ 由 /pvsw.js 解密）接入 CDN——按 🌐 里选的“视频走哪里”挑域名、走 CDN 带 ?pt= 票据、第一跳成功也把实际域名告诉网页；SW 闲置被系统回收后从 CacheStorage 读回 CDN 配置，退出登录清掉钥匙和票据；只有「自动选择」才自动切换线路——选「直连」「节点」「指定 CDN」播放失败都不再自动切换（采集站 m3u8/mp4 与 tgweb 明文流、加密帧流一致：指定 CDN 失败就报错，不偷着退回主域名）；2.5.2: 修 tgweb 走 CDN 的 5 处 + tgweb 刚启动看不到选项：①角标看不到当前域名——SW 第一跳就成功时不发通知，切回主域名也不清旧名字（现在拿到可用响应就告诉页面实际走的哪个域名）；②SW 闲置被系统回收后丢 CDN 选择，悄悄退回主域名（cdnState 存进 CacheStorage，新实例发请求前读回来；页面推过新配置绝不拿旧缓存覆盖；退出登录一并清掉）；③进 tgweb 页面就先注册并检查新版 sw.js（以前只在播放时注册，更新后第一次播还在用旧 SW）；④角标点不开 🌐——它落在 <video> 区域里被滑动/长按的手势拦截吞了点击；⑤tgweb 模式下 CDN 配置不再等采集站加载完才取（点播时域名和票据已经就绪）；⑥重启/更新 tgweb 后网页十几秒里看不到 tgweb 选项（服务器把“不在运行”也缓存 10 秒，现在不缓存了，网页进页面用 ?f=1 强制实时探）；2.5.1: tgweb 视频也能选 CDN 域名（🌐 里选的走哪里同步给 tgweb，加密流/明文流都按 CDN 走，卡了/失败了自动换下一个域名，角标显示当前走的域名）；修 2.5.0：先取加密会话再取 CDN 票据（否则 PT 签成空会话，CDN 上 401）；指定 CDN 在冷却期内不再被选中；加密 m3u8 分片重连不再丢 #u=；🌐「视频走哪里」弹窗在播放页挪到播放器下方、不再挡住画面；左右滑快进快退/上下滑调音量的提示框最多 1.5 秒自动收起（换集、退出播放页、切后台也一并清理）；2.5.0: 搜索框左边 🌐 也打开同一个“视频走哪里”弹窗；弹窗居中上移、选完自动关；指定 CDN 失败也自动换回主域名；2.4.9: 设置 → 添加节点里可加 CDN 域名（可备注名字，如 CF、AWS）；播放页“代理”弹窗可选 直连/自动/指定节点/指定 CDN，自动时视频卡了或失败按分片无缝换另一个域名；2.4.8: 配了域名并选只允许域名后，哈哈影视用 IP 打开会被拒绝（只管哈哈，服务器 IP 给别的项目用不受影响；撤销 2.4.7 的全局拒绝）；2.4.6: tgweb 代码在哈哈仓库自己保存一份（filer/tgweb），安装和更新只从这里拉；2.4.5: 采集站加密改成 tgweb 那套（AES-256、每次登录一把钥匙、退出作废、每次响应随机 nonce）；tgweb 滑动快进快退提示改成哈哈的样式；2.4.4: 加密开着时全部视频强制加密播放（不管代理开关），mp4 也加密（Service Worker 解密）；2.4.3: 加密播放时状态栏显示“🔒已加密”；2.4.2: 设置页加密开关（代理播放的采集站视频和 tgweb 视频都加密）；tgweb 里去掉“退出网页登录”；ys 8 重置账号密码改为随机 16-24 位（大小写+数字+符号）；2.4.1: tgweb 不再随安装自动装，只在 ys 14 手动安装；2.4.0: 集成 tgweb（TG 频道视频）：ys 14 安装（Docker，跳过 api_id/hash），网页左上角配置框切到 tgweb，用哈哈的登录；ys 14 管理 tgweb；设置页加退出登录；2.3.2: FH 等短片重复插播段也去掉；2.3.1: 去广告规则按 80 多个采集站 370 个视频校准，修 2.3.0 误删正片的问题；2.3.0: 去广告识别随机文件名的站（如 FH）；2.2.9: 去广告（过滤 m3u8 插播段，缓冲面板可关）；全屏方向按正片，不跟广告转；2.2.8: 集数正序/倒序按钮；弹幕不重叠（满了就不显示）；2.2.7: 名字改“哈哈”；首页分类栏下滑时固定；2.2.6: 全屏左上显示片名和集数；播放器下方显示正在播第几集+上一集/下一集；2.2.5: 手动代理播放失败自动退回直连；代理修 gzip 长度；日志记被拒的视频服务器；2.2.4: 点集数不再自动全屏；换源接着当前集和进度；同一集弹幕换源不重新拉；2.2.3: 进搜索页清空搜索框；播放页播放框固定不随页面滚动；2.2.2: 搜索/换源结果边搜边存（没搜完刷新也在，可继续搜）；2.2.1: 搜索页返回按钮写“返回”；2.2.0: 搜索页返回按钮加宽 3 倍；2.1.9: 保存的搜索结果按配置 id+关键词，不再因站列表变化失效；2.1.8: 搜索页显示已保存的关键词，点了直接看；刷新后恢复上次搜索；换源可停止；2.1.7: 换源结果上限 1000 部/10 天；🔍搜索页结果也保存（Q_MAX=300/10 天），可重新搜索；2.1.6: 自带进度条（点画面出现）；换源结果按片名保存在服务器（上限 ALT_MAX=500，ALT_DAYS=7 天），切换采集站后结果面板保留；2.1.5: 全屏按视频宽高定横竖屏；2.1.4: 全屏 ⏮ 选集 ⏭ 移到屏幕正中间；2.1.3: 去掉播放框右上角全屏按钮；左右滑快进快退整屏有效（含页面下半空白处）；2.1.2: 左右滑快进快退整个播放页都有效（集数/线路列表除外），音量只在播放框；2.1.1: 上下滑调音量恢复全屏和不全屏都有效；2.1.0: 左右滑快进快退照搬油猴 shipin5.0，金色提示框；2.0.9: 播放页全屏按钮改成占两行的方形图标按钮；2.0.8: 去掉双击快进快退；隐藏浏览器自带全屏，播放器框右上角自己的全屏按钮（全屏后能看到上下集/选集）；⏮ 选集 ⏭ 挨在一起放底部中间；2.0.7: 上一集/下一集/选集只在全屏时出现；2.0.6: 点正片/第几集直接全屏，当前集不重播；2.0.5: 播放器框内上一集/下一集/选集、上下滑调音量、双击两侧快退快进 10 秒（中间暂停）；按钮两排固定大小；缓冲设置；去掉下一集按钮；2.0.4: 修播放页返回：加载/换线路/自动换源途中返回会被拉回播放页；首次打开的页面返回直接回首页；2.0.3: 采集站下拉框固定 29% 宽（原 38% 缩 25%）；2.0.2: 首页“记录”不换行；2.0.1: 节点切换按钮（自动切换/指定节点/不用），视频代理也自动换节点；2.0.0: 网页设置里可添加出口节点（vless/vmess/trojan/ss/hy2/tuic 链接或 sing-box JSON，内置单独的 sing-box 进程），采集站直连失败自动走节点（或全部走节点），视频代理也可走节点；1.9.9: 网页支持 type 3 的通用 XPath 规则站（csp_XPath/XPathMac/XPathFilter/XPathMacFilter，Python 引擎；播放页能取到直链才能播）；1.9.8: 配置开头 //注释、行首 # 注释也能读；1.9.7: 不再保存明文密码（旧文件自动删除）、/px 和 /api/probe 只能访问公网（每次跳转都查）、代理并发限制（总 32、每 IP 12）、2525 每 IP 每分钟 240 次；1.9.6: 账号无效时网页拒绝访问、代理按内容识别 m3u8、/api/probe 判断视频类型、播放器错误恢复与续播修正、弹幕跟随倍速；部署脚本原子更新+回滚；1.9.5: 网络中断自动重试+重试按钮、弹幕设置（区域/透明度/字号/速度/数量/偏移/顶底彩色）；1.9.4: 搜索停止按钮、换源面板、自动换线路/采集站、显示当前采集站、20 秒连接超时；1.9.3: 网页支持 type 4（T4 远程接口，含播放解析与请求头）；1.9.2: 配置解析对齐 OK影视（xxxxxxxx** 图片配置、2423 AES 加密配置、;pk;KEY 配置、地址可不带 http://）；1.9.1: 播放记录按片名合并（不同配置/采集站的同一部只留一条，换站继续播）；1.9.0: 网页多配置（像 OK影视 一样添加配置地址，每个配置单独一类，支持图片藏配置/多仓）、聚合搜索；1.8.0: 网页设置(添加/删除/测试采集站、编辑 jjoo.json)、IP 访问限制(白名单/黑名单)、ys 可查看账号密码； 1.7.0: 网页播放器账号密码登录、播放记录(服务器保存，多设备同步)、/sub/jjoo.json 弹幕地址跟随访问域名； 1.6.0: 内置精简网页播放器(端口3003：选采集站/分类/站内搜索/播放+弹幕)； 1.5.0: 兼容弹弹play/danmu_api 接口(MoonTVPlus 网页播放器可直接用)，/sub/ 提供采集站配置文件； 1.4.1: 1.4.1: [代理]整集条目排最前(App 内置抓取器部分平台只拉到第1分钟)； 1.4.0: 新增巴哈姆特动画疯(台湾动漫)、B站搬运视频(台综/港综等)； 1.3.0: 新增优酷弹幕(mtop 签名)； 1.2.0: 先返回平台原始播放页(App 内置抓取器直连拉弹幕)，再返回本服务代理 XML
 import os, re, sys, time, json, zlib, html, hmac, secrets, threading, base64, hashlib, urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 import requests
@@ -1917,7 +1917,7 @@ def web_sites():
 
 # ---------- 多配置：jjoo 内置 + 用户添加的配置地址（每个配置单独一类） ----------
 CONFIGS_FILE = os.environ.get("CONFIGS_FILE", os.path.join(DATA_DIR, "web_configs.json"))
-CFG_CACHE = {}  # id -> (ts, sites, total, err)
+CFG_CACHE = {}  # id -> (本地文件 mtime, sites, total, err, base)
 
 def cfg_list():
     try:
@@ -2061,27 +2061,98 @@ def config_sites(d, base):
                             "ext": ext if isinstance(ext, str) else (json.dumps(ext, ensure_ascii=False) if ext else "")})
     return out
 
-def cfg_sites(cid, force=False, max_age=1800):
-    """返回 (sites, total, err)；max_age：缓存多久算旧（网页打开/切配置时传 60，改了配置刷新页面就能看到）"""
+# 远程配置下载后存在 VPS：data/configs/<id>.json（解密后的 JSON）。平时只读本地文件，改了立即生效；
+# “立即更新”或自动更新（每个配置自己的间隔 every 小时，0=不自动）才重新从地址下载并覆盖本地。
+CFG_DIR = os.path.join(DATA_DIR, "configs")
+CFG_LOCK = threading.Lock()
+CFG_EVERY_DEFAULT = 24
+
+def cfg_file(cid):
+    return os.path.join(CFG_DIR, re.sub(r"[^\w-]", "", str(cid)) + ".json")
+
+def cfg_meta(cid, **kw):
+    with CFG_LOCK:
+        lst = cfg_list()
+        for x in lst:
+            if x.get("id") == cid:
+                x.update(kw)
+        cfg_save(lst)
+
+def cfg_write(cid, d):
+    os.makedirs(CFG_DIR, exist_ok=True)
+    p = cfg_file(cid); tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, p)
+
+def cfg_pull(cid):
+    """从配置地址重新下载，存到本地；失败抛异常（本地旧文件保留）"""
+    c = next((x for x in cfg_list() if x.get("id") == cid), None)
+    if not c:
+        raise ValueError("配置不存在")
+    try:
+        d, final = fetch_config(c["url"])
+    except Exception as e:
+        cfg_meta(cid, tried=int(time.time()), perr=(str(e) or type(e).__name__)[:120])
+        raise
+    rm = set(c.get("removed") or [])
+    if rm and isinstance(d.get("sites"), list):  # 在网页里删过的站，重新下载也不加回
+        d["sites"] = [x for x in d["sites"] if str(x.get("key") or x.get("name")) not in rm]
+    cfg_write(cid, d)
+    cfg_meta(cid, updated=int(time.time()), tried=int(time.time()), final=final, perr="")
+    return d
+
+def cfg_sites(cid, force=False, max_age=None):
+    """返回 (sites, total, err)；force=重新下载"""
     if cid in ("", "jjoo"):
         ss = web_sites()
         return ss, len(ss), ""
     c = next((x for x in cfg_list() if x.get("id") == cid), None)
     if not c:
         return [], 0, "配置不存在"
+    p = cfg_file(cid)
+    if force or not os.path.exists(p):
+        try:
+            cfg_pull(cid)
+        except Exception as e:
+            if not os.path.exists(p):
+                return [], 0, ("加载失败：" + (str(e) or type(e).__name__))[:120]
+    try:
+        mt = os.path.getmtime(p)
+    except Exception:
+        return [], 0, "本地配置文件丢失，点“立即更新”"
     hit = CFG_CACHE.get(cid)
-    if hit and not force and time.time() - hit[0] < max_age:
+    if hit and hit[0] == mt and hit[4] == (c.get("final") or c["url"]):
         return hit[1], hit[2], hit[3]
     try:
-        d, final = fetch_config(c["url"])
-        ss = [dict(x, key=f"{cid}:{x['key']}") for x in config_sites(d, final)]
-        res = (time.time(), ss, len(d.get("sites") or []), "")
+        d = json.load(open(p, encoding="utf-8"))
+        base = c.get("final") or c["url"]
+        ss = [dict(x, key=f"{cid}:{x['key']}") for x in config_sites(d, base)]
+        res = (mt, ss, len(d.get("sites") or []), "", base)
     except Exception as e:
-        if hit:  # 拉取失败沿用上次
-            return hit[1], hit[2], hit[3]
-        res = (time.time() - 1500, [], 0, ("加载失败：" + (str(e) or type(e).__name__))[:120])
+        res = (mt, [], 0, ("本地配置读取失败：" + str(e))[:120], c.get("final") or c["url"])
     CFG_CACHE[cid] = res
     return res[1], res[2], res[3]
+
+def cfg_auto():
+    """后台：按每个配置自己的间隔自动重新下载"""
+    time.sleep(60)
+    while True:
+        for c in cfg_list():
+            ev = c.get("every", CFG_EVERY_DEFAULT)
+            try:
+                ev = float(ev)
+            except Exception:
+                ev = 0
+            if ev <= 0:
+                continue
+            last = max(int(c.get("updated") or 0), int(c.get("tried") or 0))
+            if time.time() - last >= ev * 3600:
+                try:
+                    cfg_pull(c["id"]); print("[cfg] auto updated", c["id"], flush=True)
+                except Exception as e:
+                    print("[cfg] auto update err", c["id"], repr(e)[:120], flush=True)
+        time.sleep(600)
 
 def find_site(key):
     key = key or ""
@@ -2094,7 +2165,7 @@ def find_site(key):
 @app.route("/api/configs", methods=["GET", "POST"])
 def api_configs():
     if request.method == "GET":
-        out = [{"id": "jjoo", "name": "jjoo（内置）", "url": "", "builtin": 1}] + cfg_list()
+        out = [{"id": "jjoo", "name": "jjoo（内置）", "url": "", "builtin": 1}] + [dict(x, every=x.get("every", CFG_EVERY_DEFAULT)) for x in cfg_list()]
         if arg("count"):
             for c in out:
                 ss, total, err = cfg_sites(c["id"])
@@ -2130,21 +2201,94 @@ def api_configs():
         while any(x.get("id") == f"c{n}" for x in lst):
             n += 1
         nm = nm or urllib.parse.urlsplit(u).hostname or f"配置{n}"
-        lst.append({"id": f"c{n}", "name": nm, "url": u}); added.append(f"c{n}")
+        lst.append({"id": f"c{n}", "name": nm, "url": u, "every": CFG_EVERY_DEFAULT}); added.append(f"c{n}")
     if not added:
         return jsonify({"ok": False, "msg": "这个配置已经添加过了"}), 400
-    cfg_save(lst)
+    with CFG_LOCK:
+        cfg_save(lst)
     usable = total = 0
     for cid in added:
-        ss, t, _ = cfg_sites(cid, force=True); usable += len(ss); total += t
+        if len(items) == 1:  # 刚下载过，直接存本地，不再拉一次
+            cfg_write(cid, d); cfg_meta(cid, updated=int(time.time()), tried=int(time.time()), final=final, perr="")
+        ss, t, _ = cfg_sites(cid); usable += len(ss); total += t
     return jsonify({"ok": True, "ids": added, "usable": usable, "total": total, "multi": len(added) > 1})
 
 @app.route("/api/configs/del", methods=["POST"])
 def api_configs_del():
     cid = (request.get_json(silent=True) or {}).get("id")
-    lst = [x for x in cfg_list() if x.get("id") != cid]
-    cfg_save(lst); CFG_CACHE.pop(cid, None)
+    with CFG_LOCK:
+        lst = [x for x in cfg_list() if x.get("id") != cid]
+        cfg_save(lst)
+    CFG_CACHE.pop(cid, None)
+    try:
+        if cid:
+            for f in (cfg_file(cid), cfg_file(cid) + ".bak"):
+                if os.path.exists(f):
+                    os.remove(f)
+    except Exception:
+        pass
     return jsonify({"ok": True})
+
+@app.route("/api/configs/update", methods=["POST"])
+def api_configs_update():
+    """立即更新：重新从配置地址下载覆盖本地"""
+    cid = (request.get_json(silent=True) or {}).get("id")
+    try:
+        cfg_pull(cid)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": "更新失败：" + (str(e) or type(e).__name__)[:120]}), 400
+    ss, total, err = cfg_sites(cid)
+    return jsonify({"ok": True, "usable": len(ss), "total": total})
+
+@app.route("/api/configs/set", methods=["POST"])
+def api_configs_set():
+    """改名称 / 地址 / 自动更新间隔（小时，0=关）"""
+    j = request.get_json(silent=True) or {}
+    cid = j.get("id"); kw = {}
+    if not any(x.get("id") == cid for x in cfg_list()):
+        return jsonify({"ok": False, "msg": "配置不存在"}), 400
+    if "name" in j and str(j["name"]).strip():
+        kw["name"] = str(j["name"]).strip()[:40]
+    if "url" in j and str(j["url"]).strip():
+        u = str(j["url"]).strip()
+        kw["url"] = u if re.match(r"https?://", u, re.I) else "http://" + u
+    if "every" in j:
+        try:
+            kw["every"] = max(0.0, min(24 * 30.0, float(j["every"])))
+        except Exception:
+            return jsonify({"ok": False, "msg": "间隔不对"}), 400
+    cfg_meta(cid, **kw)
+    return jsonify({"ok": True})
+
+@app.route("/api/configs/raw", methods=["GET", "POST"])
+def api_configs_raw():
+    """直接看/改存在 VPS 上的配置内容，保存后立即生效"""
+    if request.method == "GET":
+        cid = arg("id")
+        try:
+            return Response(json.dumps(json.load(open(cfg_file(cid), encoding="utf-8")), ensure_ascii=False, indent=1), mimetype="text/plain")
+        except Exception:
+            return Response("", mimetype="text/plain")
+    j = request.get_json(silent=True) or {}
+    cid = j.get("id")
+    if not any(x.get("id") == cid for x in cfg_list()):
+        return jsonify({"ok": False, "msg": "配置不存在"}), 400
+    try:
+        d = json.loads(j.get("text", ""))
+        assert isinstance(d, dict) and isinstance(d.get("sites"), list)
+    except Exception as e:
+        return jsonify({"ok": False, "msg": "JSON 格式错误或缺少 sites：" + str(e)[:120]}), 400
+    try:
+        os.replace(cfg_file(cid), cfg_file(cid) + ".bak")
+    except Exception:
+        pass
+    cfg_write(cid, d)
+    c = next((x for x in cfg_list() if x.get("id") == cid), {})
+    if c.get("removed"):  # 手动加回来的站不再算“删过”
+        have = {str(x.get("key") or x.get("name")) for x in d["sites"] if isinstance(x, dict)}
+        cfg_meta(cid, removed=[k for k in c["removed"] if k not in have])
+    ss, total, _ = cfg_sites(cid)
+    return jsonify({"ok": True, "usable": len(ss), "total": total})
 
 def xml_vod(text):
     root = ET.fromstring(text.strip().encode("utf-8") if isinstance(text, str) else text)
@@ -2616,6 +2760,25 @@ def api_site_del():
     keys = set((request.get_json(silent=True) or {}).get("keys") or [])
     if not keys:
         return jsonify({"ok": False}), 400
+    remote = {}
+    for k in list(keys):  # 添加的配置里的站（键是 配置id:原key）：从 VPS 上保存的那份里删
+        cid, _, sk = k.partition(":")
+        if sk and any(x.get("id") == cid for x in cfg_list()):
+            remote.setdefault(cid, set()).add(sk); keys.discard(k)
+    nr = 0
+    for cid, sks in remote.items():
+        try:
+            d = json.load(open(cfg_file(cid), encoding="utf-8"))
+            old = d.get("sites") or []
+            d["sites"] = [x for x in old if str(x.get("key") or x.get("name")) not in sks]
+            if len(d["sites"]) != len(old):
+                nr += len(old) - len(d["sites"]); cfg_write(cid, d)
+            c = next((x for x in cfg_list() if x.get("id") == cid), {})
+            cfg_meta(cid, removed=sorted(set(c.get("removed") or []) | sks))
+        except Exception as e:
+            print("[site del] cfg err", cid, repr(e), flush=True)
+    if not keys:
+        return jsonify({"ok": True, "n": nr})
     with CONF_LOCK:
         m = us(); raw = open(jj_path(), encoding="utf-8").read()
         spans, _ = m.site_spans(raw)
@@ -2629,7 +2792,7 @@ def api_site_del():
         if rm:
             jj_write(m.remove_spans(raw, rm))
             block_update(add=blk)
-    return jsonify({"ok": True, "n": len(rm)})
+    return jsonify({"ok": True, "n": len(rm) + nr})
 
 @app.route("/api/test")
 def api_test():
@@ -3423,6 +3586,7 @@ if __name__ == "__main__":
     if nodes_load()["nodes"]:
         threading.Thread(target=sb_apply, daemon=True).start()
     threading.Thread(target=node_watch, daemon=True).start()
+    threading.Thread(target=cfg_auto, daemon=True).start()
     if WEB_PORT and os.environ.get("WEB", "1") != "0":
         from werkzeug.serving import make_server
         try:
