@@ -128,13 +128,9 @@ button.on{background:#e50914;border-color:#e50914}
 <div id="set" style="display:none">
   <header><button class="back">‹ 返回</button><span style="flex:1">设置</span><button id="benc" title="视频加密">加密:关</button><button id="bnadd">添加节点</button><button id="blogout">退出登录</button><button id="sraw">编辑 jjoo</button></header>
   <div class="sbox">
-    <div class="srow" style="margin-top:8px"><b style="flex:1">配置</b><button id="ctu" class="on">使用</button><button id="ctm">管理</button></div>
-    <div id="cuse"><div id="clist"></div></div>
-    <div id="cman" style="display:none">
-      <div class="srow" style="margin-top:6px"><input id="cname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="curl" placeholder="配置地址 http://xxx/tv"><button id="cadd">添加配置</button></div>
-      <div class="st" id="cst"></div>
-      <div id="cmlist"></div>
-    </div>
+    <div class="srow" style="margin-top:8px"><input id="cname" placeholder="名称（可空）" style="flex:0 1 32%"><input id="curl" placeholder="配置地址 http://xxx/tv"><button id="cadd">添加配置</button></div>
+    <div class="st" id="cst"></div>
+    <div id="clist"></div>
   </div>
   <div class="sbox" id="nodebox" style="display:none">
     <div class="srow"><b style="flex:1">出口节点</b><button id="nclose">收起</button></div>
@@ -384,27 +380,24 @@ async function loadSet(){
   try{SITES=await api('/api/sites?full=1&cfg='+encodeURIComponent(LS.cfg))}catch(e){SITES=[]}
   renderSet();
 }
-let CTAB='u',RAWCID='';
+let COPEN={},RAWCID='';
 const EVERY=[[6,'每 6 小时'],[12,'每 12 小时'],[24,'每天'],[72,'每 3 天'],[168,'每周']];
 const tfmt=t=>{if(!t)return '没下载过';const d=new Date(t*1000),p=n=>String(n).padStart(2,'0');return `${d.getMonth()+1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
-function ctab(t){CTAB=t;$('#ctu').classList.toggle('on',t==='u');$('#ctm').classList.toggle('on',t==='m');$('#cuse').style.display=t==='u'?'':'none';$('#cman').style.display=t==='m'?'':'none'}
-$('#ctu').onclick=()=>ctab('u');$('#ctm').onclick=()=>ctab('m');
 async function loadCfgList(){
-  ctab(CTAB);$('#clist').innerHTML='<div class="msg">加载配置…</div>';
+  if(!$('#clist').children.length)$('#clist').innerHTML='<div class="msg">加载配置…</div>';
   let cs=[];try{cs=await api('/api/configs?count=1')}catch(e){}
   const st_=c=>`<span class="${c.err?'bad':c.usable?'ok':'warn'}">${esc(c.err||`可用 ${c.usable}/${c.total}`)}</span>`;
-  $('#clist').innerHTML=cs.map(c=>`<div class="si" data-c="${esc(c.id)}"><div class="n"><b>${esc(c.name)}${c.id===LS.cfg?' ✓':''}</b><small>${esc(c.url||'本机 jjoo.json')}</small></div><div class="r">${st_(c)}</div>${c.id===LS.cfg?'<button disabled>使用中</button>':'<button data-a="u">使用</button>'}</div>`).join('');
-  $('#cmlist').innerHTML=cs.map(c=>{const ev=+c.every>0?+c.every:24;
-    const sel=`<button data-a="t" class="${c.auto?'on':''}">自动更新:${c.auto?'开':'关'}</button><select data-a="e"${c.auto?'':' disabled'}>${(EVERY.some(x=>x[0]===ev)?EVERY:[...EVERY,[ev,'每 '+ev+' 小时']]).map(x=>`<option value="${x[0]}"${x[0]===ev?' selected':''}>${x[1]}</option>`).join('')}</select>`;
-    return `<div class="cm" data-c="${esc(c.id)}"><div class="n"><b>${esc(c.name)}</b><small>${esc(c.url||'本机 jjoo.json（采集站自动维护，间隔在 ys 4 里设）')}</small></div>
-      <div class="i">${c.builtin?'':'上次更新 '+tfmt(c.updated)+' · '}${st_(c)}${c.perr?` · <span class="bad">上次下载失败：${esc(c.perr)}</span>`:''}</div>
-      <div class="a"><button data-a="r">编辑</button>${c.builtin?'':`<button data-a="p">立即更新</button>${sel}<button data-a="d">删除</button>`}</div></div>`}).join('');
+  $('#clist').innerHTML=cs.map(c=>{const ev=+c.every>0?+c.every:24,op=!!COPEN[c.id];
+    const sel=`<select data-a="e"${c.auto?'':' disabled'}>${(EVERY.some(x=>x[0]===ev)?EVERY:[...EVERY,[ev,'每 '+ev+' 小时']]).map(x=>`<option value="${x[0]}"${x[0]===ev?' selected':''}>${x[1]}</option>`).join('')}</select>`;
+    return `<div class="cm" data-c="${esc(c.id)}"><div class="si" style="border:0;padding:0"><div class="n"><b>${esc(c.name)}${c.id===LS.cfg?' ✓':''}</b><small>${esc(c.url||'本机 jjoo.json')}</small></div><div class="r">${st_(c)}</div>${c.id===LS.cfg?'<button disabled>使用中</button>':'<button data-a="u">使用</button>'}<button data-a="m" class="${op?'on':''}">${op?'收起':'管理'}</button></div>
+      <div style="display:${op?'block':'none'};margin-top:6px"><div class="i">${c.builtin?'采集站自动维护，间隔在 ys 4 里设':'上次更新 '+tfmt(c.updated)}${c.perr?` · <span class="bad">上次下载失败：${esc(c.perr)}</span>`:''}</div>
+      <div class="a"><button data-a="r">编辑</button>${c.builtin?'':`<button data-a="p">立即更新</button><button data-a="t" class="${c.auto?'on':''}">自动更新:${c.auto?'开':'关'}</button>${sel}<button data-a="d">删除</button>`}</div></div></div>`}).join('');
 }
-$('#clist').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.si').dataset.c;
-  LS.cfg=id;LS.tg='0';tgMode(false);await loadCfgs();if(await loadSites())loadCats();TEST={};loadSet()};
-$('#cmlist').onchange=async e=>{const x=e.target.closest('select[data-a="e"]');if(!x)return;const id=x.closest('.cm').dataset.c;
+$('#clist').onchange=async e=>{const x=e.target.closest('select[data-a="e"]');if(!x)return;const id=x.closest('.cm').dataset.c;
   const d=await post('/api/configs/set',{id,every:+x.value}).catch(()=>({}));$('#cst').textContent=d.ok?'自动更新已改为：'+x.options[x.selectedIndex].text:(d.msg||'修改失败')};
-$('#cmlist').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.cm').dataset.c,a=b.dataset.a;
+$('#clist').onclick=async e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.cm').dataset.c,a=b.dataset.a;
+  if(a==='m'){COPEN[id]=!COPEN[id];const box=b.closest('.si').nextElementSibling;box.style.display=COPEN[id]?'block':'none';b.textContent=COPEN[id]?'收起':'管理';b.classList.toggle('on',!!COPEN[id]);return}
+  if(a==='u'){LS.cfg=id;LS.tg='0';tgMode(false);await loadCfgs();if(await loadSites())loadCats();TEST={};loadSet();return}
   if(a==='r'){if(id==='jjoo'){$('#sraw').onclick();return}openRaw(id);return}
   if(a==='t'){const on=!b.classList.contains('on'),sel=b.parentNode.querySelector('select');
     const d=await post('/api/configs/set',on?{id,auto:true,every:+sel.value}:{id,auto:false}).catch(()=>({}));
