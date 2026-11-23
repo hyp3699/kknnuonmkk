@@ -13758,7 +13758,7 @@ fanout_set_domain() {
     command -v nginx >/dev/null 2>&1 || { red "nginx 安装失败，无法配置域名"; return 1; }
 
     port=$(fanout_port)
-    mkdir -p "$(dirname "$FANOUT_NGX")"
+    mkdir -p "$(dirname "$FANOUT_NGX")" /etc/nginx/conf.d/singbox_users
     [ -f "$FANOUT_NGX" ] && cp -f "$FANOUT_NGX" "${FANOUT_NGX}.bak"
     cat > "$FANOUT_NGX" <<FANOUTNGX
 # fanout 网页面板反向代理（由 sing-box-08.sh 生成）
@@ -13771,6 +13771,9 @@ server {
     ssl_certificate ${cert_file};
     ssl_certificate_key ${key_file};
     ssl_protocols TLSv1.2 TLSv1.3;
+
+    # 订阅和面板同域同端口时，订阅路径也要在这里生效
+    include /etc/nginx/conf.d/singbox_users/*.conf;
 
     client_max_body_size 128M;
     access_log off;
