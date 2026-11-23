@@ -332,8 +332,10 @@ a.kb-btn{display:block}
   <div id="encBadge" class="enc-badge hidden"></div>
   <!-- 播放器离屏幕底部距离：顶部 − / ＋ 调，记在本机 -->
   <div id="posCtl" class="modal-close" style="bottom:16px;left:auto;right:auto;transform:none;display:flex;align-items:center;gap:4px;padding:0;background:none;border:none;white-space:nowrap">
-    <button id="qBtn" onclick="showQMenu()" style="margin:0 6px 0 0;padding:7px 10px;font-size:13px">原画</button><span id="posPm" style="display:flex;align-items:center;gap:4px"><button onclick="stepPlayerPos(-1)" style="margin:0;padding:7px 12px;font-size:14px">−</button><span id="posVal" style="min-width:30px;text-align:center;color:#ddd;font-size:13px">35%</span><button onclick="stepPlayerPos(1)" style="margin:0;padding:7px 12px;font-size:14px">＋</button></span>
+    <span id="posPm" style="display:flex;align-items:center;gap:4px"><button onclick="stepPlayerPos(-1)" style="margin:0;padding:7px 12px;font-size:14px">−</button><span id="posVal" style="min-width:30px;text-align:center;color:#ddd;font-size:13px">35%</span><button onclick="stepPlayerPos(1)" style="margin:0;padding:7px 12px;font-size:14px">＋</button></span>
   </div>
+  <!-- 清晰度按钮：屏幕最下边最右边（2.5.29 用户要求） -->
+  <button id="qBtn" class="modal-close" onclick="showQMenu()" style="position:fixed;bottom:16px;right:6px;left:auto;transform:none;z-index:102;margin:0;padding:7px 10px;font-size:13px;white-space:nowrap">原画</button>
   <!-- 清晰度（2.5.28）：原画 + Telegram 转好的低清版本；选过的记在本机，其它视频也按它挑 -->
   <div id="qMenu" class="hidden" style="position:fixed;inset:0;z-index:230;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)hideQMenu()">
     <div style="background:#111;border:1px solid #333;border-radius:12px;padding:14px;min-width:220px;max-width:86vw">
@@ -2780,7 +2782,7 @@ function tgPlaceBox(){
   const box = modal && modal.querySelector('.modal-box');
   if (!box) return;
   const mobile = matchMedia('(pointer: coarse) and (orientation: portrait), (max-width: 768px) and (orientation: portrait)').matches;
-  const pc = document.getElementById('posCtl'); if (pc) { pc.style.display = 'flex'; const pm = document.getElementById('posPm'); if (pm) pm.style.display = mobile ? 'flex' : 'none'; tgPosCtlPlace(); }
+  const pc = document.getElementById('posCtl'); if (pc) { pc.style.display = mobile ? 'flex' : 'none'; tgPosCtlPlace(); }
   if (!mobile) { modal.style.paddingBottom = ''; return; }
   const pct = tgPos();
   const pv = document.getElementById('posVal'); if (pv) pv.textContent = pct + '%';
