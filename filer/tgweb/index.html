@@ -332,7 +332,15 @@ a.kb-btn{display:block}
   <div id="encBadge" class="enc-badge hidden"></div>
   <!-- 播放器离屏幕底部距离：顶部 − / ＋ 调，记在本机 -->
   <div id="posCtl" class="modal-close" style="bottom:16px;left:auto;right:auto;transform:none;display:flex;align-items:center;gap:4px;padding:0;background:none;border:none;white-space:nowrap">
-    <button onclick="stepPlayerPos(-1)" style="margin:0;padding:7px 12px;font-size:14px">−</button><span id="posVal" style="min-width:30px;text-align:center;color:#ddd;font-size:13px">35%</span><button onclick="stepPlayerPos(1)" style="margin:0;padding:7px 12px;font-size:14px">＋</button>
+    <button id="qBtn" onclick="showQMenu()" style="margin:0 6px 0 0;padding:7px 10px;font-size:13px">原画</button><span id="posPm" style="display:flex;align-items:center;gap:4px"><button onclick="stepPlayerPos(-1)" style="margin:0;padding:7px 12px;font-size:14px">−</button><span id="posVal" style="min-width:30px;text-align:center;color:#ddd;font-size:13px">35%</span><button onclick="stepPlayerPos(1)" style="margin:0;padding:7px 12px;font-size:14px">＋</button></span>
+  </div>
+  <!-- 清晰度（2.5.28）：原画 + Telegram 转好的低清版本；选过的记在本机，其它视频也按它挑 -->
+  <div id="qMenu" class="hidden" style="position:fixed;inset:0;z-index:230;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)hideQMenu()">
+    <div style="background:#111;border:1px solid #333;border-radius:12px;padding:14px;min-width:220px;max-width:86vw">
+      <b>清晰度</b>
+      <div id="qList" style="margin-top:10px;display:flex;flex-direction:column;gap:8px"></div>
+      <div id="qHint" class="muted" style="margin-top:10px;font-size:12px;color:#999"></div>
+    </div>
   </div>
   <div class="modal-btns">
     <button id="favBtn" class="modal-close fav-btn" onclick="toggleFav()">☆ 收藏</button>
@@ -1275,7 +1283,7 @@ function swipeExcluded(target, x, y){
   // #encBadge 也要排掉：它贴在屏幕最右上角，竖屏高视频时正好落在 <video> 区域里，
   // 不排的话会被当成“在画面上按下”，touchstart 上 e.preventDefault() 把随后的 click 吞掉，
   // 安卓手机点角标就打不开哈哈的 🌐「视频走哪里」。它自己 pointer-events:auto，只吃点击、不吃滑动。
-  if (target && target.closest && (target.closest('#playerProgress') || target.closest('.modal-close') || target.closest('#encBadge'))) return true;
+  if (target && target.closest && (target.closest('#playerProgress') || target.closest('.modal-close') || target.closest('#encBadge') || target.closest('#qMenu'))) return true;
   const p = document.getElementById('player');
   const r = p.getBoundingClientRect();
   return !!(r.width && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && y > r.bottom - 48);
@@ -2381,7 +2389,8 @@ function tgCdnApply(d){
 }
 // 明文 /stream：走 CDN 时带上 ?pt= 票据（CDN 上没有登录 cookie）
 function tgPlainSrc(cid, mid, base){
-  const uq = currentChannelUsername ? 'username=' + encodeURIComponent(currentChannelUsername) : '';
+  let uq = currentChannelUsername ? 'username=' + encodeURIComponent(currentChannelUsername) : '';
+  if (tgQ) uq += (uq ? '&' : '') + 'q=' + tgQ;
   if (!base) return `${WEB_BASE}/stream/${cid}/${mid}` + (uq ? '?' + uq : '');
   return base + `${WEB_BASE}/stream/${cid}/${mid}` + '?' + (uq ? uq + '&' : '') + 'pt=' + encodeURIComponent(tgCdn.pt);
 }
@@ -2483,7 +2492,9 @@ async function playVideo(channelId, msgId){
   document.querySelector('#playerModal .modal-box').classList.remove('portrait-video');
   // 进入播放器默认静音，上下滑动调音量（上滑取消静音并调大），原生控制条的喇叭也能点开
   p.muted = true;
-  const q = currentChannelUsername ? `?username=${encodeURIComponent(currentChannelUsername)}` : '';
+  // 清晰度列表和 SW 初始化同时拉，拿到后按本机记的清晰度挑一个（最多等 6 秒，拿不到就原画）
+  tgQ = ''; tgQList = null; tgQUpdBtn();
+  const qListP = tgQFetch(channelId, msgId);
   encFallbackDone = false;
   lastEncErr = '';
   encStarted = false;
@@ -2507,6 +2518,13 @@ async function playVideo(channelId, msgId){
   // 等 SW 接管这一两百毫秒里，用户可能已经按返回/× 把播放器关了（播放器自己有一个历史条目，
   // 按返回只会关播放器、页面不跳走）：这时不能再设 src，否则关掉的播放器会在后台出声。
   if (document.getElementById('playerModal').classList.contains('hidden')) return;
+  tgQList = await qListP;
+  if (document.getElementById('playerModal').classList.contains('hidden')) return;
+  if (!tgPlaying || tgPlaying.c !== channelId || tgPlaying.m !== msgId) return;   // 等的时候已经换了别的视频
+  tgQ = tgQChoose(tgQList);
+  tgQUpdBtn();
+  let q = currentChannelUsername ? `?username=${encodeURIComponent(currentChannelUsername)}` : '';
+  if (tgQ) q += (q ? '&' : '?') + 'q=' + tgQ;
   if (useEnc) {
     encActive = true;
     tgCdnActive = '';
@@ -2762,7 +2780,7 @@ function tgPlaceBox(){
   const box = modal && modal.querySelector('.modal-box');
   if (!box) return;
   const mobile = matchMedia('(pointer: coarse) and (orientation: portrait), (max-width: 768px) and (orientation: portrait)').matches;
-  const pc = document.getElementById('posCtl'); if (pc) { pc.style.display = mobile ? 'flex' : 'none'; tgPosCtlPlace(); }
+  const pc = document.getElementById('posCtl'); if (pc) { pc.style.display = 'flex'; const pm = document.getElementById('posPm'); if (pm) pm.style.display = mobile ? 'flex' : 'none'; tgPosCtlPlace(); }
   if (!mobile) { modal.style.paddingBottom = ''; return; }
   const pct = tgPos();
   const pv = document.getElementById('posVal'); if (pv) pv.textContent = pct + '%';
@@ -2788,6 +2806,72 @@ function tgPos(){ const v = Number(localStorage.getItem('tgPlayerPos')); return 
 function stepPlayerPos(d){
   localStorage.setItem('tgPlayerPos', String(Math.max(0, Math.min(70, tgPos() + d))));
   tgPlaceBox();
+}
+
+// ===== 清晰度（2.5.28）=====
+// 只有 Telegram 自己转好低清版本的视频（多是频道里的大视频）才有得选，没有就只有原画（VPS 不实时转码）。
+// 本机记住选的清晰度（localStorage tgQPref，存高度，0/空 = 原画）：其它视频挑“不超过它的最高一档”，
+// 都比它高就挑最低一档；原画本身就不超过它时用原画。
+let tgQ = '';          // 当前播放用的低清文件 id（字符串，64 位），'' = 原画
+let tgQList = null;    // /api/qualities 的列表（第一项是原画）
+function tgQFetch(c, m){
+  const uq = currentChannelUsername ? '&username=' + encodeURIComponent(currentChannelUsername) : '';
+  const f = fetch(`${WEB_BASE}/api/qualities?c=${c}&m=${m}` + uq, {credentials:'same-origin', cache:'no-store'})
+    .then(r=>r.ok ? r.json() : null).then(d=>(d && d.list) || null).catch(()=>null);
+  return Promise.race([f, new Promise(r=>setTimeout(()=>r(null), 6000))]);
+}
+function tgQPref(){ const v = parseInt(localStorage.getItem('tgQPref') || '0', 10); return v > 0 ? v : 0; }
+function tgQChoose(list){
+  const pref = tgQPref();
+  if (!pref || !list || list.length < 2) return '';
+  const orig = list[0];
+  if (orig.h && orig.h <= pref) return '';
+  const alts = list.slice(1).sort((a,b)=>b.h - a.h);
+  const hit = alts.find(a=>a.h <= pref) || alts[alts.length - 1];
+  return hit ? String(hit.q) : '';
+}
+function tgQLabel(it){
+  const mb = it.size ? (it.size >= 1073741824 ? (it.size/1073741824).toFixed(2) + 'GB' : Math.round(it.size/1048576) + 'MB') : '';
+  return (it.orig ? '原画' + (it.h ? ' ' + it.h + 'p' : '') : it.h + 'p') + (mb ? ' · ' + mb : '');
+}
+function tgQUpdBtn(){
+  const b = document.getElementById('qBtn'); if (!b) return;
+  let t = '原画';
+  if (tgQ && tgQList) { const it = tgQList.find(x=>String(x.q) === tgQ); if (it) t = it.h + 'p'; }
+  b.textContent = t + (tgQList && tgQList.length > 1 ? ' ▾' : '');
+}
+async function showQMenu(){
+  const box = document.getElementById('qList'), hint = document.getElementById('qHint');
+  document.getElementById('qMenu').classList.remove('hidden');
+  if (!tgQList && tgPlaying) { box.textContent = '正在加载…'; tgQList = await tgQFetch(tgPlaying.c, tgPlaying.m); tgQUpdBtn(); }
+  const list = tgQList || [];
+  box.innerHTML = '';
+  list.forEach(it=>{
+    const b = document.createElement('button');
+    const cur = String(it.q || '') === tgQ;
+    b.textContent = (cur ? '✓ ' : '') + tgQLabel(it);
+    b.style.cssText = 'margin:0;text-align:left' + (cur ? ';color:#FFD700;border-color:#FFD700' : '');
+    b.onclick = ()=>tgQSet(it);
+    box.appendChild(b);
+  });
+  if (!list.length) box.textContent = '取不到清晰度列表';
+  hint.textContent = list.length > 1 ? '选了以后其它视频也默认用这个清晰度（没有这一档就用最接近的低一档）。'
+    : '这个视频 Telegram 没有转低清版本，只有原画。';
+}
+function hideQMenu(){ document.getElementById('qMenu').classList.add('hidden'); }
+function tgQSet(it){
+  hideQMenu();
+  localStorage.setItem('tgQPref', it.orig ? '0' : String(it.h));
+  const nq = it.orig ? '' : String(it.q);
+  if (nq === tgQ || !tgPlaying) { tgQUpdBtn(); return; }
+  // 换清晰度：从当前进度接着放，静音/播放状态保持
+  const p = document.getElementById('player');
+  const t = p.currentTime || 0, playing = !p.paused, muted = p.muted;
+  const c = tgPlaying.c, m = tgPlaying.m;
+  playVideo(c, m).then(()=>{
+    p.muted = muted;
+    p.addEventListener('loadedmetadata', ()=>{ try{ if (t > 1) p.currentTime = t; }catch(e){} if (!playing) p.pause(); }, {once:true});
+  });
 }
 
 // − / ＋ 单独定位在“收藏/关闭”那组按钮的左边，不放进那组里，收藏和关闭的位置不动。

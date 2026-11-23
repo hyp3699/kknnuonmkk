@@ -186,6 +186,7 @@ class BlobIn(BaseModel):
     o: int = 0          # 起始明文偏移（可以是任意值，服务端自己按帧向下取整）
     e: int | None = None  # 结束明文偏移（含），None 表示到文件末尾
     u: str | None = None  # 用户名，私密频道解析实体用
+    q: int | None = None  # 清晰度：Telegram 转好的低清版本的文件 id（alt_documents），空/0 = 原画
 
 
 app = FastAPI(title="app", docs_url=None, redoc_url=None, openapi_url=None)
@@ -1714,6 +1715,38 @@ def _doc_id(media):
     return getattr(d, "id", None)
 
 
+def _vid_hw(doc):
+    for a in getattr(doc, "attributes", None) or []:
+        if isinstance(a, DocumentAttributeVideo):
+            return int(getattr(a, "w", 0) or 0), int(getattr(a, "h", 0) or 0)
+    return 0, 0
+
+
+def _alt_videos(msg):
+    # Telegram 给部分视频转好的低清版本（720p/480p…，大多是频道里的大视频）：
+    # msg.media.alt_documents，只要 mp4 视频，HLS 播放列表那类跳过
+    media = getattr(msg, "media", None)
+    out = []
+    for a in getattr(media, "alt_documents", None) or []:
+        if not getattr(a, "size", None) or not (getattr(a, "mime_type", "") or "").startswith("video/"):
+            continue
+        w, h = _vid_hw(a)
+        if not h:
+            continue
+        out.append(a)
+    return out
+
+
+def _pick_media(msg, q=None):
+    # 返回 (下载用的 media, 文件 doc)。q 是低清版本的文件 id，找不到就回原画
+    doc = msg.video or msg.document
+    if q:
+        for a in _alt_videos(msg):
+            if a.id == q:
+                return a, a
+    return msg.media, doc
+
+
 async def _download_one_chunk(client, media, total, chunk_start, chunk_len):
     # 先查硬盘缓存/正在下的同一块；整块（或文件最后一块）才进缓存，首块小探测从缓存整块里裁
     did = _doc_id(media) if _CC_MAX else None
@@ -1795,7 +1828,7 @@ async def _download_one_chunk_raw(client, media, total, chunk_start, chunk_len):
                     pass
 
 
-async def _refresh_media(client, channel_id, msg_id, username=None):
+async def _refresh_media(client, channel_id, msg_id, username=None, q=None):
     # FileReference 过期时用：跳过消息缓存，删掉旧缓存再重新 get_messages 取一次，
     # 新消息里的媒体引用是新的，旧引用再下就会一直过期。取不到就返回 None，调用方再报错。
     if channel_id is None or msg_id is None:
@@ -1805,10 +1838,10 @@ async def _refresh_media(client, channel_id, msg_id, username=None):
         msg = await _get_message(client, channel_id, msg_id, username)
     except Exception:
         return None
-    return msg.media if msg is not None else None
+    return _pick_media(msg, q)[0] if msg is not None else None
 
 
-async def _parallel_gen(client, media, total, start, end, channel_id=None, msg_id=None, username=None):
+async def _parallel_gen(client, media, total, start, end, channel_id=None, msg_id=None, username=None, q=None):
     # 滑动窗口并行下，不再是“分组”：窗口 = 并行数 × 512KB（默认 4 → 2MB，最小 1 → 512KB），
     # 始终保持并行数个块在下载，最前面一块一交给浏览器就立刻补发下一块，不用等整组都回来。
     # 以前是分组：并行 2 时 A 快 B 慢，A 交出后要等 B 回来才开始下 C，C 的下载和 B 的等待是串行的；
@@ -1908,7 +1941,7 @@ async def _parallel_gen(client, media, total, start, end, channel_id=None, msg_i
                 except FileReferenceExpiredError:
                     if ref_retries < 2:
                         ref_retries += 1
-                        new_media = await _refresh_media(client, channel_id, msg_id, username)
+                        new_media = await _refresh_media(client, channel_id, msg_id, username, q)
                         if new_media is not None:
                             cur_media = new_media
                             _issue(idx)
@@ -1933,7 +1966,7 @@ async def _parallel_gen(client, media, total, start, end, channel_id=None, msg_i
                 # 小探测不会把 2 字节的头存进去覆盖旧的
                 head_buf.extend(data[:_HEAD_SIZE - len(head_buf)])
                 if len(head_buf) >= _HEAD_SIZE or len(head_buf) == total:
-                    _head_cache.put((channel_id, msg_id), bytes(head_buf))
+                    _head_cache.put((channel_id, msg_id, q or 0), bytes(head_buf))
             yield data
     except asyncio.CancelledError:
         for t in in_flight.values():
@@ -1998,7 +2031,7 @@ async def blob_meta(request: Request, body: BlobIn):
     msg = await _get_message(client, body.c, body.m, body.u)
     if msg is None:
         raise HTTPException(status_code=404, detail="找不到这条视频")
-    doc = msg.video or msg.document
+    _m, doc = _pick_media(msg, body.q)
     if doc is None or getattr(doc, "size", None) is None:
         raise HTTPException(status_code=404, detail="这条消息没有文件")
     kid, key = keys
@@ -2035,8 +2068,7 @@ async def blob(request: Request, body: BlobIn):
         msg = None
     if msg is None:
         return _blob_resp("nf")
-    media = msg.media
-    doc = msg.video or msg.document
+    media, doc = _pick_media(msg, body.q)
     if media is None or doc is None or not getattr(doc, "size", 0):
         return _blob_resp("na")
     total = int(doc.size)
@@ -2069,7 +2101,7 @@ async def blob(request: Request, body: BlobIn):
             # 以前 /api/blob 完全不看缓存，每一段都要重新走一遍 Telegram，于是“加载很慢”。
             # 帧 0 的 counter 从 0 算，跟这里内存加密用的 0 完全一致；head 只会是 512KB（整块）
             # 或整个小文件，所以第 0 帧正好是 head 里的一段，缓存里的一帧不多不少。
-            head = _head_cache.get((body.c, body.m)) if frame_start == 0 else None
+            head = _head_cache.get((body.c, body.m, body.q or 0)) if frame_start == 0 else None
             if head:
                 take_head = min(stop, len(head))
                 if take_head > 0:
@@ -2082,7 +2114,7 @@ async def blob(request: Request, body: BlobIn):
                     # 整段都在缓存里：零等待、不走 Telegram、不占 _download_sem 名额
                     return
             async for piece in _parallel_gen(client, media, total, pos_node, stop - 1,
-                                             channel_id=body.c, msg_id=body.m, username=body.u):
+                                             channel_id=body.c, msg_id=body.m, username=body.u, q=body.q):
                 buf.extend(piece)
                 while len(buf) >= need and need > 0:
                     plain = bytes(buf[:need])
@@ -2111,6 +2143,30 @@ async def blob(request: Request, body: BlobIn):
                                       "X-Content-Type-Options": "nosniff"})
 
 
+@app.get("/api/qualities")
+async def qualities(request: Request, c: int, m: int, username: str | None = None):
+    # 播放器“清晰度”按钮用：原画 + Telegram 转好的低清版本（没有就只有原画）
+    check_web_auth(request)
+    client = await require_login()
+    msg = await _get_message(client, c, m, username)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="找不到这条视频")
+    doc = msg.video or msg.document
+    if doc is None:
+        raise HTTPException(status_code=404, detail="这条消息没有视频")
+    w, h = _vid_hw(doc)
+    out = [{"q": "", "w": w, "h": h, "size": int(doc.size or 0), "orig": True}]
+    seen = set()
+    for a in sorted(_alt_videos(msg), key=lambda a: -_vid_hw(a)[1]):
+        aw, ah = _vid_hw(a)
+        if ah in seen or (h and ah >= h):
+            continue
+        seen.add(ah)
+        # 文件 id 是 64 位，按字符串给前端（JS 数字超过 2^53 会丢精度）
+        out.append({"q": str(a.id), "w": aw, "h": ah, "size": int(a.size), "orig": False})
+    return {"list": out}
+
+
 @app.get("/sw.js")
 async def service_worker():
     # Service Worker 必须带 application/javascript 才能注册；no-cache 保证换了 sw.js
@@ -2126,7 +2182,7 @@ async def service_worker():
 
 
 @app.get("/stream/{channel_id}/{msg_id}")
-async def stream(request: Request, channel_id: int, msg_id: int, username: str | None = None):
+async def stream(request: Request, channel_id: int, msg_id: int, username: str | None = None, q: int | None = None):
     # strict 模式：明文 /stream 直接关掉，只允许 Service Worker 解密播放。
     # 老浏览器（不支持 SW）在这种模式下就看不了，这是有意的取舍。
     if ENC_MODE == "strict":
@@ -2136,8 +2192,7 @@ async def stream(request: Request, channel_id: int, msg_id: int, username: str |
     msg = await _get_message(client, channel_id, msg_id, username)
     if msg is None:
         raise HTTPException(status_code=404, detail="找不到这条视频")
-    media = msg.media
-    doc = msg.video or msg.document
+    media, doc = _pick_media(msg, q)
     if media is None or doc is None:
         raise HTTPException(status_code=404, detail="这条消息没有视频")
     total = doc.size
@@ -2159,7 +2214,7 @@ async def stream(request: Request, channel_id: int, msg_id: int, username: str |
     if range_header:
         headers["Content-Range"] = f"bytes {start}-{end}/{total}"
 
-    head = _head_cache.get((channel_id, msg_id))
+    head = _head_cache.get((channel_id, msg_id, q or 0))
     if head is not None and start < len(head):
         # 请求的整段都在已缓存的头里（Safari 探测、元数据小段）：直接回缓存，不走 Telegram
         if length <= len(head) - start:
@@ -2174,7 +2229,7 @@ async def stream(request: Request, channel_id: int, msg_id: int, username: str |
         async def gen_cached():
             yield cached_part
             async for chunk in _parallel_gen(client, media, total, remainder_start, end,
-                                             channel_id=channel_id, msg_id=msg_id, username=username):
+                                             channel_id=channel_id, msg_id=msg_id, username=username, q=q):
                 yield chunk
 
         return StreamingResponse(gen_cached(), status_code=206 if range_header else 200,
@@ -2182,7 +2237,7 @@ async def stream(request: Request, channel_id: int, msg_id: int, username: str |
 
     # 正常路径也走并行：单连接只有几百 KB/s，默认并行 4 最多能翻 4 倍（原来默认 2 只翻倍；受 Telegram 单连接限速和服务器带宽制约）。
     # 注意 Content-Length 还是按 length 算，并行生成器保证回的字节数正好是 length，不多不少。
-    gen = _parallel_gen(client, media, total, start, end, channel_id=channel_id, msg_id=msg_id, username=username)
+    gen = _parallel_gen(client, media, total, start, end, channel_id=channel_id, msg_id=msg_id, username=username, q=q)
     if range_header:
         return StreamingResponse(gen, status_code=206, media_type=mime, headers=headers)
     return StreamingResponse(gen, media_type=mime, headers=headers)

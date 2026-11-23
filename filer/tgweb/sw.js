@@ -304,7 +304,7 @@ async function getMeta(opts) {
   const o = opts || {};
   const base = o.base !== undefined ? o.base : BASE;
   const doFetch = o.fetchImpl || defaultFetch;
-  const cacheKey = o.channel + ':' + o.msg + ':' + (o.username || '');
+  const cacheKey = o.channel + ':' + o.msg + ':' + (o.username || '') + ':' + (o.q || 0);
   const hit = metaCache.get(cacheKey);
   if (!o.noCache && hit && nowMs() - hit.at < META_TTL) return hit;
   let keys = null;
@@ -319,7 +319,7 @@ async function getMeta(opts) {
       metaP = doFetch(base + '/api/blob-meta', {
         method: 'POST', credentials: 'same-origin', cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ c: o.channel, m: o.msg, u: o.username || null })
+        body: JSON.stringify({ c: o.channel, m: o.msg, u: o.username || null, q: o.q || null })
       });
       // 密钥先失败时这条还在飞：先接住它的异常，别在 Node 里变成未处理的 rejection
       metaP.catch(function () { /* 下面 await 会再抛出来 */ });
@@ -437,7 +437,7 @@ function abortError() {
 // 写东西（否则同一个指定 CDN 在 60 秒里会被当成坏的，等于偷偷换掉用户的选择）。
 async function* segmentPlaintext(ctx, state, start, end) {
   const want = end - start + 1;
-  const body = JSON.stringify({ c: ctx.channel, m: ctx.msg, u: ctx.username || null, o: start, e: end });
+  const body = JSON.stringify({ c: ctx.channel, m: ctx.msg, u: ctx.username || null, q: ctx.q || null, o: start, e: end });
   await ensureCdnState();   // SW 闲置被系统回收过：先把上次的 CDN 配置读回来，再挑域名
   const st = cdnState;
   const multi = (st && st.pxs === 'auto') && cdnList(st).length > 1;   // 只有 auto 且有备选域名才需要换
@@ -569,7 +569,7 @@ async function buildMediaResponse(opts) {
   const o = opts || {};
   const base = o.base !== undefined ? o.base : BASE;
   const doFetch = o.fetchImpl || defaultFetch;
-  const meta = await getMeta({ base: base, fetchImpl: doFetch, channel: o.channel, msg: o.msg, username: o.username, noCache: o.noCache });
+  const meta = await getMeta({ base: base, fetchImpl: doFetch, channel: o.channel, msg: o.msg, username: o.username, q: o.q, noCache: o.noCache });
   const total = meta.size;
   if (!(total > 0)) return new Response('', { status: 404 });
   const rg = parseRange(o.rangeHeader, total, meta.cap);
@@ -579,7 +579,7 @@ async function buildMediaResponse(opts) {
     });
   }
   const ctx = {
-    base: base, fetchImpl: doFetch, channel: o.channel, msg: o.msg, username: o.username,
+    base: base, fetchImpl: doFetch, channel: o.channel, msg: o.msg, username: o.username, q: o.q,
     start: rg.start, end: rg.end, signal: null
   };
   // 真实浏览器会主动取消这条流（Chrome 读完 moov 就取消、拖进度条、关掉播放器），
@@ -681,9 +681,11 @@ async function handleMedia(request) {
   const msg = parseInt(parts[1], 10);
   if (!isFinite(channel) || !isFinite(msg)) return new Response('', { status: 404 });
   const username = url.searchParams.get('username');
+  const q0 = url.searchParams.get('q') || '';
+  const q = /^[1-9][0-9]{0,19}$/.test(q0) ? q0 : '';   // 清晰度：低清版本文件 id（64 位，按字符串传，JS 数字会丢精度），空 = 原画
   try {
     const resp = await buildMediaResponse({
-      channel: channel, msg: msg, username: username,
+      channel: channel, msg: msg, username: username, q: q,
       rangeHeader: request.headers.get('range')
     });
     if (request.method === 'HEAD') {
